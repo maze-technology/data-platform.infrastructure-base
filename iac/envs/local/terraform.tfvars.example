@@ -1,0 +1,19 @@
+# Example terraform.tfvars for local environment
+# Copy this to terraform.tfvars and customize as needed
+
+# Cluster configuration
+cluster_name = "local"
+environment  = "local"
+
+# Cert-manager (optional for local)
+# letsencrypt_email = ""
+
+# Ingress
+# node_port_http  = 30080
+# node_port_https = 30443
+
+# Observability
+# prometheus_storage_size = "20Gi"
+# grafana_storage_size    = "5Gi"
+# loki_storage_size       = "20Gi"
+

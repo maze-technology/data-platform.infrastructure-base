@@ -1,0 +1,2 @@
+format:
+	@tofu fmt -recursive
