@@ -33,12 +33,12 @@ locals {
 module "network" {
   source = "../../modules/network"
 
-  environment           = local.environment
-  vpc_cidr              = var.vpc_cidr
-  availability_zones    = var.availability_zones
-  public_subnet_cidrs   = var.public_subnet_cidrs
-  private_subnet_cidrs  = var.private_subnet_cidrs
-  enable_nat_gateway    = true
+  environment          = local.environment
+  vpc_cidr             = var.vpc_cidr
+  availability_zones   = var.availability_zones
+  public_subnet_cidrs  = var.public_subnet_cidrs
+  private_subnet_cidrs = var.private_subnet_cidrs
+  enable_nat_gateway   = true
   tags = {
     Environment = local.environment
     ManagedBy   = "opentofu"
@@ -55,7 +55,7 @@ module "cluster" {
   kubernetes_version = var.kubernetes_version
   tags = {
     Environment = local.environment
-    ManagedBy    = "opentofu"
+    ManagedBy   = "opentofu"
   }
 }
 
@@ -74,11 +74,11 @@ module "cert_manager" {
 module "ingress" {
   source = "../../modules/ingress"
 
-  cluster_name    = local.cluster_name
-  environment     = local.environment
-  service_type    = "LoadBalancer"
-  replica_count   = 3
-  enable_metrics  = true
+  cluster_name   = local.cluster_name
+  environment    = local.environment
+  service_type   = "LoadBalancer"
+  replica_count  = 3
+  enable_metrics = true
 }
 
 # Observability stack
@@ -87,28 +87,28 @@ module "observability" {
 
   cluster_name            = local.cluster_name
   environment             = local.environment
-  enable_prometheus        = true
+  enable_prometheus       = true
   enable_grafana          = true
   enable_loki             = true
   enable_promtail         = true
   grafana_ingress_enabled = true
   grafana_ingress_host    = var.grafana_host
   grafana_enable_tls      = true
-  prometheus_storage_size  = "500Gi"
-  grafana_storage_size     = "100Gi"
-  loki_storage_size        = "1Ti"
+  prometheus_storage_size = "500Gi"
+  grafana_storage_size    = "100Gi"
+  loki_storage_size       = "1Ti"
 }
 
 # Argo CD
 module "argocd" {
   source = "../../modules/argocd"
 
-  cluster_name      = local.cluster_name
-  environment        = local.environment
-  replica_count      = 3
-  enable_ha          = true
-  ingress_enabled    = true
-  ingress_host      = var.argocd_host
-  enable_tls         = true
+  cluster_name    = local.cluster_name
+  environment     = local.environment
+  replica_count   = 3
+  enable_ha       = true
+  ingress_enabled = true
+  ingress_host    = var.argocd_host
+  enable_tls      = true
 }
 

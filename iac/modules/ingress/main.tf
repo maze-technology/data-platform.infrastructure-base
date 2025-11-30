@@ -2,10 +2,10 @@ resource "kubernetes_namespace" "ingress" {
   metadata {
     name = var.namespace
     labels = {
-      name                = var.namespace
-      environment         = var.environment
-      managed-by          = "opentofu"
-      ingress-controller  = var.ingress_controller_type
+      name               = var.namespace
+      environment        = var.environment
+      managed-by         = "opentofu"
+      ingress-controller = var.ingress_controller_type
     }
   }
 }

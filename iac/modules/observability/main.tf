@@ -43,7 +43,7 @@ resource "helm_release" "prometheus_operator" {
         }
       }
       grafana = {
-        enabled = var.enable_grafana
+        enabled       = var.enable_grafana
         adminPassword = "admin" # Should be overridden via secrets in production
         persistence = {
           enabled = true
