@@ -28,11 +28,13 @@ This repository is responsible for:
 ### Local Development
 
 1. **Create a kind cluster**:
+
    ```bash
-   ./scripts/kind-up.sh local
+   make kind-up
    ```
 
 2. **Deploy infrastructure**:
+
    ```bash
    cd iac/envs/local
    tofu init
@@ -47,6 +49,7 @@ This repository is responsible for:
 ### Cloud Environments
 
 1. **Configure environment**:
+
    ```bash
    cd iac/envs/<environment>
    cp terraform.tfvars.example terraform.tfvars
@@ -63,37 +66,49 @@ This repository is responsible for:
 ## Modules
 
 ### Cluster Module
+
 Manages Kubernetes cluster creation and configuration. Supports:
+
 - Local development with `kind`
 - Cloud-managed Kubernetes clusters (AWS EKS, Azure AKS, GKE, etc.)
 
 ### Network Module
+
 Manages networking infrastructure:
+
 - VPC/VNet creation
 - Subnet configuration (public/private)
 - Routing and NAT gateways
 
 ### Ingress Module
+
 Installs and configures ingress controllers:
+
 - NGINX Ingress Controller (default)
 - Service type configuration (LoadBalancer, NodePort)
 - Metrics and monitoring integration
 
 ### Cert-Manager Module
+
 Manages TLS certificates:
+
 - cert-manager installation
 - Let's Encrypt integration
 - Automatic certificate provisioning
 
 ### Observability Module
+
 Complete observability stack:
+
 - **Prometheus**: Metrics collection and storage
 - **Grafana**: Visualization and dashboards
 - **Loki**: Log aggregation
 - **Promtail**: Log collection agent
 
 ### Argo CD Module
+
 GitOps deployment engine:
+
 - Argo CD installation
 - High availability configuration
 - Ingress and TLS support
@@ -101,12 +116,15 @@ GitOps deployment engine:
 ## Environments
 
 ### Local
+
 - Uses `kind` for local Kubernetes cluster
 - NodePort services for ingress (ports 30080/30443)
 - Reduced resource requirements
 - No TLS (for simplicity)
+- Uses LocalStack with S3 for object storage (same scalable Loki configuration as prod)
 
 ### Prod
+
 - Maximum availability and redundancy
 - Largest resource allocations
 - Production-grade security
@@ -120,6 +138,118 @@ See [docs/environments.md](docs/environments.md) for detailed environment docume
 - Helm provider >= 2.11
 - kubectl (for local development)
 - kind (for local development)
+- Docker and docker-compose (for LocalStack in local environment)
+- AWS CLI (optional, for LocalStack bucket creation)
+
+## Local Development Setup
+
+The local environment uses LocalStack to provide S3-compatible object storage, allowing you to use the same scalable Loki configuration as production.
+
+### Quick Start
+
+Set up the complete local development environment with one command:
+
+```bash
+make local-setup
+```
+
+This will:
+
+- Start LocalStack with S3
+- Create the S3 bucket for Loki (`loki-logs-local`)
+- Create the kind Kubernetes cluster
+- Configure everything to work together
+
+### Manual Setup
+
+If you prefer to set up components individually:
+
+1. **Start LocalStack:**
+
+   ```bash
+   make localstack-up
+   ```
+
+   This will start LocalStack and create the S3 bucket for Loki.
+
+2. **Verify LocalStack is running:**
+
+   ```bash
+   make localstack-status
+   ```
+
+3. **Create the kind cluster:**
+
+   ```bash
+   make kind-up
+   ```
+
+   The kind configuration includes `host.docker.internal` mapping to allow Kubernetes pods to access LocalStack running on the host.
+
+4. **Deploy infrastructure:**
+   ```bash
+   cd iac/envs/local
+   make init
+   make plan
+   make apply
+   ```
+
+### Stopping Local Services
+
+To stop all local services:
+
+```bash
+make local-teardown
+```
+
+Or stop individual services:
+
+```bash
+make localstack-down  # Stop LocalStack
+make kind-down        # Delete kind cluster
+```
+
+You can add more services to `docker-compose.yml` as needed for local development (databases, message queues, etc.).
+
+## Makefile Commands
+
+The project includes a comprehensive Makefile for common operations:
+
+### Terraform/OpenTofu Commands
+
+- `make format` - Format all Terraform files
+- `make validate` - Validate Terraform configuration (defaults to local environment)
+- `make plan` - Plan Terraform changes
+- `make apply` - Apply Terraform changes
+- `make destroy` - Destroy Terraform infrastructure
+- `make init` - Initialize Terraform
+
+### Local Development Commands
+
+- `make local-setup` - Set up complete local environment (LocalStack + Kind)
+- `make local-teardown` - Tear down local environment
+- `make localstack-up` - Start LocalStack
+- `make localstack-down` - Stop LocalStack
+- `make localstack-status` - Check LocalStack status
+- `make localstack-bucket` - Create S3 bucket for Loki
+- `make kind-up` - Create kind cluster
+- `make kind-down` - Delete kind cluster
+- `make kind-status` - Check kind cluster status
+
+### Environment Variables
+
+- `ENV` - Terraform environment (default: `local`)
+- `CLUSTER_NAME` - Kind cluster name (default: `local`)
+- `BUCKET_NAME` - S3 bucket name for Loki (default: `loki-logs-local`)
+
+Example:
+
+```bash
+make validate ENV=prod
+make kind-up CLUSTER_NAME=dev
+```
+
+Run `make help` to see all available commands.
 
 ## Configuration
 
@@ -128,6 +258,7 @@ See [docs/environments.md](docs/environments.md) for detailed environment docume
 **Never commit secrets to the repository!**
 
 Secrets should be provided via:
+
 - Environment variables: `export TF_VAR_letsencrypt_email="admin@example.com"`
 - Secret managers (AWS Secrets Manager, Azure Key Vault, etc.)
 - CI/CD pipeline variables
@@ -136,6 +267,7 @@ Secrets should be provided via:
 ### Environment Variables
 
 Set environment-specific variables:
+
 ```bash
 export TF_VAR_letsencrypt_email="admin@example.com"
 export TF_VAR_grafana_host="grafana.prod.example.com"
@@ -159,6 +291,7 @@ export TF_VAR_argocd_host="argocd.prod.example.com"
 ## Contributing
 
 When making changes:
+
 1. Ensure changes fit the repository's responsibilities (global infra only)
 2. Respect the modular layout
 3. Keep configuration environment-agnostic where possible

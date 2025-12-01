@@ -16,6 +16,8 @@ resource "helm_release" "argocd" {
   version    = var.helm_chart_version
   namespace  = kubernetes_namespace.argocd.metadata[0].name
 
+  timeout = 600 # 10 minutes
+
   values = [
     yamlencode({
       global = {

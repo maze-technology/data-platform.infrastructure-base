@@ -19,6 +19,8 @@ resource "helm_release" "prometheus_operator" {
   version    = "55.5.0"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
+  timeout = 600 # 10 minutes
+
   values = [
     yamlencode({
       prometheus = {
@@ -72,6 +74,23 @@ resource "helm_release" "prometheus_operator" {
   depends_on = [kubernetes_namespace.monitoring]
 }
 
+# Kubernetes secret for Loki S3 credentials (when using object storage with custom credentials)
+resource "kubernetes_secret" "loki_s3_credentials" {
+  count = var.enable_loki && var.loki_deployment_mode == "scalable" && var.loki_object_storage != null && var.loki_object_storage.access_key != null ? 1 : 0
+
+  metadata {
+    name      = "loki-s3-credentials"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+
+  data = {
+    access-key-id     = base64encode(var.loki_object_storage.access_key)
+    secret-access-key = base64encode(var.loki_object_storage.secret_key)
+  }
+
+  depends_on = [kubernetes_namespace.monitoring]
+}
+
 # Loki for log aggregation
 resource "helm_release" "loki" {
   count = var.enable_loki ? 1 : 0
@@ -83,27 +102,183 @@ resource "helm_release" "loki" {
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   values = [
-    yamlencode({
-      loki = {
-        resources = {
-          requests = var.resource_requests.loki
-          limits   = var.resource_limits.loki
-        }
-        storage = {
-          type = "filesystem"
-          filesystem = {
-            chunksDirectory = "/loki/chunks"
-            rulesDirectory  = "/loki/rules"
+    yamlencode(merge(
+      {
+        loki = {
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
+          persistence = {
+            enabled = true
+            size    = var.loki_storage_size
           }
         }
-        persistence = {
-          enabled = true
-          size    = var.loki_storage_size
+      },
+      # Add S3 credentials from secret if provided
+      var.loki_deployment_mode == "scalable" && var.loki_object_storage != null && var.loki_object_storage.access_key != null ? {
+        loki = {
+          env = [
+            {
+              name = "AWS_ACCESS_KEY_ID"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "access-key-id"
+                }
+              }
+            },
+            {
+              name = "AWS_SECRET_ACCESS_KEY"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "secret-access-key"
+                }
+              }
+            }
+          ]
+        }
+        backend = {
+          env = [
+            {
+              name = "AWS_ACCESS_KEY_ID"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "access-key-id"
+                }
+              }
+            },
+            {
+              name = "AWS_SECRET_ACCESS_KEY"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "secret-access-key"
+                }
+              }
+            }
+          ]
+        }
+        read = {
+          env = [
+            {
+              name = "AWS_ACCESS_KEY_ID"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "access-key-id"
+                }
+              }
+            },
+            {
+              name = "AWS_SECRET_ACCESS_KEY"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "secret-access-key"
+                }
+              }
+            }
+          ]
+        }
+        write = {
+          env = [
+            {
+              name = "AWS_ACCESS_KEY_ID"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "access-key-id"
+                }
+              }
+            },
+            {
+              name = "AWS_SECRET_ACCESS_KEY"
+              valueFrom = {
+                secretKeyRef = {
+                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+                  key  = "secret-access-key"
+                }
+              }
+            }
+          ]
+        }
+      } : {},
+      var.loki_deployment_mode == "single-binary" ? {
+        # Single binary mode: all-in-one deployment (suitable for local/dev)
+        loki = {
+          storage = {
+            type = "filesystem"
+            filesystem = {
+              chunksDirectory = "/loki/chunks"
+              rulesDirectory  = "/loki/rules"
+            }
+          }
+        }
+        singleBinary = {
+          replicas = 1
+        }
+        # Disable scalable mode components
+        backend = {
+          replicas = 0
+        }
+        read = {
+          replicas = 0
+        }
+        write = {
+          replicas = 0
+        }
+      } : {
+        # Scalable mode: separate components for production (requires object storage)
+        loki = {
+          storage = var.loki_object_storage != null ? merge(
+            {
+              type = var.loki_object_storage.type
+              bucketNames = {
+                chunks = var.loki_object_storage.bucket
+                ruler  = var.loki_object_storage.bucket
+              }
+            },
+            var.loki_object_storage.type == "s3" ? {
+              s3 = merge(
+                var.loki_object_storage.region != null ? { region = var.loki_object_storage.region } : {},
+                var.loki_object_storage.endpoint != null ? { endpoint = var.loki_object_storage.endpoint } : {},
+                var.loki_object_storage.force_path_style != null ? { s3ForcePathStyle = var.loki_object_storage.force_path_style } : {}
+              )
+            } : {},
+            var.loki_object_storage.type == "gcs" ? { gcs = {} } : {},
+            var.loki_object_storage.type == "azure" ? { azure = {} } : {}
+          ) : {
+            # Fallback to filesystem if object storage not configured
+            type = "filesystem"
+            filesystem = {
+              chunksDirectory = "/loki/chunks"
+              rulesDirectory  = "/loki/rules"
+            }
+          }
+        }
+        # Disable single binary mode
+        singleBinary = {
+          replicas = 0
+        }
+        # Enable scalable mode components (can be configured per environment)
+        backend = {
+          replicas = 1
+        }
+        read = {
+          replicas = 2
+        }
+        write = {
+          replicas = 2
         }
       }
-    })
+    ))
   ]
 
+  # Dependencies: namespace is always required, secret is conditionally created
+  # Terraform will handle the dependency automatically through resource references in values
   depends_on = [kubernetes_namespace.monitoring]
 }
 

@@ -16,43 +16,27 @@ resource "helm_release" "cert_manager" {
   version    = var.helm_chart_version
   namespace  = kubernetes_namespace.cert_manager.metadata[0].name
 
-  set {
-    name  = "installCRDs"
-    value = "true"
-  }
-
-  set {
-    name  = "replicaCount"
-    value = var.replica_count
-  }
-
-  set {
-    name  = "webhook.enabled"
-    value = var.enable_webhook
-  }
-
-  set {
-    name  = "cainjector.enabled"
-    value = var.enable_cainjector
-  }
-
   values = [
     yamlencode({
-      resources = {
-        requests = var.resource_requests.controller
-        limits   = var.resource_limits.controller
-      }
+      installCRDs  = true
+      replicaCount = var.replica_count
       webhook = {
+        enabled = var.enable_webhook
         resources = {
           requests = var.resource_requests.webhook
           limits   = var.resource_limits.webhook
         }
       }
       cainjector = {
+        enabled = var.enable_cainjector
         resources = {
           requests = var.resource_requests.cainjector
           limits   = var.resource_limits.cainjector
         }
+      }
+      resources = {
+        requests = var.resource_requests.controller
+        limits   = var.resource_limits.controller
       }
     })
   ]

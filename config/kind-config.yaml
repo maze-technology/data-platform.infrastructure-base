@@ -16,7 +16,15 @@ nodes:
       - containerPort: 443
         hostPort: 30443
         protocol: TCP
+    # Allow access to host.docker.internal for LocalStack
+    extraHosts:
+      - host: host.docker.internal
+        ip: 172.17.0.1
   - role: worker
+    # Allow access to host.docker.internal for LocalStack
+    extraHosts:
+      - host: host.docker.internal
+        ip: 172.17.0.1
     # Add more worker nodes as needed
   # - role: worker
 

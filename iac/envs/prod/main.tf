@@ -19,9 +19,7 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
-    # Same configuration as kubernetes provider
-  }
+  # Inherits configuration from kubernetes provider
 }
 
 locals {
@@ -97,6 +95,12 @@ module "observability" {
   prometheus_storage_size = "500Gi"
   grafana_storage_size    = "100Gi"
   loki_storage_size       = "1Ti"
+  loki_deployment_mode    = "scalable" # Scalable mode for production (requires object storage)
+  # loki_object_storage = {
+  #   type   = "s3" # or "gcs", "azure"
+  #   bucket = "loki-logs-prod"
+  #   region = "us-east-1"
+  # }
 }
 
 # Argo CD

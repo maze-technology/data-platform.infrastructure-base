@@ -90,3 +90,9 @@ variable "helm_chart_version" {
   default     = "4.8.3"
 }
 
+variable "prometheus_operator_dependency" {
+  description = "Optional dependency on Prometheus Operator helm release (required when enable_metrics is true)"
+  type        = any
+  default     = null
+}
+

@@ -56,6 +56,30 @@ variable "loki_storage_size" {
   default     = "100Gi"
 }
 
+variable "loki_deployment_mode" {
+  description = "Loki deployment mode: 'single-binary' for local/dev (no object storage) or 'scalable' for prod (requires object storage)"
+  type        = string
+  default     = "single-binary"
+  validation {
+    condition     = contains(["single-binary", "scalable"], var.loki_deployment_mode)
+    error_message = "loki_deployment_mode must be either 'single-binary' or 'scalable'"
+  }
+}
+
+variable "loki_object_storage" {
+  description = "Object storage configuration for Loki (required when deployment_mode is 'scalable')"
+  type = object({
+    type        = string         # s3, gcs, azure, etc.
+    bucket      = string
+    region      = optional(string)
+    endpoint    = optional(string) # For LocalStack or custom S3-compatible endpoints
+    access_key  = optional(string) # For LocalStack or custom credentials
+    secret_key  = optional(string) # For LocalStack or custom credentials
+    force_path_style = optional(bool) # For LocalStack (default: false for AWS, true for LocalStack)
+  })
+  default = null
+}
+
 variable "grafana_ingress_enabled" {
   description = "Enable ingress for Grafana"
   type        = bool

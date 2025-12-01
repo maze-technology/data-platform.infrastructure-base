@@ -10,7 +10,7 @@ resource "null_resource" "cluster_validation" {
   count = var.cluster_type == "kind" ? 1 : 0
 
   provisioner "local-exec" {
-    command = "kubectl cluster-info --context kind-${var.cluster_name} || (echo 'Kind cluster ${var.cluster_name} not found. Please run scripts/kind-up.sh first.' && exit 1)"
+    command = "kubectl cluster-info --context kind-${var.cluster_name} || (echo 'Kind cluster ${var.cluster_name} not found. Please run \"make kind-up\" first.' && exit 1)"
   }
 }
 

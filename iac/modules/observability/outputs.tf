@@ -18,3 +18,8 @@ output "grafana_ingress_host" {
   value       = var.grafana_ingress_enabled ? var.grafana_ingress_host : null
 }
 
+output "prometheus_operator_helm_release" {
+  description = "Helm release resource for Prometheus Operator (for dependencies)"
+  value       = var.enable_prometheus ? helm_release.prometheus_operator[0] : null
+}
+

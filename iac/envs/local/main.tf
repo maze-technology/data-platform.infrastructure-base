@@ -14,13 +14,14 @@ terraform {
 }
 
 provider "kubernetes" {
-  config_path    = "~/.kube/config"
+  # Construct absolute path to kubeconfig using pathexpand to expand ~
+  config_path    = pathexpand("~/.kube/config")
   config_context = "kind-local"
 }
 
 provider "helm" {
   kubernetes {
-    config_path    = "~/.kube/config"
+    config_path    = pathexpand("~/.kube/config")
     config_context = "kind-local"
   }
 }
@@ -57,20 +58,7 @@ module "cert_manager" {
   replica_count      = 1
 }
 
-# Ingress controller
-module "ingress" {
-  source = "../../modules/ingress"
-
-  cluster_name    = local.cluster_name
-  environment     = local.environment
-  service_type    = "NodePort"
-  node_port_http  = 30080
-  node_port_https = 30443
-  replica_count   = 1
-  enable_metrics  = true
-}
-
-# Observability stack
+# Observability stack (installed before ingress for ServiceMonitor CRD)
 module "observability" {
   source = "../../modules/observability"
 
@@ -86,7 +74,32 @@ module "observability" {
   prometheus_storage_size = "20Gi"
   grafana_storage_size    = "5Gi"
   loki_storage_size       = "20Gi"
+  loki_deployment_mode    = "scalable" # Use scalable mode with LocalStack S3 (same as prod)
+  loki_object_storage = {
+    type           = "s3"
+    bucket         = "loki-logs-local"
+    region         = "us-east-1"
+    endpoint       = "http://host.docker.internal:4566" # LocalStack endpoint accessible from Kubernetes
+    access_key     = "test"                              # LocalStack default credentials
+    secret_key     = "test"                              # LocalStack default credentials
+    force_path_style = true                              # Required for LocalStack
+  }
 }
+
+# Ingress controller (depends on observability for ServiceMonitor CRD when metrics enabled)
+module "ingress" {
+  source = "../../modules/ingress"
+
+  cluster_name                  = local.cluster_name
+  environment                   = local.environment
+  service_type                  = "NodePort"
+  node_port_http                = 30080
+  node_port_https               = 30443
+  replica_count                 = 1
+  enable_metrics                = true
+  prometheus_operator_dependency = module.observability.prometheus_operator_helm_release
+}
+
 
 # Argo CD
 module "argocd" {
