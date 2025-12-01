@@ -231,7 +231,7 @@ The project includes a comprehensive Makefile for common operations:
 - `make localstack-up` - Start LocalStack
 - `make localstack-down` - Stop LocalStack
 - `make localstack-status` - Check LocalStack status
-- `make localstack-bucket` - Create S3 bucket for Loki
+- `make localstack-loki-bucket` - Create S3 bucket for Loki
 - `make kind-up` - Create kind cluster
 - `make kind-down` - Delete kind cluster
 - `make kind-status` - Check kind cluster status

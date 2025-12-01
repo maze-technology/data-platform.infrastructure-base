@@ -1,5 +1,5 @@
 .PHONY: help format validate plan apply destroy
-.PHONY: localstack-up localstack-down localstack-status localstack-bucket
+.PHONY: localstack-up localstack-down localstack-status localstack-loki-bucket
 .PHONY: kind-up kind-down kind-status
 .PHONY: local-setup local-teardown
 
@@ -56,7 +56,7 @@ localstack-up: ## Start LocalStack
 		echo "Error: LocalStack did not become ready in time"; \
 		exit 1; \
 	fi
-	@$(MAKE) localstack-bucket
+	@$(MAKE) localstack-loki-bucket
 
 localstack-down: ## Stop LocalStack
 	@echo "Stopping LocalStack..."
@@ -66,7 +66,7 @@ localstack-down: ## Stop LocalStack
 localstack-status: ## Check LocalStack status
 	@curl -s $(LOCALSTACK_ENDPOINT)/_localstack/health | jq '.' || echo "LocalStack is not running"
 
-localstack-bucket: ## Create S3 bucket for Loki in LocalStack
+localstack-loki-bucket: ## Create S3 bucket for Loki in LocalStack
 	@if command -v aws >/dev/null 2>&1; then \
 		echo "Creating S3 bucket: $(BUCKET_NAME)"; \
 		AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1 \
