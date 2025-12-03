@@ -128,8 +128,8 @@ module "temporal" {
   ingress_host            = var.temporal_host
   enable_tls              = true
   temporal_namespaces     = ["data-platform", "trading-platform"]
-  use_postgresql          = false # Use Cassandra for production
-  cassandra_storage_size  = "100Gi"
+  use_postgresql          = true # Use PostgreSQL for simplicity and alignment with local
+  postgresql_storage_size = "100Gi"
   elasticsearch_storage_size = "50Gi"
 }
 

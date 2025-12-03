@@ -25,8 +25,8 @@ Each environment (local, prod) has its own dedicated Temporal cluster with two n
    - Worker: System workflows
 
 2. **Persistence**: Storage backend
-   - **Local**: PostgreSQL (simpler setup)
-   - **Production**: Cassandra (scalable, production-grade)
+   - **All Environments**: PostgreSQL (simpler, production-ready)
+   - PostgreSQL provides excellent performance for most workloads and is operationally simpler than Cassandra
 
 3. **Visibility**: Advanced workflow search
    - Elasticsearch for all environments
@@ -84,8 +84,8 @@ module "temporal" {
   ingress_host            = var.temporal_host
   enable_tls              = true
   temporal_namespaces     = ["data-platform", "trading-platform"]
-  use_postgresql          = false  # Uses Cassandra
-  cassandra_storage_size  = "100Gi"
+  use_postgresql          = true  # Uses PostgreSQL
+  postgresql_storage_size = "100Gi"
   elasticsearch_storage_size = "50Gi"
 }
 ```
@@ -173,7 +173,7 @@ Expected pods:
 - `temporal-matching-*`
 - `temporal-worker-*`
 - `temporal-web-*`
-- `temporal-cassandra-*` (prod) or `temporal-postgresql-*` (local)
+- `temporal-postgresql-*`
 - `temporal-elasticsearch-*`
 
 **Check Temporal services**:
@@ -278,16 +278,15 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- \
 
 ### Storage issues
 
-**Check PostgreSQL (local)**:
+**Check PostgreSQL**:
 ```bash
 kubectl logs -n temporal deployment/temporal-postgresql
 kubectl get pvc -n temporal
 ```
 
-**Check Cassandra (prod)**:
+**Check PostgreSQL connectivity**:
 ```bash
-kubectl logs -n temporal statefulset/temporal-cassandra
-kubectl exec -it -n temporal temporal-cassandra-0 -- nodetool status
+kubectl exec -it -n temporal deployment/temporal-postgresql -- psql -U temporal -d temporal -c "\dt"
 ```
 
 ## Configuration Options
@@ -299,10 +298,12 @@ Key variables that can be customized:
 - `replica_count`: Number of replicas for each Temporal service
 - `enable_ha`: Enable high availability (increases replicas automatically)
 - `temporal_namespaces`: List of Temporal namespaces to create
-- `use_postgresql`: Use PostgreSQL instead of Cassandra
-- `cassandra_storage_size`: Storage size for Cassandra
-- `postgresql_storage_size`: Storage size for PostgreSQL
+- `use_postgresql`: Use PostgreSQL (recommended) or Cassandra for persistence
+- `postgresql_storage_size`: Storage size for PostgreSQL (default choice)
+- `cassandra_storage_size`: Storage size for Cassandra (if use_postgresql=false)
 - `elasticsearch_storage_size`: Storage size for Elasticsearch
+
+**Note**: PostgreSQL is recommended for most use cases due to operational simplicity. Cassandra should only be used for extreme scale (>1000 workflows/sec) or multi-region deployments.
 
 See `iac/modules/temporal/variables.tf` for all available options.
 
@@ -394,10 +395,23 @@ Increase resource limits:
 ### Storage Scaling
 
 Increase persistent volume sizes:
-- `cassandra_storage_size`
+- `postgresql_storage_size` (or `cassandra_storage_size` if using Cassandra)
 - `elasticsearch_storage_size`
 
 **Note**: PVC resizing depends on storage class capabilities.
+
+### PostgreSQL High Availability
+
+For production PostgreSQL, consider:
+- **Managed Services**: AWS RDS, Azure Database for PostgreSQL, GCP Cloud SQL
+- **HA Solutions**: Patroni, Stolon, or pgpool-II for automatic failover
+- **Read Replicas**: Offload read traffic from primary
+
+Example with external PostgreSQL:
+```hcl
+# Use external managed PostgreSQL instead of in-cluster
+# Configure via Temporal's database settings in Helm values
+```
 
 ## Additional Resources
 
