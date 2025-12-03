@@ -116,3 +116,20 @@ module "argocd" {
   enable_tls      = true
 }
 
+# Temporal
+module "temporal" {
+  source = "../../modules/temporal"
+
+  cluster_name            = local.cluster_name
+  environment             = local.environment
+  replica_count           = 3
+  enable_ha               = true
+  ingress_enabled         = true
+  ingress_host            = var.temporal_host
+  enable_tls              = true
+  temporal_namespaces     = ["data-platform", "trading-platform"]
+  use_postgresql          = false # Use Cassandra for production
+  cassandra_storage_size  = "100Gi"
+  elasticsearch_storage_size = "50Gi"
+}
+

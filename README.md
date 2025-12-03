@@ -13,6 +13,7 @@ This repository is responsible for:
   - cert-manager (TLS certificate management)
   - Observability stack (Prometheus, Grafana, Loki, Promtail)
   - GitOps engine (Argo CD)
+  - Workflow orchestration (Temporal)
 - **Global Networking**: VPC/VNet, subnets, routing, and network policies
 - **IAM and Security**: Global IAM roles, policies, and security configurations
 - **Shared Resources**: Cross-environment resources and configurations
@@ -45,6 +46,7 @@ This repository is responsible for:
 3. **Access services**:
    - Grafana: http://localhost:30080 (via ingress) or port-forward
    - Argo CD: http://localhost:30080 (via ingress) or port-forward
+   - Temporal UI: http://localhost:30080 (via ingress) or port-forward
 
 ### Cloud Environments
 
@@ -112,6 +114,17 @@ GitOps deployment engine:
 - Argo CD installation
 - High availability configuration
 - Ingress and TLS support
+
+### Temporal Module
+
+Workflow orchestration platform:
+
+- Temporal server installation
+- Configurable persistence backend (PostgreSQL or Cassandra)
+- Elasticsearch for advanced visibility
+- Multiple Temporal namespaces support (data-platform, trading-platform)
+- Web UI with ingress support
+- High availability configuration for production
 
 ## Environments
 

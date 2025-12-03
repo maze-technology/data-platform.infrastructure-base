@@ -46,3 +46,9 @@ variable "argocd_host" {
   default     = "argocd.prod.example.com"
 }
 
+variable "temporal_host" {
+  description = "Hostname for Temporal UI ingress"
+  type        = string
+  default     = "temporal.prod.example.com"
+}
+

@@ -114,3 +114,20 @@ module "argocd" {
   enable_tls      = false # TLS not needed for local
 }
 
+# Temporal
+module "temporal" {
+  source = "../../modules/temporal"
+
+  cluster_name         = local.cluster_name
+  environment          = local.environment
+  replica_count        = 1
+  enable_ha            = false
+  ingress_enabled      = true
+  ingress_host         = "temporal.local"
+  enable_tls           = false # TLS not needed for local
+  temporal_namespaces  = ["data-platform", "trading-platform"]
+  use_postgresql       = true # Use PostgreSQL for simpler local setup
+  postgresql_storage_size = "5Gi"
+  elasticsearch_storage_size = "5Gi"
+}
+
