@@ -76,13 +76,13 @@ module "observability" {
   loki_storage_size       = "20Gi"
   loki_deployment_mode    = "scalable" # Use scalable mode with LocalStack S3 (same as prod)
   loki_object_storage = {
-    type           = "s3"
-    bucket         = "loki-logs-local"
-    region         = "us-east-1"
-    endpoint       = "http://host.docker.internal:4566" # LocalStack endpoint accessible from Kubernetes
-    access_key     = "test"                              # LocalStack default credentials
-    secret_key     = "test"                              # LocalStack default credentials
-    force_path_style = true                              # Required for LocalStack
+    type             = "s3"
+    bucket           = "loki-logs-local"
+    region           = "us-east-1"
+    endpoint         = "http://host.docker.internal:4566" # LocalStack endpoint accessible from Kubernetes
+    access_key       = "test"                             # LocalStack default credentials
+    secret_key       = "test"                             # LocalStack default credentials
+    force_path_style = true                               # Required for LocalStack
   }
 }
 
@@ -90,13 +90,13 @@ module "observability" {
 module "ingress" {
   source = "../../modules/ingress"
 
-  cluster_name                  = local.cluster_name
-  environment                   = local.environment
-  service_type                  = "NodePort"
-  node_port_http                = 30080
-  node_port_https               = 30443
-  replica_count                 = 1
-  enable_metrics                = true
+  cluster_name                   = local.cluster_name
+  environment                    = local.environment
+  service_type                   = "NodePort"
+  node_port_http                 = 30080
+  node_port_https                = 30443
+  replica_count                  = 1
+  enable_metrics                 = true
   prometheus_operator_dependency = module.observability.prometheus_operator_helm_release
 }
 
@@ -118,16 +118,16 @@ module "argocd" {
 module "temporal" {
   source = "../../modules/temporal"
 
-  cluster_name         = local.cluster_name
-  environment          = local.environment
-  replica_count        = 1
-  enable_ha            = false
-  ingress_enabled      = true
-  ingress_host         = "temporal.local"
-  enable_tls           = false # TLS not needed for local
-  temporal_namespaces  = ["data-platform", "trading-platform"]
-  use_postgresql       = true # Use PostgreSQL for simpler local setup
-  postgresql_storage_size = "5Gi"
+  cluster_name               = local.cluster_name
+  environment                = local.environment
+  replica_count              = 1
+  enable_ha                  = false
+  ingress_enabled            = true
+  ingress_host               = "temporal.local"
+  enable_tls                 = false # TLS not needed for local
+  temporal_namespaces        = ["data-platform", "trading-platform"]
+  use_postgresql             = true # Use PostgreSQL for simpler local setup
+  postgresql_storage_size    = "5Gi"
   elasticsearch_storage_size = "5Gi"
 }
 

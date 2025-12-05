@@ -69,13 +69,13 @@ variable "loki_deployment_mode" {
 variable "loki_object_storage" {
   description = "Object storage configuration for Loki (required when deployment_mode is 'scalable')"
   type = object({
-    type        = string         # s3, gcs, azure, etc.
-    bucket      = string
-    region      = optional(string)
-    endpoint    = optional(string) # For LocalStack or custom S3-compatible endpoints
-    access_key  = optional(string) # For LocalStack or custom credentials
-    secret_key  = optional(string) # For LocalStack or custom credentials
-    force_path_style = optional(bool) # For LocalStack (default: false for AWS, true for LocalStack)
+    type             = string # s3, gcs, azure, etc.
+    bucket           = string
+    region           = optional(string)
+    endpoint         = optional(string) # For LocalStack or custom S3-compatible endpoints
+    access_key       = optional(string) # For LocalStack or custom credentials
+    secret_key       = optional(string) # For LocalStack or custom credentials
+    force_path_style = optional(bool)   # For LocalStack (default: false for AWS, true for LocalStack)
   })
   default = null
 }

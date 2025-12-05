@@ -24,7 +24,7 @@ resource "helm_release" "temporal" {
       # Server configuration
       server = {
         replicaCount = var.replica_count
-        
+
         frontend = {
           replicaCount = var.enable_ha ? max(2, var.replica_count) : var.replica_count
           resources = {
@@ -36,7 +36,7 @@ resource "helm_release" "temporal" {
             port = 7233
           }
         }
-        
+
         history = {
           replicaCount = var.enable_ha ? max(2, var.replica_count) : var.replica_count
           resources = {
@@ -44,7 +44,7 @@ resource "helm_release" "temporal" {
             limits   = var.resource_limits.history
           }
         }
-        
+
         matching = {
           replicaCount = var.enable_ha ? max(2, var.replica_count) : var.replica_count
           resources = {
@@ -52,7 +52,7 @@ resource "helm_release" "temporal" {
             limits   = var.resource_limits.matching
           }
         }
-        
+
         worker = {
           replicaCount = var.replica_count
           resources = {
@@ -66,7 +66,7 @@ resource "helm_release" "temporal" {
       web = {
         enabled      = true
         replicaCount = var.replica_count
-        
+
         ingress = {
           enabled          = var.ingress_enabled
           ingressClassName = var.ingress_class
@@ -90,7 +90,7 @@ resource "helm_release" "temporal" {
       # Persistence configuration - use PostgreSQL or Cassandra
       cassandra = var.use_postgresql ? {
         enabled = false
-      } : {
+        } : {
         enabled = true
         persistence = {
           enabled      = true
@@ -124,13 +124,13 @@ resource "helm_release" "temporal" {
             size         = var.postgresql_storage_size
           }
         }
-      } : {
+        } : {
         enabled = false
       }
 
       # Elasticsearch for advanced visibility (optional but recommended)
       elasticsearch = {
-        enabled = true
+        enabled  = true
         replicas = var.enable_ha ? 3 : 1
         persistence = {
           enabled = true
@@ -192,7 +192,7 @@ resource "kubernetes_job" "create_temporal_namespaces" {
         container {
           name  = "tctl"
           image = "temporalio/admin-tools:1.25.0"
-          
+
           command = ["/bin/sh", "-c"]
           args = [
             <<-EOT
@@ -208,9 +208,9 @@ resource "kubernetes_job" "create_temporal_namespaces" {
               echo "Temporal frontend is ready. Creating namespaces..."
               
               # Create each namespace
-              ${join("\n              ", [for ns in var.temporal_namespaces : 
-                "tctl --namespace ${ns} namespace register || echo 'Namespace ${ns} already exists or error occurred'"
-              ])}
+              ${join("\n              ", [for ns in var.temporal_namespaces :
+            "tctl --namespace ${ns} namespace register || echo 'Namespace ${ns} already exists or error occurred'"
+      ])}
               
               echo "All namespaces processed successfully"
               
@@ -218,20 +218,20 @@ resource "kubernetes_job" "create_temporal_namespaces" {
               echo "Current Temporal namespaces:"
               tctl namespace list || true
             EOT
-          ]
+    ]
 
-          env {
-            name  = "TEMPORAL_CLI_ADDRESS"
-            value = "temporal-frontend:7233"
-          }
-        }
-      }
+    env {
+      name  = "TEMPORAL_CLI_ADDRESS"
+      value = "temporal-frontend:7233"
     }
-
-    backoff_limit = 5
   }
+}
+}
 
-  wait_for_completion = false
+backoff_limit = 5
+}
 
-  depends_on = [helm_release.temporal]
+wait_for_completion = false
+
+depends_on = [helm_release.temporal]
 }

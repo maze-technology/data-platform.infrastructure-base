@@ -55,7 +55,7 @@ resource "helm_release" "ingress_nginx" {
   ]
 
   depends_on = [kubernetes_namespace.ingress]
-  
+
   # Wait for Prometheus Operator CRDs to be available when ServiceMonitor is enabled
   # This is handled via module dependency ordering in the root module
 }
