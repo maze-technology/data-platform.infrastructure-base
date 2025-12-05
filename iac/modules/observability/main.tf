@@ -230,7 +230,7 @@ resource "helm_release" "loki" {
         write = {
           replicas = 0
         }
-      } : {
+        } : {
         # Scalable mode: separate components for production (requires object storage)
         loki = {
           storage = var.loki_object_storage != null ? merge(
@@ -250,7 +250,7 @@ resource "helm_release" "loki" {
             } : {},
             var.loki_object_storage.type == "gcs" ? { gcs = {} } : {},
             var.loki_object_storage.type == "azure" ? { azure = {} } : {}
-          ) : {
+            ) : {
             # Fallback to filesystem if object storage not configured
             type = "filesystem"
             filesystem = {

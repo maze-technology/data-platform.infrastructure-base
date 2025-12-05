@@ -15,4 +15,5 @@ kubernetes_version = "1.28"
 # letsencrypt_email = "admin@example.com"
 # grafana_host      = "grafana.prod.example.com"
 # argocd_host       = "argocd.prod.example.com"
+# temporal_host     = "temporal.prod.example.com"
 
