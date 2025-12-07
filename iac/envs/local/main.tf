@@ -74,7 +74,7 @@ module "observability" {
   prometheus_storage_size = "20Gi"
   grafana_storage_size    = "5Gi"
   loki_storage_size       = "20Gi"
-  loki_deployment_mode    = "scalable" # Use scalable mode with LocalStack S3 (same as prod)
+  loki_deployment_mode    = "scalable" # Use scalable mode with LocalStack S3 (same as production)
   loki_object_storage = {
     type             = "s3"
     bucket           = "loki-logs-local"

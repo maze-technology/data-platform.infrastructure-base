@@ -37,18 +37,18 @@ variable "letsencrypt_email" {
 variable "grafana_host" {
   description = "Hostname for Grafana ingress"
   type        = string
-  default     = "grafana.prod.example.com"
+  default     = "grafana.production.maze.tech"
 }
 
 variable "argocd_host" {
   description = "Hostname for Argo CD ingress"
   type        = string
-  default     = "argocd.prod.example.com"
+  default     = "argocd.production.maze.tech"
 }
 
 variable "temporal_host" {
   description = "Hostname for Temporal UI ingress"
   type        = string
-  default     = "temporal.prod.example.com"
+  default     = "temporal.production.maze.tech"
 }
 

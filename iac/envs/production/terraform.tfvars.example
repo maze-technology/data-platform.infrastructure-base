@@ -1,4 +1,4 @@
-# Example terraform.tfvars for prod environment
+# Example terraform.tfvars for production environment
 # Copy this to terraform.tfvars and customize as needed
 # DO NOT commit terraform.tfvars with secrets
 
@@ -12,8 +12,8 @@ private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24", "10.0.12.0/24"]
 kubernetes_version = "1.28"
 
 # Secrets - provide via environment variables or secret manager
-# letsencrypt_email = "admin@example.com"
-# grafana_host      = "grafana.prod.example.com"
-# argocd_host       = "argocd.prod.example.com"
-# temporal_host     = "temporal.prod.example.com"
+# letsencrypt_email = "admin@maze.tech"
+# grafana_host      = "grafana.production.maze.tech"
+# argocd_host       = "argocd.production.maze.tech"
+# temporal_host     = "temporal.production.maze.tech"
 

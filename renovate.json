@@ -10,14 +10,12 @@
     {
       "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions",
-      "schedule": ["every weekday"],
       "reviewers": ["maze-technology/infrastructure-engineers"]
     },
     {
       "matchManagers": ["terraform"],
       "matchFileNames": ["iac/**"],
       "groupName": "OpenTofu/Terraform",
-      "schedule": ["every weekday"],
       "reviewers": ["maze-technology/infrastructure-engineers"]
     }
   ],

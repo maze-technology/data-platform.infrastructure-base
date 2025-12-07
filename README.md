@@ -272,7 +272,7 @@ Run `make help` to see all available commands.
 
 Secrets should be provided via:
 
-- Environment variables: `export TF_VAR_letsencrypt_email="admin@example.com"`
+- Environment variables: `export TF_VAR_letsencrypt_email="admin@maze.tech"`
 - Secret managers (AWS Secrets Manager, Azure Key Vault, etc.)
 - CI/CD pipeline variables
 - `terraform.tfvars` files (excluded from git via `.gitignore`)
@@ -282,9 +282,9 @@ Secrets should be provided via:
 Set environment-specific variables:
 
 ```bash
-export TF_VAR_letsencrypt_email="admin@example.com"
-export TF_VAR_grafana_host="grafana.prod.example.com"
-export TF_VAR_argocd_host="argocd.prod.example.com"
+export TF_VAR_letsencrypt_email="admin@maze.tech"
+export TF_VAR_grafana_host="grafana.prod.maze.tech"
+export TF_VAR_argocd_host="argocd.prod.maze.tech"
 ```
 
 ## Documentation

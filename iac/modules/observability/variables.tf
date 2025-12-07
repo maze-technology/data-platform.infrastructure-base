@@ -14,29 +14,13 @@ variable "namespace" {
   default     = "monitoring"
 }
 
-variable "enable_prometheus" {
-  description = "Enable Prometheus"
-  type        = bool
-  default     = true
-}
-
-variable "enable_grafana" {
-  description = "Enable Grafana"
-  type        = bool
-  default     = true
-}
-
-variable "enable_loki" {
-  description = "Enable Loki for logging"
-  type        = bool
-  default     = true
-}
-
-variable "enable_promtail" {
-  description = "Enable Promtail for log collection"
-  type        = bool
-  default     = true
-}
+# All components are always enabled for unified observability:
+# - Prometheus (metrics)
+# - Grafana (visualization)
+# - Loki (logs)
+# - Tempo (traces)
+# - OpenTelemetry Collector (unified collection)
+# - Promtail (log collection)
 
 variable "prometheus_storage_size" {
   description = "Storage size for Prometheus"
@@ -56,8 +40,14 @@ variable "loki_storage_size" {
   default     = "100Gi"
 }
 
+variable "tempo_storage_size" {
+  description = "Storage size for Tempo"
+  type        = string
+  default     = "50Gi"
+}
+
 variable "loki_deployment_mode" {
-  description = "Loki deployment mode: 'single-binary' for local/dev (no object storage) or 'scalable' for prod (requires object storage)"
+  description = "Loki deployment mode: 'single-binary' for local/dev (no object storage) or 'scalable' for production (requires object storage)"
   type        = string
   default     = "single-binary"
   validation {
@@ -119,6 +109,14 @@ variable "resource_requests" {
       cpu    = string
       memory = string
     })
+    opentelemetry_collector = object({
+      cpu    = string
+      memory = string
+    })
+    tempo = object({
+      cpu    = string
+      memory = string
+    })
   })
   default = {
     prometheus = {
@@ -132,6 +130,14 @@ variable "resource_requests" {
     loki = {
       cpu    = "200m"
       memory = "512Mi"
+    }
+    opentelemetry_collector = {
+      cpu    = "200m"
+      memory = "512Mi"
+    }
+    tempo = {
+      cpu    = "500m"
+      memory = "1Gi"
     }
   }
 }
@@ -151,6 +157,14 @@ variable "resource_limits" {
       cpu    = string
       memory = string
     })
+    opentelemetry_collector = object({
+      cpu    = string
+      memory = string
+    })
+    tempo = object({
+      cpu    = string
+      memory = string
+    })
   })
   default = {
     prometheus = {
@@ -164,6 +178,14 @@ variable "resource_limits" {
     loki = {
       cpu    = "1000m"
       memory = "2Gi"
+    }
+    opentelemetry_collector = {
+      cpu    = "1000m"
+      memory = "2Gi"
+    }
+    tempo = {
+      cpu    = "2000m"
+      memory = "4Gi"
     }
   }
 }

@@ -78,7 +78,7 @@ resource "helm_release" "temporal" {
             }]
           }] : []
           annotations = var.enable_tls ? {
-            "cert-manager.io/cluster-issuer" = "letsencrypt-prod"
+            "cert-manager.io/cluster-issuer" = "letsencrypt-production"
           } : {}
           tls = var.enable_tls && var.ingress_enabled ? [{
             hosts      = [var.ingress_host]
@@ -198,22 +198,22 @@ resource "kubernetes_job" "create_temporal_namespaces" {
             <<-EOT
               set -e
               echo "Waiting for Temporal frontend to be ready..."
-              
+
               # Wait for frontend service to be available
               until nc -z temporal-frontend 7233; do
                 echo "Waiting for temporal-frontend:7233..."
                 sleep 5
               done
-              
+
               echo "Temporal frontend is ready. Creating namespaces..."
-              
+
               # Create each namespace
               ${join("\n              ", [for ns in var.temporal_namespaces :
             "tctl --namespace ${ns} namespace register || echo 'Namespace ${ns} already exists or error occurred'"
       ])}
-              
+
               echo "All namespaces processed successfully"
-              
+
               # List all namespaces
               echo "Current Temporal namespaces:"
               tctl namespace list || true

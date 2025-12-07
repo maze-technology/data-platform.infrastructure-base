@@ -11,7 +11,6 @@ resource "kubernetes_namespace" "monitoring" {
 
 # Prometheus Operator (includes Prometheus, Alertmanager, and ServiceMonitor CRDs)
 resource "helm_release" "prometheus_operator" {
-  count = var.enable_prometheus ? 1 : 0
 
   name       = "kube-prometheus-stack"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -44,30 +43,132 @@ resource "helm_release" "prometheus_operator" {
           retention = "30d"
         }
       }
-      grafana = {
-        enabled       = var.enable_grafana
-        adminPassword = "admin" # Should be overridden via secrets in production
-        persistence = {
-          enabled = true
-          size    = var.grafana_storage_size
+      grafana = merge(
+        {
+          enabled       = true  # Always enabled for unified observability visualization
+          adminPassword = "admin" # Should be overridden via secrets in production
+          persistence = {
+            enabled = true
+            size    = var.grafana_storage_size
+          }
+          resources = {
+            requests = var.resource_requests.grafana
+            limits   = var.resource_limits.grafana
+          }
+          ingress = {
+            enabled          = var.grafana_ingress_enabled
+            ingressClassName = var.grafana_ingress_class
+            hosts            = var.grafana_ingress_enabled ? [var.grafana_ingress_host] : []
+            annotations = var.grafana_enable_tls ? {
+              "cert-manager.io/cluster-issuer" = "letsencrypt-production"
+            } : {}
+            tls = var.grafana_enable_tls && var.grafana_ingress_enabled ? [{
+              hosts      = [var.grafana_ingress_host]
+              secretName = "grafana-tls"
+            }] : []
+          }
+          # Enable correlation between metrics, logs, and traces
+          grafana.ini = {
+            feature_toggles = {
+              enable = "correlations"
+            }
+          }
+          # Build additional data sources array
+          additionalDataSources = concat(
+            # Loki data source (required for unified observability)
+            [
+              {
+                name      = "Loki"
+                type      = "loki"
+                uid       = "loki"
+                url       = "http://loki:3100"
+                access    = "proxy"
+                isDefault = false
+                jsonData = {
+                  maxLines = 1000
+                }
+              }
+            ],
+            # Tempo data source (required for unified observability)
+            [
+              {
+                name      = "Tempo"
+                type      = "tempo"
+                uid       = "tempo"
+                url       = "http://tempo:3200"
+                access    = "proxy"
+                isDefault = false
+                jsonData = merge(
+                  {
+                    httpMethod = "GET"
+                    # Enable trace-to-logs correlation
+                    nodeGraph = {
+                      enabled = true
+                    }
+                    # Enable trace-to-metrics correlation
+                    search = {
+                      hide = false
+                    }
+                  },
+                  # Enable service map using Prometheus as backend
+                  {
+                    serviceMap = {
+                      datasourceUid = "prometheus"
+                    }
+                  },
+                  # Enable Loki correlation (Loki is always enabled)
+                  {
+                    tracesToLogs = {
+                      datasourceUid      = "loki"
+                      tags = [
+                        {
+                          key = "service.name"
+                          value = "service"
+                        },
+                        {
+                          key = "job"
+                          value = "service"
+                        }
+                      ]
+                      mappedTags = [
+                        {
+                          key = "service.name"
+                          value = "service"
+                        }
+                      ]
+                      mapTagNamesEnabled = false
+                      spanStartTimeShift = "1h"
+                      spanEndTimeShift   = "1h"
+                      filterByTraceID    = false
+                      filterBySpanID     = false
+                    }
+                  },
+                  # Enable Prometheus correlation
+                  {
+                    tracesToMetrics = {
+                      datasourceUid = "prometheus"
+                      tags = [
+                        {
+                          key = "service.name"
+                          value = "service"
+                        }
+                      ]
+                      queries = [
+                        {
+                          name        = "Sample query"
+                          query       = "sum(rate(tempo_spanmetrics_latency_bucket{$$__tags}[5m]))"
+                          legend      = "{{service.name}}"
+                          refId       = "A"
+                        }
+                      ]
+                    }
+                  }
+                )
+              }
+            ]
+          )
         }
-        resources = {
-          requests = var.resource_requests.grafana
-          limits   = var.resource_limits.grafana
-        }
-        ingress = {
-          enabled          = var.grafana_ingress_enabled
-          ingressClassName = var.grafana_ingress_class
-          hosts            = var.grafana_ingress_enabled ? [var.grafana_ingress_host] : []
-          annotations = var.grafana_enable_tls ? {
-            "cert-manager.io/cluster-issuer" = "letsencrypt-prod"
-          } : {}
-          tls = var.grafana_enable_tls && var.grafana_ingress_enabled ? [{
-            hosts      = [var.grafana_ingress_host]
-            secretName = "grafana-tls"
-          }] : []
-        }
-      }
+      )
     })
   ]
 
@@ -76,7 +177,7 @@ resource "helm_release" "prometheus_operator" {
 
 # Kubernetes secret for Loki S3 credentials (when using object storage with custom credentials)
 resource "kubernetes_secret" "loki_s3_credentials" {
-  count = var.enable_loki && var.loki_deployment_mode == "scalable" && var.loki_object_storage != null && var.loki_object_storage.access_key != null ? 1 : 0
+  count = var.loki_deployment_mode == "scalable" && var.loki_object_storage != null && var.loki_object_storage.access_key != null ? 1 : 0
 
   metadata {
     name      = "loki-s3-credentials"
@@ -91,9 +192,8 @@ resource "kubernetes_secret" "loki_s3_credentials" {
   depends_on = [kubernetes_namespace.monitoring]
 }
 
-# Loki for log aggregation
+# Loki for log aggregation (required for unified observability)
 resource "helm_release" "loki" {
-  count = var.enable_loki ? 1 : 0
 
   name       = "loki"
   repository = "https://grafana.github.io/helm-charts"
@@ -284,7 +384,6 @@ resource "helm_release" "loki" {
 
 # Promtail for log collection
 resource "helm_release" "promtail" {
-  count = var.enable_promtail && var.enable_loki ? 1 : 0
 
   name       = "promtail"
   repository = "https://grafana.github.io/helm-charts"
@@ -303,5 +402,208 @@ resource "helm_release" "promtail" {
   ]
 
   depends_on = [kubernetes_namespace.monitoring, helm_release.loki]
+}
+
+# Tempo for distributed tracing (required for unified observability)
+resource "helm_release" "tempo" {
+
+  name       = "tempo"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "tempo"
+  version    = "1.7.0"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  values = [
+    yamlencode({
+      tempo = {
+        resources = {
+          requests = var.resource_requests.tempo
+          limits   = var.resource_limits.tempo
+        }
+        storage = {
+          traces = {
+            backend = "local"
+            local = {
+              path = "/var/tempo/traces"
+            }
+          }
+        }
+      }
+      storage = {
+        type = "pvc"
+        pvc = {
+          size = var.tempo_storage_size
+        }
+      }
+      # Enable OTLP receivers for traces
+      distributor = {
+        receivers = {
+          otlp = {
+            protocols = {
+              grpc = {
+                enabled = true
+                endpoint = "0.0.0.0:4317"
+              }
+              http = {
+                enabled = true
+                endpoint = "0.0.0.0:4318"
+              }
+            }
+          }
+        }
+      }
+    })
+  ]
+
+  depends_on = [kubernetes_namespace.monitoring]
+}
+
+# OpenTelemetry Collector for unified telemetry collection
+resource "helm_release" "opentelemetry_collector" {
+
+  name       = "opentelemetry-collector"
+  repository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  chart      = "opentelemetry-collector"
+  version    = "0.103.0"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  values = [
+    yamlencode({
+      mode = "deployment"
+      replicaCount = 2
+
+      resources = {
+        requests = var.resource_requests.opentelemetry_collector
+        limits   = var.resource_limits.opentelemetry_collector
+      }
+
+      config = merge(
+        {
+          receivers = {
+            otlp = {
+              protocols = {
+                grpc = {
+                  endpoint = "0.0.0.0:4317"
+                }
+                http = {
+                  endpoint = "0.0.0.0:4318"
+                }
+              }
+            }
+          }
+
+          processors = {
+            batch = {
+              timeout = "10s"
+              send_batch_size = 1024
+            }
+            memory_limiter = {
+              check_interval = "1s"
+              limit_percentage = 75
+              spike_limit_percentage = 20
+            }
+            # Filtering processor - example: drop health check traces
+            filter = {
+              traces = {
+                span = [
+                  {
+                    name = "health"
+                    action = "drop"
+                  }
+                ]
+              }
+            }
+            # Sampling processor - probabilistic sampling
+            probabilistic_sampler = {
+              sampling_percentage = 10.0
+              hash_seed = 22
+            }
+            # Resource processor for enrichment
+            resource = {
+              attributes = [
+                {
+                  key = "environment"
+                  value = var.environment
+                  action = "upsert"
+                },
+                {
+                  key = "cluster"
+                  value = var.cluster_name
+                  action = "upsert"
+                }
+              ]
+            }
+          }
+
+          exporters = {
+            # Prometheus exporter - metrics will be scraped by Prometheus
+            prometheus = {
+              endpoint = "0.0.0.0:8889"
+              const_labels = {
+                cluster = var.cluster_name
+                environment = var.environment
+              }
+            }
+            # Loki exporter for logs - required for unified observability
+            loki = {
+              endpoint = "http://loki:3100/loki/api/v1/push"
+              labels = {
+                resource = {
+                  attributes = {
+                    "service.name" = "service_name"
+                    "service.namespace" = "service_namespace"
+                  }
+                }
+              }
+            }
+            # Tempo exporter for traces - required for unified observability
+            "otlp/tempo" = {
+              endpoint = "tempo:4317"
+              tls = {
+                insecure = true
+              }
+            }
+          }
+
+          service = {
+            pipelines = {
+              # Metrics pipeline - Prometheus exporter
+              metrics = {
+                receivers = ["otlp"]
+                processors = ["memory_limiter", "resource", "batch"]
+                exporters = ["prometheus"]
+              }
+              # Logs pipeline - Loki exporter (required for unified observability)
+              logs = {
+                receivers = ["otlp"]
+                processors = ["memory_limiter", "resource", "batch"]
+                exporters = ["loki"]
+              }
+              # Traces pipeline - Tempo exporter (required for unified observability)
+              traces = {
+                receivers = ["otlp"]
+                processors = ["memory_limiter", "probabilistic_sampler", "filter", "resource", "batch"]
+                exporters = ["otlp/tempo"]
+              }
+            }
+          }
+        }
+      )
+
+      # ServiceMonitor for Prometheus to scrape metrics
+      serviceMonitor = {
+        enabled = true
+        interval = "30s"
+        scrapeEndpoint = "/metrics"
+      }
+    })
+  ]
+
+  # OpenTelemetry Collector requires Loki and Tempo for unified observability
+  depends_on = [
+    kubernetes_namespace.monitoring,
+    helm_release.tempo,
+    helm_release.loki
+  ]
 }
 

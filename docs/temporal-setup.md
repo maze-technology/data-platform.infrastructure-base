@@ -5,12 +5,14 @@ This document describes the Temporal.io setup included in this infrastructure re
 ## Overview
 
 Temporal is a workflow orchestration platform that provides:
+
 - Durable execution of workflows
 - Automatic retries and error handling
 - Visibility into workflow execution
 - Scalable and fault-tolerant architecture
 
-Each environment (local, prod) has its own dedicated Temporal cluster with two namespaces:
+Each environment (local, production) has its own dedicated Temporal cluster with two namespaces:
+
 - **data-platform**: For data processing and ETL workflows
 - **trading-platform**: For trading and financial workflows
 
@@ -19,16 +21,19 @@ Each environment (local, prod) has its own dedicated Temporal cluster with two n
 ### Components
 
 1. **Temporal Server**: Core Temporal services
+
    - Frontend: gRPC API for client connections
    - History: Workflow execution history
    - Matching: Task queue management
    - Worker: System workflows
 
 2. **Persistence**: Storage backend
+
    - **All Environments**: PostgreSQL (simpler, production-ready)
    - PostgreSQL provides excellent performance for most workloads and is operationally simpler than Cassandra
 
 3. **Visibility**: Advanced workflow search
+
    - Elasticsearch for all environments
 
 4. **Web UI**: Web-based workflow monitoring
@@ -59,10 +64,12 @@ module "temporal" {
 ```
 
 **Access Points**:
+
 - Web UI: http://temporal.local:30080 (via NodePort ingress)
 - Frontend gRPC: `temporal-frontend.temporal.svc.cluster.local:7233`
 
 **Port-forward alternative**:
+
 ```bash
 kubectl port-forward -n temporal svc/temporal-frontend 7233:7233
 kubectl port-forward -n temporal svc/temporal-web 8080:8080
@@ -70,7 +77,7 @@ kubectl port-forward -n temporal svc/temporal-web 8080:8080
 
 ### Production Environment
 
-Configuration in `iac/envs/prod/main.tf`:
+Configuration in `iac/envs/production/main.tf`:
 
 ```hcl
 module "temporal" {
@@ -91,7 +98,8 @@ module "temporal" {
 ```
 
 **Access Points**:
-- Web UI: https://temporal.prod.example.com (via LoadBalancer ingress with TLS)
+
+- Web UI: https://temporal.production.maze.tech (via LoadBalancer ingress with TLS)
 - Frontend gRPC: `temporal-frontend.temporal.svc.cluster.local:7233`
 
 ## Temporal Namespaces
@@ -99,6 +107,7 @@ module "temporal" {
 The setup automatically creates two Temporal namespaces:
 
 1. **data-platform**
+
    - Purpose: Data processing, ETL pipelines, batch jobs
    - Use cases: Data ingestion, transformation, aggregation
 
@@ -111,6 +120,7 @@ The setup automatically creates two Temporal namespaces:
 When connecting to Temporal, specify the namespace:
 
 **Go SDK Example**:
+
 ```go
 c, err := client.Dial(client.Options{
     HostPort:  "temporal-frontend.temporal.svc.cluster.local:7233",
@@ -119,6 +129,7 @@ c, err := client.Dial(client.Options{
 ```
 
 **Python SDK Example**:
+
 ```python
 client = await Client.connect(
     "temporal-frontend.temporal.svc.cluster.local:7233",
@@ -127,14 +138,15 @@ client = await Client.connect(
 ```
 
 **TypeScript SDK Example**:
+
 ```typescript
 const connection = await Connection.connect({
-    address: 'temporal-frontend.temporal.svc.cluster.local:7233',
+  address: 'temporal-frontend.temporal.svc.cluster.local:7233'
 });
 
 const client = new Client({
-    connection,
-    namespace: 'data-platform',
+  connection,
+  namespace: 'data-platform'
 });
 ```
 
@@ -143,6 +155,7 @@ const client = new Client({
 ### Initial Setup
 
 1. **Deploy the infrastructure**:
+
    ```bash
    cd iac/envs/local  # or prod
    tofu init
@@ -151,6 +164,7 @@ const client = new Client({
    ```
 
 2. **Wait for Temporal to be ready**:
+
    ```bash
    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=temporal -n temporal --timeout=600s
    ```
@@ -163,11 +177,13 @@ const client = new Client({
 ### Verifying the Installation
 
 **Check Temporal pods**:
+
 ```bash
 kubectl get pods -n temporal
 ```
 
 Expected pods:
+
 - `temporal-frontend-*`
 - `temporal-history-*`
 - `temporal-matching-*`
@@ -177,22 +193,25 @@ Expected pods:
 - `temporal-elasticsearch-*`
 
 **Check Temporal services**:
+
 ```bash
 kubectl get svc -n temporal
 ```
 
 **Access Web UI**:
+
 ```bash
 # Local environment
 curl http://temporal.local:30080
 
 # Production environment
-curl https://temporal.prod.example.com
+curl https://temporal.production.maze.tech
 ```
 
 ### Using tctl (Temporal CLI)
 
 Install tctl on your local machine:
+
 ```bash
 brew install temporal  # macOS
 # or
@@ -200,12 +219,14 @@ curl -sSf https://temporal.download/cli.sh | sh  # Linux
 ```
 
 **List namespaces**:
+
 ```bash
 tctl --namespace data-platform namespace describe
 tctl --namespace trading-platform namespace describe
 ```
 
 **Run a test workflow**:
+
 ```bash
 tctl --namespace data-platform workflow run \
   --workflow_type HelloWorld \
@@ -220,12 +241,14 @@ tctl --namespace data-platform workflow run \
 Temporal automatically exposes Prometheus metrics. These are scraped by the observability module.
 
 **View metrics in Grafana**:
-1. Access Grafana (http://grafana.local:30080 or https://grafana.prod.example.com)
+
+1. Access Grafana (http://grafana.local:30080 or https://grafana.production.maze.tech)
 2. Import Temporal dashboards from https://github.com/temporalio/dashboards
 
 ### Web UI
 
 The Temporal Web UI provides:
+
 - Workflow execution history
 - Search and filtering
 - Workflow replay and debugging
@@ -237,11 +260,13 @@ The Temporal Web UI provides:
 ### Pods not starting
 
 Check pod status:
+
 ```bash
 kubectl describe pod -n temporal <pod-name>
 ```
 
 Check logs:
+
 ```bash
 kubectl logs -n temporal <pod-name>
 ```
@@ -249,12 +274,14 @@ kubectl logs -n temporal <pod-name>
 ### Namespace creation failed
 
 Check the namespace creation job:
+
 ```bash
 kubectl get job -n temporal create-temporal-namespaces
 kubectl logs -n temporal -l app=temporal-namespace-setup
 ```
 
 Manually create namespaces:
+
 ```bash
 kubectl exec -it -n temporal deployment/temporal-frontend -- \
   tctl --namespace data-platform namespace register
@@ -266,11 +293,13 @@ kubectl exec -it -n temporal deployment/temporal-frontend -- \
 ### Cannot connect to Temporal
 
 Verify frontend service:
+
 ```bash
 kubectl get svc -n temporal temporal-frontend
 ```
 
 Test connectivity from a pod:
+
 ```bash
 kubectl run -it --rm debug --image=busybox --restart=Never -- \
   nc -zv temporal-frontend.temporal.svc.cluster.local 7233
@@ -279,12 +308,14 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- \
 ### Storage issues
 
 **Check PostgreSQL**:
+
 ```bash
 kubectl logs -n temporal deployment/temporal-postgresql
 kubectl get pvc -n temporal
 ```
 
 **Check PostgreSQL connectivity**:
+
 ```bash
 kubectl exec -it -n temporal deployment/temporal-postgresql -- psql -U temporal -d temporal -c "\dt"
 ```
@@ -314,14 +345,14 @@ Default values are conservative. For production, consider increasing:
 ```hcl
 module "temporal" {
   # ... other config ...
-  
+
   resource_requests = {
     frontend = { cpu = "500m", memory = "512Mi" }
     history  = { cpu = "500m", memory = "512Mi" }
     matching = { cpu = "500m", memory = "512Mi" }
     worker   = { cpu = "500m", memory = "512Mi" }
   }
-  
+
   resource_limits = {
     frontend = { cpu = "2000m", memory = "2Gi" }
     history  = { cpu = "2000m", memory = "2Gi" }
@@ -348,20 +379,21 @@ spec:
     matchLabels:
       app.kubernetes.io/name: temporal
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: data-platform
-    - namespaceSelector:
-        matchLabels:
-          name: trading-platform
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: data-platform
+        - namespaceSelector:
+            matchLabels:
+              name: trading-platform
 ```
 
 ### TLS/mTLS
 
 For production, consider enabling mTLS for client connections:
+
 - Configure TLS certificates for Temporal frontend
 - Update client SDKs to use TLS
 - Implement client certificate authentication
@@ -369,6 +401,7 @@ For production, consider enabling mTLS for client connections:
 ### Secrets Management
 
 Store sensitive credentials in Kubernetes secrets or external secret managers:
+
 - Database passwords
 - Elasticsearch credentials
 - TLS certificates
@@ -389,12 +422,14 @@ module "temporal" {
 ### Vertical Scaling
 
 Increase resource limits:
+
 - Adjust `resource_requests` and `resource_limits`
 - Monitor pod resource usage with Prometheus/Grafana
 
 ### Storage Scaling
 
 Increase persistent volume sizes:
+
 - `postgresql_storage_size` (or `cassandra_storage_size` if using Cassandra)
 - `elasticsearch_storage_size`
 
@@ -403,11 +438,13 @@ Increase persistent volume sizes:
 ### PostgreSQL High Availability
 
 For production PostgreSQL, consider:
+
 - **Managed Services**: AWS RDS, Azure Database for PostgreSQL, GCP Cloud SQL
 - **HA Solutions**: Patroni, Stolon, or pgpool-II for automatic failover
 - **Read Replicas**: Offload read traffic from primary
 
 Example with external PostgreSQL:
+
 ```hcl
 # Use external managed PostgreSQL instead of in-cluster
 # Configure via Temporal's database settings in Helm values

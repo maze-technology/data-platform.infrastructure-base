@@ -13,7 +13,7 @@ terraform {
   }
 }
 
-# Provider configuration for prod environment
+# Provider configuration for production environment
 provider "kubernetes" {
   # Configure based on your cloud provider
 }
@@ -23,8 +23,8 @@ provider "helm" {
 }
 
 locals {
-  environment  = "prod"
-  cluster_name = "prod-cluster"
+  environment  = "production"
+  cluster_name = "production-cluster"
 }
 
 # Network module
@@ -98,7 +98,7 @@ module "observability" {
   loki_deployment_mode    = "scalable" # Scalable mode for production (requires object storage)
   # loki_object_storage = {
   #   type   = "s3" # or "gcs", "azure"
-  #   bucket = "loki-logs-prod"
+  #   bucket = "loki-logs-production"
   #   region = "us-east-1"
   # }
 }

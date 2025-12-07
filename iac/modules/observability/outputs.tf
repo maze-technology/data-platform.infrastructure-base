@@ -4,13 +4,13 @@ output "namespace" {
 }
 
 output "prometheus_enabled" {
-  description = "Whether Prometheus is enabled"
-  value       = var.enable_prometheus
+  description = "Prometheus is always enabled as part of the unified observability stack"
+  value       = true
 }
 
 output "grafana_enabled" {
-  description = "Whether Grafana is enabled"
-  value       = var.enable_grafana
+  description = "Grafana is always enabled as the visualization layer for unified observability"
+  value       = true
 }
 
 output "grafana_ingress_host" {
@@ -20,6 +20,26 @@ output "grafana_ingress_host" {
 
 output "prometheus_operator_helm_release" {
   description = "Helm release resource for Prometheus Operator (for dependencies)"
-  value       = var.enable_prometheus ? helm_release.prometheus_operator[0] : null
+  value       = helm_release.prometheus_operator
+}
+
+output "opentelemetry_collector_enabled" {
+  description = "OpenTelemetry Collector is always enabled as part of the unified observability stack"
+  value       = true
+}
+
+output "tempo_enabled" {
+  description = "Tempo is always enabled as part of the unified observability stack"
+  value       = true
+}
+
+output "opentelemetry_collector_helm_release" {
+  description = "Helm release resource for OpenTelemetry Collector (for dependencies)"
+  value       = helm_release.opentelemetry_collector
+}
+
+output "tempo_helm_release" {
+  description = "Helm release resource for Tempo (for dependencies)"
+  value       = helm_release.tempo
 }
 
