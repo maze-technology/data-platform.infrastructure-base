@@ -45,7 +45,7 @@ resource "helm_release" "prometheus_operator" {
       }
       grafana = merge(
         {
-          enabled       = true  # Always enabled for unified observability visualization
+          enabled       = true    # Always enabled for unified observability visualization
           adminPassword = "admin" # Should be overridden via secrets in production
           persistence = {
             enabled = true
@@ -119,20 +119,20 @@ resource "helm_release" "prometheus_operator" {
                   # Enable Loki correlation (Loki is always enabled)
                   {
                     tracesToLogs = {
-                      datasourceUid      = "loki"
+                      datasourceUid = "loki"
                       tags = [
                         {
-                          key = "service.name"
+                          key   = "service.name"
                           value = "service"
                         },
                         {
-                          key = "job"
+                          key   = "job"
                           value = "service"
                         }
                       ]
                       mappedTags = [
                         {
-                          key = "service.name"
+                          key   = "service.name"
                           value = "service"
                         }
                       ]
@@ -149,16 +149,16 @@ resource "helm_release" "prometheus_operator" {
                       datasourceUid = "prometheus"
                       tags = [
                         {
-                          key = "service.name"
+                          key   = "service.name"
                           value = "service"
                         }
                       ]
                       queries = [
                         {
-                          name        = "Sample query"
-                          query       = "sum(rate(tempo_spanmetrics_latency_bucket{$$__tags}[5m]))"
-                          legend      = "{{service.name}}"
-                          refId       = "A"
+                          name   = "Sample query"
+                          query  = "sum(rate(tempo_spanmetrics_latency_bucket{$$__tags}[5m]))"
+                          legend = "{{service.name}}"
+                          refId  = "A"
                         }
                       ]
                     }
@@ -441,11 +441,11 @@ resource "helm_release" "tempo" {
           otlp = {
             protocols = {
               grpc = {
-                enabled = true
+                enabled  = true
                 endpoint = "0.0.0.0:4317"
               }
               http = {
-                enabled = true
+                enabled  = true
                 endpoint = "0.0.0.0:4318"
               }
             }
@@ -469,7 +469,7 @@ resource "helm_release" "opentelemetry_collector" {
 
   values = [
     yamlencode({
-      mode = "deployment"
+      mode         = "deployment"
       replicaCount = 2
 
       resources = {
@@ -494,12 +494,12 @@ resource "helm_release" "opentelemetry_collector" {
 
           processors = {
             batch = {
-              timeout = "10s"
+              timeout         = "10s"
               send_batch_size = 1024
             }
             memory_limiter = {
-              check_interval = "1s"
-              limit_percentage = 75
+              check_interval         = "1s"
+              limit_percentage       = 75
               spike_limit_percentage = 20
             }
             # Filtering processor - example: drop health check traces
@@ -507,7 +507,7 @@ resource "helm_release" "opentelemetry_collector" {
               traces = {
                 span = [
                   {
-                    name = "health"
+                    name   = "health"
                     action = "drop"
                   }
                 ]
@@ -516,19 +516,19 @@ resource "helm_release" "opentelemetry_collector" {
             # Sampling processor - probabilistic sampling
             probabilistic_sampler = {
               sampling_percentage = 10.0
-              hash_seed = 22
+              hash_seed           = 22
             }
             # Resource processor for enrichment
             resource = {
               attributes = [
                 {
-                  key = "environment"
-                  value = var.environment
+                  key    = "environment"
+                  value  = var.environment
                   action = "upsert"
                 },
                 {
-                  key = "cluster"
-                  value = var.cluster_name
+                  key    = "cluster"
+                  value  = var.cluster_name
                   action = "upsert"
                 }
               ]
@@ -540,7 +540,7 @@ resource "helm_release" "opentelemetry_collector" {
             prometheus = {
               endpoint = "0.0.0.0:8889"
               const_labels = {
-                cluster = var.cluster_name
+                cluster     = var.cluster_name
                 environment = var.environment
               }
             }
@@ -550,7 +550,7 @@ resource "helm_release" "opentelemetry_collector" {
               labels = {
                 resource = {
                   attributes = {
-                    "service.name" = "service_name"
+                    "service.name"      = "service_name"
                     "service.namespace" = "service_namespace"
                   }
                 }
@@ -569,21 +569,21 @@ resource "helm_release" "opentelemetry_collector" {
             pipelines = {
               # Metrics pipeline - Prometheus exporter
               metrics = {
-                receivers = ["otlp"]
+                receivers  = ["otlp"]
                 processors = ["memory_limiter", "resource", "batch"]
-                exporters = ["prometheus"]
+                exporters  = ["prometheus"]
               }
               # Logs pipeline - Loki exporter (required for unified observability)
               logs = {
-                receivers = ["otlp"]
+                receivers  = ["otlp"]
                 processors = ["memory_limiter", "resource", "batch"]
-                exporters = ["loki"]
+                exporters  = ["loki"]
               }
               # Traces pipeline - Tempo exporter (required for unified observability)
               traces = {
-                receivers = ["otlp"]
+                receivers  = ["otlp"]
                 processors = ["memory_limiter", "probabilistic_sampler", "filter", "resource", "batch"]
-                exporters = ["otlp/tempo"]
+                exporters  = ["otlp/tempo"]
               }
             }
           }
@@ -592,8 +592,8 @@ resource "helm_release" "opentelemetry_collector" {
 
       # ServiceMonitor for Prometheus to scrape metrics
       serviceMonitor = {
-        enabled = true
-        interval = "30s"
+        enabled        = true
+        interval       = "30s"
         scrapeEndpoint = "/metrics"
       }
     })
