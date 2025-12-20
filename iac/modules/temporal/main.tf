@@ -66,51 +66,28 @@ resource "helm_release" "temporal" {
       web = {
         enabled      = true
         replicaCount = var.replica_count
-
         ingress = {
-          enabled          = var.ingress_enabled
+          enabled          = true
           ingressClassName = var.ingress_class
-          hosts = var.ingress_enabled ? [{
+          hosts = [{
             host = var.ingress_host
             paths = [{
               path     = "/"
               pathType = "Prefix"
             }]
-          }] : []
+          }]
           annotations = var.enable_tls ? {
             "cert-manager.io/cluster-issuer" = "letsencrypt-production"
           } : {}
-          tls = var.enable_tls && var.ingress_enabled ? [{
+          tls = var.enable_tls ? [{
             hosts      = [var.ingress_host]
             secretName = var.tls_secret_name
           }] : []
         }
       }
 
-      # Persistence configuration - use PostgreSQL or Cassandra
-      cassandra = var.use_postgresql ? {
-        enabled = false
-        } : {
-        enabled = true
-        persistence = {
-          enabled      = true
-          storageClass = var.persistence_storage_class
-          size         = var.cassandra_storage_size
-        }
-        resources = {
-          requests = {
-            cpu    = "200m"
-            memory = "512Mi"
-          }
-          limits = {
-            cpu    = "1000m"
-            memory = "1Gi"
-          }
-        }
-      }
-
-      # PostgreSQL configuration (alternative to Cassandra)
-      postgresql = var.use_postgresql ? {
+      # PostgreSQL configuration for persistence
+      postgresql = {
         enabled = true
         auth = {
           username = "temporal"
@@ -124,8 +101,6 @@ resource "helm_release" "temporal" {
             size         = var.postgresql_storage_size
           }
         }
-        } : {
-        enabled = false
       }
 
       # Elasticsearch for advanced visibility (optional but recommended)

@@ -15,7 +15,7 @@ resource "helm_release" "prometheus_operator" {
   name       = "kube-prometheus-stack"
   repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "kube-prometheus-stack"
-  version    = "55.5.0"
+  version    = var.helm_chart_version_prometheus_operator
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   timeout = 600 # 10 minutes
@@ -68,7 +68,7 @@ resource "helm_release" "prometheus_operator" {
             }] : []
           }
           # Enable correlation between metrics, logs, and traces
-          grafana.ini = {
+          ini = {
             feature_toggles = {
               enable = "correlations"
             }
@@ -157,7 +157,7 @@ resource "helm_release" "prometheus_operator" {
                         {
                           name   = "Sample query"
                           query  = "sum(rate(tempo_spanmetrics_latency_bucket{$$__tags}[5m]))"
-                          legend = "{{service.name}}"
+                          legend = "{{ `{{service.name}}` }}"
                           refId  = "A"
                         }
                       ]
@@ -198,7 +198,7 @@ resource "helm_release" "loki" {
   name       = "loki"
   repository = "https://grafana.github.io/helm-charts"
   chart      = "loki"
-  version    = "5.42.0"
+  version    = var.helm_chart_version_loki
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   values = [
@@ -311,6 +311,13 @@ resource "helm_release" "loki" {
         loki = {
           storage = {
             type = "filesystem"
+            bucketNames = {
+              chunks = ""
+              ruler  = ""
+            }
+            s3      = {}
+            gcs     = {}
+            azure   = {}
             filesystem = {
               chunksDirectory = "/loki/chunks"
               rulesDirectory  = "/loki/rules"
@@ -340,19 +347,28 @@ resource "helm_release" "loki" {
                 chunks = var.loki_object_storage.bucket
                 ruler  = var.loki_object_storage.bucket
               }
-            },
-            var.loki_object_storage.type == "s3" ? {
-              s3 = merge(
+              s3    = var.loki_object_storage.type == "s3" ? merge(
                 var.loki_object_storage.region != null ? { region = var.loki_object_storage.region } : {},
                 var.loki_object_storage.endpoint != null ? { endpoint = var.loki_object_storage.endpoint } : {},
                 var.loki_object_storage.force_path_style != null ? { s3ForcePathStyle = var.loki_object_storage.force_path_style } : {}
-              )
-            } : {},
-            var.loki_object_storage.type == "gcs" ? { gcs = {} } : {},
-            var.loki_object_storage.type == "azure" ? { azure = {} } : {}
+              ) : {}
+              gcs   = var.loki_object_storage.type == "gcs" ? {} : {}
+              azure = var.loki_object_storage.type == "azure" ? {} : {}
+              filesystem = {
+                chunksDirectory = ""
+                rulesDirectory  = ""
+              }
+            }
             ) : {
             # Fallback to filesystem if object storage not configured
             type = "filesystem"
+            bucketNames = {
+              chunks = ""
+              ruler  = ""
+            }
+            s3      = {}
+            gcs     = {}
+            azure   = {}
             filesystem = {
               chunksDirectory = "/loki/chunks"
               rulesDirectory  = "/loki/rules"
@@ -388,7 +404,7 @@ resource "helm_release" "promtail" {
   name       = "promtail"
   repository = "https://grafana.github.io/helm-charts"
   chart      = "promtail"
-  version    = "6.15.0"
+  version    = var.helm_chart_version_promtail
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   values = [
@@ -410,7 +426,7 @@ resource "helm_release" "tempo" {
   name       = "tempo"
   repository = "https://grafana.github.io/helm-charts"
   chart      = "tempo"
-  version    = "1.7.0"
+  version    = var.helm_chart_version_tempo
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   values = [
@@ -464,7 +480,7 @@ resource "helm_release" "opentelemetry_collector" {
   name       = "opentelemetry-collector"
   repository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
   chart      = "opentelemetry-collector"
-  version    = "0.103.0"
+  version    = var.helm_chart_version_opentelemetry_collector
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
   values = [

@@ -16,7 +16,7 @@ resource "helm_release" "argocd" {
   version    = var.helm_chart_version
   namespace  = kubernetes_namespace.argocd.metadata[0].name
 
-  timeout = 600 # 10 minutes
+  timeout = 600
 
   values = [
     yamlencode({
@@ -57,6 +57,17 @@ resource "helm_release" "argocd" {
       }
       applicationSet = {
         replicas = var.enable_ha ? 2 : 1
+      }
+      # Redis configuration - ensure Redis is enabled and secret is created
+      redis = {
+        enabled = !var.enable_ha # Use single Redis for non-HA
+      }
+      redis-ha = {
+        enabled = var.enable_ha # Use Redis HA for HA deployments
+      }
+      # Ensure the Redis secret initialization job runs
+      redisSecretInit = {
+        enabled = true
       }
     })
   ]

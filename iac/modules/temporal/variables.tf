@@ -32,12 +32,6 @@ variable "enable_ha" {
   default     = false
 }
 
-variable "ingress_enabled" {
-  description = "Enable ingress for Temporal UI"
-  type        = bool
-  default     = true
-}
-
 variable "ingress_class" {
   description = "Ingress class to use for Temporal"
   type        = string
@@ -63,15 +57,9 @@ variable "tls_secret_name" {
 }
 
 variable "persistence_storage_class" {
-  description = "Storage class for Temporal persistence (Cassandra/PostgreSQL)"
+  description = "Storage class for Temporal persistence (PostgreSQL)"
   type        = string
   default     = "standard"
-}
-
-variable "cassandra_storage_size" {
-  description = "Storage size for Cassandra"
-  type        = string
-  default     = "10Gi"
 }
 
 variable "elasticsearch_storage_size" {
@@ -163,13 +151,7 @@ variable "resource_limits" {
 variable "helm_chart_version" {
   description = "Version of the Temporal Helm chart"
   type        = string
-  default     = "0.45.2"
-}
-
-variable "use_postgresql" {
-  description = "Use PostgreSQL instead of Cassandra for persistence"
-  type        = bool
-  default     = false
+  default     = "0.72.0"
 }
 
 variable "postgresql_storage_size" {

@@ -5,7 +5,7 @@ output "namespace" {
 
 output "ingress_host" {
   description = "Hostname for Temporal UI ingress"
-  value       = var.ingress_enabled ? var.ingress_host : null
+  value       = var.ingress_host
 }
 
 output "tls_secret_name" {

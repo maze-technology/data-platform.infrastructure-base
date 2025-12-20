@@ -58,16 +58,12 @@ module "cert_manager" {
   replica_count      = 1
 }
 
-# Observability stack (installed before ingress for ServiceMonitor CRD)
+# Observability stack (installed first to provide Prometheus Operator for Rook-Ceph monitoring)
 module "observability" {
   source = "../../modules/observability"
 
   cluster_name            = local.cluster_name
   environment             = local.environment
-  enable_prometheus       = true
-  enable_grafana          = true
-  enable_loki             = true
-  enable_promtail         = true
   grafana_ingress_enabled = true
   grafana_ingress_host    = "grafana.local"
   grafana_enable_tls      = false # TLS not needed for local
@@ -86,6 +82,56 @@ module "observability" {
   }
 }
 
+# Rook-Ceph storage (installed after observability for Prometheus monitoring support)
+# Note: For local/kind, you may need to configure loop devices or mounted volumes
+# Example: sudo losetup -fP /path/to/disk.img (creates /dev/loop0, /dev/loop1, etc.)
+module "rook_ceph" {
+  source = "../../modules/rook-ceph"
+
+  cluster_name = local.cluster_name
+  environment  = local.environment
+
+  # For local/kind: use all nodes, configure devices based on your setup
+  # Adjust storage_devices based on your kind node configuration
+  use_all_nodes   = true
+  storage_devices = [] # Configure based on your local setup (e.g., ["/dev/loop0"])
+
+  # Reduced sizing for local development
+  mon_count        = 1
+  mgr_count        = 1
+  rgw_instances    = 1
+  replication_size = 1 # Single node local setup (increase if you have multiple nodes)
+
+  # Reduced resource requests for local
+  resource_requests = {
+    operator = { cpu = "50m", memory = "64Mi" }
+    mon      = { cpu = "250m", memory = "1Gi" }
+    mgr      = { cpu = "250m", memory = "256Mi" }
+    osd      = { cpu = "500m", memory = "1Gi" }
+    rgw      = { cpu = "250m", memory = "256Mi" }
+  }
+
+  resource_limits = {
+    operator = { cpu = "250m", memory = "256Mi" }
+    mon      = { cpu = "500m", memory = "2Gi" }
+    mgr      = { cpu = "500m", memory = "512Mi" }
+    osd      = { cpu = "1", memory = "2Gi" }
+    rgw      = { cpu = "500m", memory = "512Mi" }
+  }
+
+  # Recovery throttling (less aggressive for local)
+  osd_recovery_max_active  = 2
+  osd_recovery_op_priority  = 5
+  osd_max_backfills        = 1
+
+  # Dashboard enabled for local debugging
+  dashboard_enabled = true
+  # Enable Prometheus monitoring (requires Prometheus Operator from observability module)
+  monitoring_enabled            = true
+  prometheus_operator_dependency = module.observability.prometheus_operator_helm_release
+}
+
+
 # Ingress controller (depends on observability for ServiceMonitor CRD when metrics enabled)
 module "ingress" {
   source = "../../modules/ingress"
@@ -99,7 +145,6 @@ module "ingress" {
   enable_metrics                 = true
   prometheus_operator_dependency = module.observability.prometheus_operator_helm_release
 }
-
 
 # Argo CD
 module "argocd" {
@@ -122,11 +167,9 @@ module "temporal" {
   environment                = local.environment
   replica_count              = 1
   enable_ha                  = false
-  ingress_enabled            = true
   ingress_host               = "temporal.local"
   enable_tls                 = false # TLS not needed for local
   temporal_namespaces        = ["data-platform", "trading-platform"]
-  use_postgresql             = true # Use PostgreSQL for simpler local setup
   postgresql_storage_size    = "5Gi"
   elasticsearch_storage_size = "5Gi"
 }

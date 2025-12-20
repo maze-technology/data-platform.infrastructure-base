@@ -9,6 +9,8 @@ nodes:
         nodeRegistration:
           kubeletExtraArgs:
             node-labels: "ingress-ready=true"
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
     extraPortMappings:
       - containerPort: 80
         hostPort: 30080
@@ -16,15 +18,11 @@ nodes:
       - containerPort: 443
         hostPort: 30443
         protocol: TCP
-    # Allow access to host.docker.internal for LocalStack
-    extraHosts:
-      - host: host.docker.internal
-        ip: 172.17.0.1
   - role: worker
-    # Allow access to host.docker.internal for LocalStack
-    extraHosts:
-      - host: host.docker.internal
-        ip: 172.17.0.1
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
     # Add more worker nodes as needed
   # - role: worker
-
