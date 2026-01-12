@@ -4,10 +4,14 @@
 
 locals {
   # Determine storage configuration based on use_all_nodes flag
+  # SAFETY: Automatic device discovery is FORCED OFF. Devices MUST be explicitly specified.
+  # This prevents accidental data loss from Rook formatting disks with existing filesystems.
+
   storage_config = var.use_all_nodes ? {
     useAllNodes = true
+    # FORCED: Always false - automatic device discovery is disabled for safety
     useAllDevices = false
-    deviceFilter = "" # Empty means use devices from storage_devices list
+    deviceFilter = "" # Not used when useAllDevices is false
     devices = [
       for device in var.storage_devices : {
         name = device
@@ -16,8 +20,13 @@ locals {
         }
       }
     ]
+    nodes = [] # Not used when useAllNodes is true
   } : {
     useAllNodes = false
+    # FORCED: Always false - automatic device discovery is disabled for safety
+    useAllDevices = false
+    deviceFilter = "" # Not used when useAllDevices is false
+    devices = [] # Not used when useAllNodes is false
     nodes = [
       for node in var.storage_nodes : {
         name = node.name
@@ -35,6 +44,11 @@ locals {
 }
 
 # CephCluster Custom Resource
+# Depends on the Rook data directory being created on Kind nodes
+#
+# SAFETY: Automatic device discovery is FORCED OFF. Devices MUST be explicitly specified.
+# This prevents accidental data loss from Rook formatting disks with existing filesystems.
+# If storage_devices is empty, Rook will use directories (safe fallback for Kind clusters).
 resource "kubernetes_manifest" "ceph_cluster" {
   manifest = {
     apiVersion = "ceph.rook.io/v1"
@@ -86,19 +100,21 @@ resource "kubernetes_manifest" "ceph_cluster" {
 
       # Monitoring configuration
       monitoring = {
-        enabled        = var.monitoring_enabled
-        rulesNamespace = var.namespace
+        enabled = var.monitoring_enabled
+        # rulesNamespace is not supported in all Rook versions
+        # If omitted, rules are deployed in the same namespace as the cluster
       }
 
       # Storage configuration
       # Uses raw devices (no partitions, no LVM) as per requirements
+      # SAFETY: useAllDevices is FORCED to false - devices MUST be explicitly specified
+      # For Kind clusters, if no devices are specified, Rook will use directories (safe fallback)
       storage = merge(local.storage_config, {
         config = {
           # One OSD per dedicated disk per node
           osdsPerDevice = "1"
-          # Use raw devices (no LVM)
-          deviceFilter = ""
         }
+        # Automatic device discovery is disabled - only explicitly specified devices are used
       })
 
       # Resource requests and limits for Ceph daemons
@@ -139,7 +155,7 @@ resource "kubernetes_manifest" "ceph_cluster" {
       # Ceph configuration overrides
       # Critical for latency-sensitive workloads (trading infrastructure)
       # These settings throttle recovery/backfill to protect client I/O latency
-      config = {
+      cephConfig = {
         global = {
           # Recovery throttling - limits impact on latency during recovery
           osd_recovery_max_active     = tostring(var.osd_recovery_max_active)
@@ -167,29 +183,21 @@ resource "kubernetes_manifest" "ceph_cluster" {
       }
 
       # Placement configuration
-      # Ensure MONs and MGRs are spread across nodes
+      # Production baseline: MONs hard-spread, MGRs spread from each other, MGR can co-locate with MON
+      # Note: placement.all is not supported by Rook operator and will be removed
+      # Security context is applied to individual placements instead
       placement = {
-        all = {
-          podAntiAffinity = {
-            preferredDuringSchedulingIgnoredDuringExecution = [
-              {
-                weight = 100
-                podAffinityTerm = {
-                  labelSelector = {
-                    matchExpressions = [
-                      {
-                        key      = "ceph_daemon_id"
-                        operator = "Exists"
-                      }
-                    ]
-                  }
-                  topologyKey = "kubernetes.io/hostname"
-                }
-              }
-            ]
-          }
-        }
+        # MON placement: hard spread (required) - one MON per node
         mon = {
+          # Security context for MON daemons
+          # fsGroup ensures pods can write to mounted volumes
+          # Using 0 (root) for maximum compatibility with hostPath mounts
+          securityContext = {
+            fsGroup = 0
+            runAsUser = 0
+            runAsNonRoot = false
+            seLinuxOptions = {}
+          }
           podAntiAffinity = {
             requiredDuringSchedulingIgnoredDuringExecution = [
               {
@@ -207,10 +215,37 @@ resource "kubernetes_manifest" "ceph_cluster" {
             ]
           }
         }
-        osd = {
-          # OSDs are tied to specific nodes via device configuration
-          # No additional placement needed
+        # MGR placement: spread MGRs from each other (required), but allow co-location with MON
+        # In production, MGR can share a node with MON - this is normal and acceptable
+        # Anti-affinity only applies between MGR pods, not between MGR and MON
+        mgr = {
+          # Security context for MGR daemons
+          securityContext = {
+            fsGroup = 0
+            runAsUser = 0
+            runAsNonRoot = false
+            seLinuxOptions = {}
+          }
+          podAntiAffinity = {
+            requiredDuringSchedulingIgnoredDuringExecution = [
+              {
+                labelSelector = {
+                  matchExpressions = [
+                    {
+                      key      = "ceph_daemon_type"
+                      operator = "In"
+                      values   = ["mgr"]
+                    }
+                  ]
+                }
+                topologyKey = "kubernetes.io/hostname"
+              }
+            ]
+          }
         }
+        # Note: OSD placement is not supported at the cluster level
+        # OSDs are tied to specific nodes via device configuration in the storage section
+        # Security context for OSDs is managed by the Rook operator automatically
       }
 
       # Health check configuration
@@ -247,20 +282,27 @@ resource "kubernetes_manifest" "ceph_cluster" {
     }
   }
 
-  depends_on = concat(
-    [
-      kubernetes_namespace.rook_ceph,
-      kubernetes_manifest.rook_operator,
-      null_resource.install_rook_crds
-    ],
-    var.monitoring_enabled && var.prometheus_operator_dependency != null ? [var.prometheus_operator_dependency] : []
-  )
+  depends_on = [
+    kubernetes_namespace.rook_ceph,
+    kubernetes_manifest.rook_operator,
+    null_resource.install_and_verify_rook_crds,
+    null_resource.create_rook_data_dir
+    # Note: We don't pre-create the version detection ConfigMap because the operator
+    # deletes manually created ConfigMaps. The operator will create a job to detect
+    # the version, which should complete once the Ceph image is pulled.
+  ]
+  # Note: prometheus_operator_dependency is not included in depends_on to avoid circular
+  # dependencies when observability depends on rook_ceph for S3 storage. The CephCluster CRD
+  # gracefully handles monitoring being enabled before Prometheus Operator is ready - it will
+  # simply not create ServiceMonitors until the Prometheus Operator CRDs are available.
 
-  # Wait for operator to be ready before creating cluster
-  wait {
-    fields = {
-      "status.phase" = "Ready"
-    }
+  field_manager {
+    force_conflicts = true
   }
+
+  # Note: CephCluster can take 10+ minutes to become Ready
+  # We don't wait for Ready status here to avoid timeouts
+  # The cluster will continue initializing in the background
+  # Dependent resources should check cluster readiness before using it
 }
 

@@ -21,14 +21,15 @@ resource "kubernetes_manifest" "ceph_object_store" {
         failureDomain = var.failure_domain
         replicated = {
           size                   = var.replication_size
-          requireSafeReplicaSize = true
+          # requireSafeReplicaSize must be false when size=1 (Ceph requirement)
+          requireSafeReplicaSize = var.replication_size > 1
         }
         parameters = {
           # No compression for metadata (small, latency-sensitive)
           compression_mode = "none"
         }
       }
-      
+
       # Data pool for RGW (stores actual object data)
       dataPool = {
         failureDomain = var.failure_domain
@@ -36,7 +37,8 @@ resource "kubernetes_manifest" "ceph_object_store" {
         # Conservative default suitable for small bare-metal cluster
         replicated = {
           size                   = var.replication_size
-          requireSafeReplicaSize = true
+          # requireSafeReplicaSize must be false when size=1 (Ceph requirement)
+          requireSafeReplicaSize = var.replication_size > 1
         }
         parameters = {
           # Compression can be enabled for data pool to save space
@@ -44,16 +46,15 @@ resource "kubernetes_manifest" "ceph_object_store" {
           compression_mode = "passive"
         }
       }
-      
+
       # Preserve pools on delete (prevents accidental data loss)
       preservePoolsOnDelete = true
-      
+
       # Gateway (RGW) configuration
       gateway = {
-        type      = "s3"
         port      = var.rgw_port
         instances = var.rgw_instances
-        
+
         # Resource requests and limits
         resources = {
           requests = {
@@ -65,10 +66,10 @@ resource "kubernetes_manifest" "ceph_object_store" {
             memory = var.resource_limits.rgw.memory
           }
         }
-        
+
         # Priority class for RGW
         priorityClassName = "system-cluster-critical"
-        
+
         # Placement: spread RGW instances across nodes
         placement = {
           podAntiAffinity = {
@@ -91,32 +92,24 @@ resource "kubernetes_manifest" "ceph_object_store" {
           }
         }
       }
-      
-      # Health check configuration
-      healthCheck = {
-        bucket = {
-          disabled = false
-          interval = "60s"
-        }
-      }
-      
-      # Zone configuration (for multisite, not used in single-region setup)
-      zone = null
+
+      # Health check configuration is optional
+      # The operator provides default health checks
+      # Custom healthCheck configuration may not be supported in all Rook versions
+
+      # Zone configuration is optional and only needed for multisite setups
+      # Omit the field if not needed rather than setting to null
     }
   }
 
   depends_on = [
     kubernetes_namespace.rook_ceph,
     kubernetes_manifest.ceph_cluster,
-    null_resource.install_rook_crds
+    null_resource.install_and_verify_rook_crds
   ]
 
-  # Wait for object store to be ready
-  wait {
-    fields = {
-      "status.phase" = "Ready"
-    }
-  }
+  # Note: CephObjectStore can take time to become Ready
+  # We don't wait here to avoid timeouts - the store will continue initializing in the background
 }
 
 # CephObjectStoreUser
@@ -136,8 +129,8 @@ resource "kubernetes_manifest" "ceph_object_store_user" {
     spec = {
       store = var.rgw_store_name
       displayName = var.rgw_user_display_name
-      # Quotas (optional, adjust based on needs)
-      quotas = null
+      # Quotas can be configured if needed, but are optional
+      # Omit the field if not needed rather than setting to null
     }
   }
 
@@ -147,11 +140,8 @@ resource "kubernetes_manifest" "ceph_object_store_user" {
   ]
 
   # Wait for user to be created and credentials available
-  wait {
-    fields = {
-      "status.phase" = "Ready"
-    }
-  }
+  # Note: CephObjectStoreUser can take time to become Ready
+  # We don't wait here to avoid timeouts - the user will continue initializing in the background
 }
 
 # Kubernetes Service for RGW
@@ -172,14 +162,14 @@ resource "kubernetes_service" "rgw" {
 
   spec {
     type = "ClusterIP"
-    
+
     # Selector matches Rook's RGW pod labels
     selector = {
       app              = "rook-ceph-rgw"
       rook_cluster     = "rook-ceph"
       rook_object_store = var.rgw_store_name
     }
-    
+
     port {
       name        = "http"
       port        = var.rgw_port

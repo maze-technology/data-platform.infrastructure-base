@@ -28,8 +28,9 @@ variable "rook_operator_version" {
 }
 
 # Storage configuration
+# SAFETY: Automatic device discovery is DISABLED. Devices MUST be explicitly specified.
 variable "storage_devices" {
-  description = "List of raw device paths to use for OSDs (one per node). Format: ['/dev/sdb', '/dev/sdc', '/dev/sdd']"
+  description = "List of raw device paths to use for OSDs (one per node). Format: ['/dev/sdb', '/dev/sdc', '/dev/sdd']. REQUIRED: Devices must be explicitly specified - automatic device discovery is disabled for safety."
   type        = list(string)
   default     = []
 }
@@ -245,6 +246,7 @@ variable "rgw_user_display_name" {
   default     = "S3 Application User"
 }
 
+# RGW Bucket Management
 # Data directory
 variable "data_dir_host_path" {
   description = "Host path for Ceph data directory"

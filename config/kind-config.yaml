@@ -18,11 +18,51 @@ nodes:
       - containerPort: 443
         hostPort: 30443
         protocol: TCP
+    # Mount host /var/lib/rook into Kind node container
+    # This allows Rook MON pods with hostPath volumes to access the directory
+    # Terraform creates this directory on the host, and it needs to be accessible
+    # from inside the Kind node containers for Rook to use it
+    # propagation: Bidirectional ensures changes propagate between host and container
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false
   - role: worker
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
         preKubeadmCommands:
           - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
-    # Add more worker nodes as needed
-  # - role: worker
+    # Mount host /var/lib/rook into Kind node container
+    # This allows Rook MON pods with hostPath volumes to access the directory
+    # Terraform creates this directory on the host, and it needs to be accessible
+    # from inside the Kind node containers for Rook to use it
+    # propagation: Bidirectional ensures changes propagate between host and container
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false

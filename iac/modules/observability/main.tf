@@ -9,6 +9,13 @@ resource "kubernetes_namespace" "monitoring" {
   }
 }
 
+# Local value to determine if S3 credentials secret is needed
+# We check if scalable mode is enabled and object storage is configured
+# We don't check access_key directly as it may come from computed values
+locals {
+  needs_loki_s3_credentials = var.loki_deployment_mode == "scalable" && var.loki_object_storage != null
+}
+
 # Prometheus Operator (includes Prometheus, Alertmanager, and ServiceMonitor CRDs)
 resource "helm_release" "prometheus_operator" {
 
@@ -177,7 +184,7 @@ resource "helm_release" "prometheus_operator" {
 
 # Kubernetes secret for Loki S3 credentials (when using object storage with custom credentials)
 resource "kubernetes_secret" "loki_s3_credentials" {
-  count = var.loki_deployment_mode == "scalable" && var.loki_object_storage != null && var.loki_object_storage.access_key != null ? 1 : 0
+  count = local.needs_loki_s3_credentials ? 1 : 0
 
   metadata {
     name      = "loki-s3-credentials"
@@ -185,8 +192,8 @@ resource "kubernetes_secret" "loki_s3_credentials" {
   }
 
   data = {
-    access-key-id     = base64encode(var.loki_object_storage.access_key)
-    secret-access-key = base64encode(var.loki_object_storage.secret_key)
+    access-key-id     = base64encode(try(var.loki_object_storage.access_key, "") != null ? try(var.loki_object_storage.access_key, "") : "")
+    secret-access-key = base64encode(try(var.loki_object_storage.secret_key, "") != null ? try(var.loki_object_storage.secret_key, "") : "")
   }
 
   depends_on = [kubernetes_namespace.monitoring]
@@ -216,7 +223,7 @@ resource "helm_release" "loki" {
         }
       },
       # Add S3 credentials from secret if provided
-      var.loki_deployment_mode == "scalable" && var.loki_object_storage != null && var.loki_object_storage.access_key != null ? {
+      local.needs_loki_s3_credentials ? {
         loki = {
           env = [
             {

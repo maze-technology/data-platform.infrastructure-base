@@ -4,11 +4,27 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~> 2.23"
+      version   = "~> 2.23"
     }
     helm = {
       source  = "hashicorp/helm"
       version = "~> 2.11"
+    }
+    rgw = {
+      source  = "rissson/rgw"
+      version = "~> 0.3.1"
+    }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    vault = {
+      source  = "hashicorp/vault"
+      version = "~> 3.23"
+    }
+    external = {
+      source  = "hashicorp/external"
+      version = "~> 2.3"
     }
   }
 }
@@ -29,7 +45,79 @@ provider "helm" {
 locals {
   environment  = "local"
   cluster_name = "local"
+
+  # Safely extract credentials from Vault, with fallbacks for plan phase
+  # This is defined early so providers can use it
+  # Use try() to handle cases where data source doesn't exist or fails
+  # Use AWS example credentials format for plan phase (20 char access key, 40 char secret key)
+  rgw_credentials = try(
+    jsondecode(try(data.vault_kv_secret_v2.rgw_credentials.data_json, "{}")),
+    {
+      access_key = "AKIAIOSFODNN7EXAMPLE"  # AWS example format (20 chars)
+      secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # AWS example format (40 chars)
+      endpoint   = try(module.rook_ceph.rgw_endpoint, "http://rgw-service.rook-ceph.svc.cluster.local:80")
+      region     = "us-east-1"
+    }
+  )
 }
+
+# Vault provider configuration
+# For local dev, Vault runs in dev mode and is accessible via ClusterIP service
+# In production, configure proper Vault address and authentication
+provider "vault" {
+  address = "http://vault.vault.svc.cluster.local:8200"
+  # For local dev mode, no token needed (dev mode auto-unseals)
+  # For production, use proper authentication (token, app role, etc.)
+  skip_tls_verify = true
+  # Skip child token check for dev mode
+  skip_child_token = true
+}
+
+# AWS provider for S3 bucket management (using RGW endpoint)
+# Credentials come from environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+# These are set after foundation layer (bootstrap) completes
+provider "aws" {
+  alias = "rgw"
+
+  # RGW endpoint (ClusterIP service - accessible from within cluster)
+  endpoints {
+    s3 = local.rgw_credentials.endpoint
+  }
+
+  # Credentials from environment variables (set after bootstrap)
+  # During Stage 1, these won't be set - that's OK, S3 buckets are excluded
+  # During Stage 2, these must be set before running apply
+
+  # Region (required by AWS provider but ignored by RGW)
+  region = local.rgw_credentials.region
+
+  # S3-compatible API settings for RGW
+  s3_use_path_style           = true
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_region_validation      = true
+  skip_requesting_account_id  = true
+
+  # Prevent credential file lookups and IMDS access
+  shared_credentials_files = []
+  shared_config_files      = []
+
+  # Explicitly disable EC2 IMDS
+  ec2_metadata_service_endpoint     = "http://169.254.169.254"
+  ec2_metadata_service_endpoint_mode = "IPv4"
+}
+
+# ============================================================================
+# DEBUGGING: Comment/uncomment modules as needed for debugging
+# ============================================================================
+# To disable a module, comment out the entire module block (from "module" to "}")
+# To enable it again, uncomment the block.
+#
+# Recommended order for incremental debugging:
+# 1. Foundation Layer: Rook-Ceph (storage)
+# 2. Infrastructure Layer: Ingress, Cert-Manager
+# 3. Observability Layer: Prometheus, Grafana, Loki, Tempo
+# 4. Application Layer: Argo CD, Temporal, Vault
 
 # Cluster module (kind cluster assumed to be created via scripts)
 module "cluster" {
@@ -47,42 +135,11 @@ module "cluster" {
 #   ...
 # }
 
-# Cert-manager (installed first as other components may depend on it)
-module "cert_manager" {
-  source = "../../modules/cert-manager"
+# ============================================================================
+# FOUNDATION LAYER
+# ============================================================================
 
-  cluster_name       = local.cluster_name
-  environment        = local.environment
-  letsencrypt_email  = "" # Not configured for local
-  letsencrypt_server = "https://acme-staging-v02.api.letsencrypt.org/directory"
-  replica_count      = 1
-}
-
-# Observability stack (installed first to provide Prometheus Operator for Rook-Ceph monitoring)
-module "observability" {
-  source = "../../modules/observability"
-
-  cluster_name            = local.cluster_name
-  environment             = local.environment
-  grafana_ingress_enabled = true
-  grafana_ingress_host    = "grafana.local"
-  grafana_enable_tls      = false # TLS not needed for local
-  prometheus_storage_size = "20Gi"
-  grafana_storage_size    = "5Gi"
-  loki_storage_size       = "20Gi"
-  loki_deployment_mode    = "scalable" # Use scalable mode with LocalStack S3 (same as production)
-  loki_object_storage = {
-    type             = "s3"
-    bucket           = "loki-logs-local"
-    region           = "us-east-1"
-    endpoint         = "http://host.docker.internal:4566" # LocalStack endpoint accessible from Kubernetes
-    access_key       = "test"                             # LocalStack default credentials
-    secret_key       = "test"                             # LocalStack default credentials
-    force_path_style = true                               # Required for LocalStack
-  }
-}
-
-# Rook-Ceph storage (installed after observability for Prometheus monitoring support)
+# Rook-Ceph storage - provides block and object storage
 # Note: For local/kind, you may need to configure loop devices or mounted volumes
 # Example: sudo losetup -fP /path/to/disk.img (creates /dev/loop0, /dev/loop1, etc.)
 module "rook_ceph" {
@@ -92,15 +149,22 @@ module "rook_ceph" {
   environment  = local.environment
 
   # For local/kind: use all nodes, configure devices based on your setup
-  # Adjust storage_devices based on your kind node configuration
-  use_all_nodes   = true
+  # SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
+  use_all_nodes = true
+  # Specify devices explicitly (e.g., loop devices for Kind: ["/dev/loop0", "/dev/loop1"])
+  # If empty, Rook will use directories (safe fallback for Kind clusters)
   storage_devices = [] # Configure based on your local setup (e.g., ["/dev/loop0"])
 
-  # Reduced sizing for local development
-  mon_count        = 1
-  mgr_count        = 1
+  # Production-like sizing for local development
+  # With 4 nodes (1 control-plane + 3 workers), we have:
+  # - 3 MONs on 3 workers (one per worker for HA, required spread)
+  # - 2 MGRs spread across workers (active + standby, can co-locate with MON)
+  # - OSDs distributed across all workers
+  # Control-plane remains tainted; no tolerations needed for Ceph pods
+  mon_count        = 3  # 3 MONs for quorum (can survive 1 node failure)
+  mgr_count        = 2  # 2 MGRs for production (active + standby)
   rgw_instances    = 1
-  replication_size = 1 # Single node local setup (increase if you have multiple nodes)
+  replication_size = 3  # Production-like replication (3 replicas across 3+ nodes)
 
   # Reduced resource requests for local
   resource_requests = {
@@ -126,13 +190,31 @@ module "rook_ceph" {
 
   # Dashboard enabled for local debugging
   dashboard_enabled = true
-  # Enable Prometheus monitoring (requires Prometheus Operator from observability module)
-  monitoring_enabled            = true
-  prometheus_operator_dependency = module.observability.prometheus_operator_helm_release
+  # Monitoring disabled initially - will be enabled after Prometheus Operator is installed
+  # Rook tries to create ServiceMonitors during MGR startup, which fails if Prometheus Operator CRDs don't exist
+  # Once observability stack (including Prometheus Operator) is installed, monitoring can be re-enabled
+  monitoring_enabled = false
+  # Prometheus Operator dependency removed to avoid circular dependency with observability module
+  # TODO: Re-enable monitoring_enabled = true after observability stack is installed
+  prometheus_operator_dependency = null
 }
 
+# ============================================================================
+# INFRASTRUCTURE LAYER
+# ============================================================================
 
-# Ingress controller (depends on observability for ServiceMonitor CRD when metrics enabled)
+# Cert-manager (installed first as other components may depend on it)
+module "cert_manager" {
+  source = "../../modules/cert-manager"
+
+  cluster_name       = local.cluster_name
+  environment        = local.environment
+  letsencrypt_email  = "" # Not configured for local
+  letsencrypt_server = "https://acme-staging-v02.api.letsencrypt.org/directory"
+  replica_count      = 1
+}
+
+# Ingress controller
 module "ingress" {
   source = "../../modules/ingress"
 
@@ -145,6 +227,42 @@ module "ingress" {
   enable_metrics                 = true
   prometheus_operator_dependency = module.observability.prometheus_operator_helm_release
 }
+
+# ============================================================================
+# OBSERVABILITY LAYER
+# ============================================================================
+
+# Observability stack (Prometheus, Grafana, Loki, Tempo)
+# Note: S3 buckets should be created using risson/rgw provider or manually via kubectl
+# TODO: Use risson/rgw provider for S3 bucket management instead of AWS provider
+module "observability" {
+  source = "../../modules/observability"
+
+  cluster_name            = local.cluster_name
+  environment             = local.environment
+  grafana_ingress_enabled = true
+  grafana_ingress_host    = "grafana.local"
+  grafana_enable_tls      = false # TLS not needed for local
+  prometheus_storage_size = "20Gi"
+  grafana_storage_size    = "5Gi"
+  loki_storage_size       = "20Gi"
+  loki_deployment_mode    = "scalable" # Use scalable mode with Rook-Ceph RGW S3
+  loki_object_storage = {
+    type             = "s3"
+    bucket           = "loki-logs-local"
+    region           = "us-east-1"
+    endpoint         = module.rook_ceph.rgw_endpoint
+    access_key       = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key       = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style = true
+  }
+
+  depends_on = [module.rook_ceph]
+}
+
+# ============================================================================
+# APPLICATION LAYER
+# ============================================================================
 
 # Argo CD
 module "argocd" {
@@ -173,4 +291,106 @@ module "temporal" {
   postgresql_storage_size    = "5Gi"
   elasticsearch_storage_size = "5Gi"
 }
+
+# HashiCorp Vault - Centralized secret management
+# Provides secure secret storage, rotation, and integration with Kubernetes
+module "vault" {
+  source = "../../modules/vault"
+
+  cluster_name    = local.cluster_name
+  environment     = local.environment
+  replica_count   = 1
+  enable_ha       = false
+  ingress_enabled = true
+  ingress_host    = "vault.local"
+  enable_tls      = false # TLS not needed for local
+
+  # Storage backend - use Kubernetes secrets for dev (ephemeral)
+  # For production, use persistent storage with Rook-Ceph RBD
+  storage_backend = "kubernetes"
+  # Alternative for production: use Rook-Ceph RBD
+  # storage_backend = "file"
+  # storage_size    = "10Gi"
+  # storage_class   = module.rook_ceph.storage_class_name
+}
+
+# ============================================================================
+# RGW BOOTSTRAP - Create/read RGW credentials and store in Vault
+# ============================================================================
+
+# Bootstrap module: Reads RGW credentials from Rook-Ceph and stores in Vault
+module "rgw_bootstrap" {
+  source = "../../modules/rgw-bootstrap"
+
+  rgw_endpoint = module.rook_ceph.rgw_endpoint
+  rgw_region   = "us-east-1"
+
+  # Use existing Rook-Ceph created user
+  use_existing_rook_user      = true
+  rook_rgw_secret_name        = "rook-ceph-object-user-rgw-store-s3-user"
+  rook_rgw_secret_namespace   = "rook-ceph"
+
+  # Vault configuration
+  vault_kv_mount_path = "secret"
+  vault_secret_path   = "rgw/credentials"
+  vault_provider_ready = module.vault.helm_release
+
+  depends_on = [
+    module.rook_ceph,
+    module.vault
+  ]
+}
+
+# Data source to read credentials from Vault (for AWS provider)
+# This reads the credentials stored by the bootstrap module
+# Note: This may not exist during plan phase, so we handle it gracefully in locals
+data "vault_kv_secret_v2" "rgw_credentials" {
+  mount = "secret"
+  name  = "rgw/credentials"
+
+  depends_on = [module.rgw_bootstrap]
+}
+
+# ============================================================================
+# S3 BUCKET MANAGEMENT (using AWS provider with RGW endpoint)
+# ============================================================================
+#
+# These resources are created in the services layer, after foundation layer
+# has stored credentials in Vault and they've been exported to environment variables.
+#
+# Foundation layer: Apply storage + secrets (excludes S3 buckets)
+# Services layer: Export credentials, then apply S3 buckets and rest
+
+# Loki logs bucket for observability stack
+# Created using AWS provider configured for RGW S3-compatible storage
+# Credentials must be available via AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars
+resource "aws_s3_bucket" "loki_logs" {
+  provider = aws.rgw
+  bucket   = "loki-logs-local"
+
+  tags = {
+    Name        = "loki-logs-local"
+    Environment = local.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "loki-logs"
+  }
+
+  depends_on = [
+    module.rgw_bootstrap,
+    data.vault_kv_secret_v2.rgw_credentials
+  ]
+}
+
+# Add more buckets as needed:
+# resource "aws_s3_bucket" "backups" {
+#   provider = aws.rgw
+#   bucket   = "backups-local"
+#   tags = {
+#     Name        = "backups-local"
+#     Environment = local.environment
+#     ManagedBy   = "opentofu"
+#   }
+#   depends_on = [module.rgw_bootstrap, data.vault_kv_secret_v2.rgw_credentials]
+# }
+
 

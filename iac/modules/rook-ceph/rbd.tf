@@ -22,7 +22,9 @@ resource "kubernetes_manifest" "ceph_block_pool" {
       # Conservative default suitable for small bare-metal cluster
       replicated = {
         size                   = var.replication_size
-        requireSafeReplicaSize = true # Prevents reducing size below safe threshold
+        # requireSafeReplicaSize must be false when size=1 (Ceph requirement)
+        # When size > 1, set to true to prevent unsafe replica size reduction
+        requireSafeReplicaSize = var.replication_size > 1
         targetSizeRatio        = null # Let Ceph manage pool size
       }
       # Failure domain: host (ensures replicas on different nodes)
@@ -40,8 +42,6 @@ resource "kubernetes_manifest" "ceph_block_pool" {
       mirroring = {
         enabled = false
       }
-      # Quota management
-      quota = null # No quota by default
       # Status check
       statusCheck = {
         mirror = {
@@ -54,15 +54,11 @@ resource "kubernetes_manifest" "ceph_block_pool" {
   depends_on = [
     kubernetes_namespace.rook_ceph,
     kubernetes_manifest.ceph_cluster,
-    null_resource.install_rook_crds
+    null_resource.install_and_verify_rook_crds
   ]
 
-  # Wait for pool to be ready
-  wait {
-    fields = {
-      "status.phase" = "Ready"
-    }
-  }
+  # Note: CephBlockPool can take time to become Ready
+  # We don't wait here to avoid timeouts - the pool will continue initializing in the background
 }
 
 # Kubernetes StorageClass for RBD

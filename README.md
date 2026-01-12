@@ -9,6 +9,7 @@ This repository is responsible for:
 - **Cloud Infrastructure**: Provisioning and managing cloud resources using OpenTofu (Terraform-compatible)
 - **Kubernetes Clusters**: Creating and managing Kubernetes clusters for all environments
 - **Cluster-Level Components**: Bootstrapping essential platform components:
+  - Storage (Rook-Ceph: block storage, S3-compatible object storage)
   - Ingress controllers (NGINX)
   - cert-manager (TLS certificate management)
   - Observability stack (Prometheus, Grafana, Loki, Promtail)
@@ -34,7 +35,23 @@ This repository is responsible for:
    make kind-up
    ```
 
-2. **Deploy infrastructure**:
+2. **Configure storage devices (optional for local testing)**:
+
+   For local/kind, you may need to set up loop devices or configure storage:
+
+   ```bash
+   # Example: Create loop devices for testing
+   sudo losetup -fP /path/to/disk.img
+   ```
+
+   Then update `iac/envs/local/main.tf` with your device paths:
+
+   ```hcl
+   # SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
+   storage_devices = ["/dev/loop0"]  # Adjust based on your setup
+   ```
+
+3. **Deploy infrastructure**:
 
    ```bash
    cd iac/envs/local
@@ -43,10 +60,18 @@ This repository is responsible for:
    tofu apply
    ```
 
-3. **Access services**:
+   This will automatically:
+
+   - Install Rook-Ceph CRDs
+   - Deploy Rook-Ceph storage (RBD + RGW S3)
+   - Deploy observability stack (Loki uses RGW for S3 storage)
+   - Deploy other components
+
+4. **Access services**:
    - Grafana: http://localhost:30080 (via ingress) or port-forward
    - Argo CD: http://localhost:30080 (via ingress) or port-forward
    - Temporal UI: http://localhost:30080 (via ingress) or port-forward
+   - Ceph Dashboard: Port-forward to `rook-ceph-mgr-dashboard` service
 
 ### Cloud Environments
 
@@ -98,13 +123,23 @@ Manages TLS certificates:
 - Let's Encrypt integration
 - Automatic certificate provisioning
 
+### Rook-Ceph Module
+
+Production-grade distributed storage:
+
+- **CephCluster**: MON, MGR, OSD daemons for distributed storage
+- **RBD (Block Storage)**: Kubernetes StorageClass for persistent volumes (PostgreSQL, etc.)
+- **RGW (Object Storage)**: S3-compatible object storage for applications and Loki
+- **Recovery Throttling**: Configured for latency-sensitive workloads
+- **High Availability**: Cluster remains HEALTH_OK with 1 node down
+
 ### Observability Module
 
 Complete observability stack:
 
 - **Prometheus**: Metrics collection and storage
 - **Grafana**: Visualization and dashboards
-- **Loki**: Log aggregation
+- **Loki**: Log aggregation (uses Rook-Ceph RGW for S3 storage)
 - **Promtail**: Log collection agent
 
 ### Argo CD Module
@@ -134,7 +169,8 @@ Workflow orchestration platform:
 - NodePort services for ingress (ports 30080/30443)
 - Reduced resource requirements
 - No TLS (for simplicity)
-- Uses LocalStack with S3 for object storage (same scalable Loki configuration as prod)
+- Uses Rook-Ceph RGW for S3-compatible object storage (same scalable Loki configuration as prod)
+- Single-node Ceph cluster (can be scaled for multi-node testing)
 
 ### Prod
 
@@ -149,14 +185,13 @@ See [docs/environments.md](docs/environments.md) for detailed environment docume
 - OpenTofu (Terraform-compatible) >= 1.5.0
 - Kubernetes provider >= 2.23
 - Helm provider >= 2.11
-- kubectl (for local development)
+- kubectl (for local development and CRD installation)
 - kind (for local development)
-- Docker and docker-compose (for LocalStack in local environment)
-- AWS CLI (optional, for LocalStack bucket creation)
+- Raw storage devices (for production) or loop devices (for local testing)
 
 ## Local Development Setup
 
-The local environment uses LocalStack to provide S3-compatible object storage, allowing you to use the same scalable Loki configuration as production.
+The local environment uses Rook-Ceph RGW to provide S3-compatible object storage, allowing you to use the same scalable Loki configuration as production. This eliminates the need for external services like LocalStack.
 
 ### Quick Start
 
@@ -168,44 +203,50 @@ make local-setup
 
 This will:
 
-- Start LocalStack with S3
-- Create the S3 bucket for Loki (`loki-logs-local`)
 - Create the kind Kubernetes cluster
-- Configure everything to work together
+- You can then deploy infrastructure which includes Rook-Ceph for storage
 
 ### Manual Setup
 
-If you prefer to set up components individually:
-
-1. **Start LocalStack:**
-
-   ```bash
-   make localstack-up
-   ```
-
-   This will start LocalStack and create the S3 bucket for Loki.
-
-2. **Verify LocalStack is running:**
-
-   ```bash
-   make localstack-status
-   ```
-
-3. **Create the kind cluster:**
+1. **Create the kind cluster:**
 
    ```bash
    make kind-up
    ```
 
-   The kind configuration includes `host.docker.internal` mapping to allow Kubernetes pods to access LocalStack running on the host.
+2. **Configure storage devices (for local/kind):**
 
-4. **Deploy infrastructure:**
+   For local testing, you can use loop devices:
+
+   ```bash
+   # Create a loop device (example)
+   sudo losetup -fP /path/to/disk.img
+   # This creates /dev/loop0, /dev/loop1, etc.
+   ```
+
+   Then update `iac/envs/local/main.tf` to reference these devices:
+
+   ```hcl
+   # SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
+   storage_devices = ["/dev/loop0"]  # Adjust based on your setup
+   ```
+
+3. **Deploy infrastructure:**
+
    ```bash
    cd iac/envs/local
    make init
    make plan
    make apply
    ```
+
+   This will:
+
+   - Install Rook-Ceph CRDs automatically
+   - Deploy Rook-Ceph operator and cluster
+   - Create RGW S3-compatible object store
+   - Deploy observability stack (Loki will use RGW for storage)
+   - Deploy other components (ingress, Argo CD, Temporal)
 
 ### Stopping Local Services
 
@@ -215,14 +256,7 @@ To stop all local services:
 make local-teardown
 ```
 
-Or stop individual services:
-
-```bash
-make localstack-down  # Stop LocalStack
-make kind-down        # Delete kind cluster
-```
-
-You can add more services to `docker-compose.yml` as needed for local development (databases, message queues, etc.).
+This will delete the kind cluster. All data in Rook-Ceph will be lost (this is expected for local development).
 
 ## Makefile Commands
 
@@ -239,12 +273,8 @@ The project includes a comprehensive Makefile for common operations:
 
 ### Local Development Commands
 
-- `make local-setup` - Set up complete local environment (LocalStack + Kind)
+- `make local-setup` - Set up complete local environment (Kind cluster)
 - `make local-teardown` - Tear down local environment
-- `make localstack-up` - Start LocalStack
-- `make localstack-down` - Stop LocalStack
-- `make localstack-status` - Check LocalStack status
-- `make localstack-loki-bucket` - Create S3 bucket for Loki
 - `make kind-up` - Create kind cluster
 - `make kind-down` - Delete kind cluster
 - `make kind-status` - Check kind cluster status
@@ -253,7 +283,6 @@ The project includes a comprehensive Makefile for common operations:
 
 - `ENV` - Terraform environment (default: `local`)
 - `CLUSTER_NAME` - Kind cluster name (default: `local`)
-- `BUCKET_NAME` - S3 bucket name for Loki (default: `loki-logs-local`)
 
 Example:
 
