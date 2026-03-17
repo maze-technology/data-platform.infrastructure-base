@@ -21,7 +21,7 @@ resource "kubernetes_manifest" "ceph_block_pool" {
       # Replicated pool (not erasure coded) for predictable performance
       # Conservative default suitable for small bare-metal cluster
       replicated = {
-        size                   = var.replication_size
+        size = var.replication_size
         # requireSafeReplicaSize must be false when size=1 (Ceph requirement)
         # When size > 1, set to true to prevent unsafe replica size reduction
         requireSafeReplicaSize = var.replication_size > 1
@@ -93,11 +93,11 @@ resource "kubernetes_storage_class" "rbd" {
     imageFeatures = "layering,exclusive-lock"
 
     # CSI driver secrets (created by Rook operator)
-    "csi.storage.k8s.io/provisioner-secret-name"      = "rook-csi-rbd-provisioner"
-    "csi.storage.k8s.io/provisioner-secret-namespace" = kubernetes_namespace.rook_ceph.metadata[0].name
-    "csi.storage.k8s.io/node-stage-secret-name"       = "rook-csi-rbd-node"
-    "csi.storage.k8s.io/node-stage-secret-namespace"  = kubernetes_namespace.rook_ceph.metadata[0].name
-    "csi.storage.k8s.io/controller-expand-secret-name" = "rook-csi-rbd-provisioner"
+    "csi.storage.k8s.io/provisioner-secret-name"            = "rook-csi-rbd-provisioner"
+    "csi.storage.k8s.io/provisioner-secret-namespace"       = kubernetes_namespace.rook_ceph.metadata[0].name
+    "csi.storage.k8s.io/node-stage-secret-name"             = "rook-csi-rbd-node"
+    "csi.storage.k8s.io/node-stage-secret-namespace"        = kubernetes_namespace.rook_ceph.metadata[0].name
+    "csi.storage.k8s.io/controller-expand-secret-name"      = "rook-csi-rbd-provisioner"
     "csi.storage.k8s.io/controller-expand-secret-namespace" = kubernetes_namespace.rook_ceph.metadata[0].name
 
     # Filesystem type

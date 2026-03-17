@@ -10,7 +10,7 @@
 
 locals {
   # Extract version from image tag (e.g., "18.2.0" from "v18.2.0")
-  ceph_version_tag = replace(var.ceph_version, "/^v/", "")  # Remove 'v' prefix if present
+  ceph_version_tag = replace(var.ceph_version, "/^v/", "") # Remove 'v' prefix if present
   # The stdout should contain the actual ceph --version output format
   # Format: "ceph version X.Y.Z (commit-hash) codename (release)"
   # For v18.2.0 (Pacific), the format is typically:

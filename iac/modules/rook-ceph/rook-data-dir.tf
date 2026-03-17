@@ -17,7 +17,7 @@ locals {
 # This ensures the null_resource is recreated if the directory is missing
 data "external" "check_rook_dir" {
   for_each = toset(local.kind_nodes)
-  program  = ["sh", "-c", <<-EOT
+  program = ["sh", "-c", <<-EOT
     NODE="${each.key}"
     DIR="${var.data_dir_host_path}"
     if docker ps --format '{{.Names}}' | grep -qxF "$NODE"; then
@@ -47,8 +47,8 @@ resource "null_resource" "create_rook_data_dir" {
     data_dir_host_path = var.data_dir_host_path
     node_name          = each.key
     # Include directory existence check in trigger to force recreation if missing
-    dir_exists         = try(data.external.check_rook_dir[each.key].result.exists, "unknown")
-    dir_path           = try(data.external.check_rook_dir[each.key].result.path, var.data_dir_host_path)
+    dir_exists = try(data.external.check_rook_dir[each.key].result.exists, "unknown")
+    dir_path   = try(data.external.check_rook_dir[each.key].result.path, var.data_dir_host_path)
   }
 
   provisioner "local-exec" {

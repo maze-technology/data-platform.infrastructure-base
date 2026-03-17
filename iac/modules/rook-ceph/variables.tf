@@ -44,7 +44,7 @@ variable "use_all_nodes" {
 variable "storage_nodes" {
   description = "List of node names to use for storage. Required if use_all_nodes is false"
   type = list(object({
-    name   = string
+    name    = string
     devices = list(string) # Devices on this specific node
   }))
   default = []

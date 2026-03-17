@@ -16,7 +16,7 @@ resource "helm_release" "vault" {
   version    = var.helm_chart_version
   namespace  = kubernetes_namespace.vault.metadata[0].name
 
-  timeout = 1800  # 30 minutes to allow for large image pulls
+  timeout = 1800 # 30 minutes to allow for large image pulls
 
   # Don't wait for all resources to be ready - let them start in background
   # This prevents timeout during image pulls
@@ -83,11 +83,11 @@ resource "helm_release" "vault" {
         # Standalone mode for single replica (dev)
         # HA mode for multiple replicas with Raft storage
         ha = {
-          enabled = var.enable_ha
+          enabled  = var.enable_ha
           replicas = var.enable_ha ? var.replica_count : 1
           # Raft storage for HA mode
           raft = var.enable_ha ? {
-            enabled = true
+            enabled   = true
             setNodeId = true
           } : {}
         }

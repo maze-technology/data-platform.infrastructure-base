@@ -76,9 +76,9 @@ module "cert_manager" {
 #   environment  = "production"
 
 #     # Storage devices (one per node, minimum 3 nodes)
-  # SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
-  #   storage_devices = ["/dev/sdb", "/dev/sdc", "/dev/sdd"]
-  #   use_all_nodes   = false
+# SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
+#   storage_devices = ["/dev/sdb", "/dev/sdc", "/dev/sdd"]
+#   use_all_nodes   = false
 #   storage_nodes = [
 #     {
 #       name    = "node1"

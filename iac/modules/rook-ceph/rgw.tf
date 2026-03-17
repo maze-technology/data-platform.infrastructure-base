@@ -20,7 +20,7 @@ resource "kubernetes_manifest" "ceph_object_store" {
       metadataPool = {
         failureDomain = var.failure_domain
         replicated = {
-          size                   = var.replication_size
+          size = var.replication_size
           # requireSafeReplicaSize must be false when size=1 (Ceph requirement)
           requireSafeReplicaSize = var.replication_size > 1
         }
@@ -36,7 +36,7 @@ resource "kubernetes_manifest" "ceph_object_store" {
         # Replicated pool (not erasure coded) for predictable performance
         # Conservative default suitable for small bare-metal cluster
         replicated = {
-          size                   = var.replication_size
+          size = var.replication_size
           # requireSafeReplicaSize must be false when size=1 (Ceph requirement)
           requireSafeReplicaSize = var.replication_size > 1
         }
@@ -127,7 +127,7 @@ resource "kubernetes_manifest" "ceph_object_store_user" {
       }
     }
     spec = {
-      store = var.rgw_store_name
+      store       = var.rgw_store_name
       displayName = var.rgw_user_display_name
       # Quotas can be configured if needed, but are optional
       # Omit the field if not needed rather than setting to null
@@ -153,10 +153,10 @@ resource "kubernetes_service" "rgw" {
     name      = var.rgw_service_name
     namespace = kubernetes_namespace.rook_ceph.metadata[0].name
     labels = {
-      app            = "rook-ceph-rgw"
-      rook_cluster   = "rook-ceph"
-      environment    = var.environment
-      managed-by     = "opentofu"
+      app          = "rook-ceph-rgw"
+      rook_cluster = "rook-ceph"
+      environment  = var.environment
+      managed-by   = "opentofu"
     }
   }
 
@@ -165,8 +165,8 @@ resource "kubernetes_service" "rgw" {
 
     # Selector matches Rook's RGW pod labels
     selector = {
-      app              = "rook-ceph-rgw"
-      rook_cluster     = "rook-ceph"
+      app               = "rook-ceph-rgw"
+      rook_cluster      = "rook-ceph"
       rook_object_store = var.rgw_store_name
     }
 

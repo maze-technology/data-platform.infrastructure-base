@@ -21,9 +21,9 @@ locals {
   secret_data = var.use_existing_rook_user ? (
     try(data.kubernetes_secret.rook_rgw_credentials[0].data, null)
   ) : null
-  
+
   secret_data_available = local.secret_data != null
-  
+
   # If using existing Rook user, get credentials from secret
   # Use try() to handle cases where secret exists but data is not yet populated
   access_key = var.use_existing_rook_user && local.secret_data_available ? (
@@ -33,10 +33,10 @@ locals {
       ),
       ""
     )
-  ) : (
+    ) : (
     var.rgw_admin_access_key # Fallback if creating new user (would need rissson/rgw)
   )
-  
+
   secret_key = var.use_existing_rook_user && local.secret_data_available ? (
     try(
       base64decode(
@@ -44,10 +44,10 @@ locals {
       ),
       ""
     )
-  ) : (
+    ) : (
     var.rgw_admin_secret_key # Fallback if creating new user
   )
-  
+
   # Check if credentials are available (both keys must be non-empty)
   credentials_available = local.access_key != "" && local.secret_key != ""
 }
@@ -55,7 +55,7 @@ locals {
 # Enable KV secrets engine v2 if not already enabled
 resource "vault_mount" "kv" {
   count = var.vault_kv_mount_path == "secret" ? 0 : 1
-  
+
   path        = var.vault_kv_mount_path
   type        = "kv-v2"
   description = "KV secrets engine for RGW credentials"
@@ -80,7 +80,7 @@ resource "vault_kv_secret_v2" "rgw_credentials" {
     vault_mount.kv,
     data.kubernetes_secret.rook_rgw_credentials
   ]
-  
+
   # Ensure we have valid credentials before storing
   lifecycle {
     precondition {

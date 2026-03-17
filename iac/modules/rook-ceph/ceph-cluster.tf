@@ -11,7 +11,7 @@ locals {
     useAllNodes = true
     # FORCED: Always false - automatic device discovery is disabled for safety
     useAllDevices = false
-    deviceFilter = "" # Not used when useAllDevices is false
+    deviceFilter  = "" # Not used when useAllDevices is false
     devices = [
       for device in var.storage_devices : {
         name = device
@@ -21,12 +21,12 @@ locals {
       }
     ]
     nodes = [] # Not used when useAllNodes is true
-  } : {
+    } : {
     useAllNodes = false
     # FORCED: Always false - automatic device discovery is disabled for safety
     useAllDevices = false
-    deviceFilter = "" # Not used when useAllDevices is false
-    devices = [] # Not used when useAllNodes is false
+    deviceFilter  = "" # Not used when useAllDevices is false
+    devices       = [] # Not used when useAllNodes is false
     nodes = [
       for node in var.storage_nodes : {
         name = node.name
@@ -63,11 +63,11 @@ resource "kubernetes_manifest" "ceph_cluster" {
     }
     spec = {
       cephVersion = {
-        image = "quay.io/ceph/ceph:${var.ceph_version}"
+        image            = "quay.io/ceph/ceph:${var.ceph_version}"
         allowUnsupported = false
       }
-      dataDirHostPath = var.data_dir_host_path
-      skipUpgradeChecks = false
+      dataDirHostPath                            = var.data_dir_host_path
+      skipUpgradeChecks                          = false
       continueUpgradeAfterChecksEvenIfNotHealthy = false
 
       # MON (Monitor) configuration
@@ -76,7 +76,7 @@ resource "kubernetes_manifest" "ceph_cluster" {
       mon = {
         count                = var.mon_count
         allowMultiplePerNode = false
-        volumeClaimTemplate = null # Use hostPath for bare-metal
+        volumeClaimTemplate  = null # Use hostPath for bare-metal
       }
 
       # MGR (Manager) configuration
@@ -158,19 +158,19 @@ resource "kubernetes_manifest" "ceph_cluster" {
       cephConfig = {
         global = {
           # Recovery throttling - limits impact on latency during recovery
-          osd_recovery_max_active     = tostring(var.osd_recovery_max_active)
-          osd_recovery_op_priority   = tostring(var.osd_recovery_op_priority)
-          osd_max_backfills          = tostring(var.osd_max_backfills)
+          osd_recovery_max_active  = tostring(var.osd_recovery_max_active)
+          osd_recovery_op_priority = tostring(var.osd_recovery_op_priority)
+          osd_max_backfills        = tostring(var.osd_max_backfills)
           # Ensure cluster remains HEALTH_OK with 1 node down
           mon_osd_down_out_interval = "600" # 10 minutes (default is 300s, increased for stability)
           # Conservative defaults for small cluster
           osd_pool_default_size     = tostring(var.replication_size)
           osd_pool_default_min_size = "2" # Allow writes with 2 replicas (tolerates 1 node down)
           # Network tuning for low latency
-          ms_bind_port_min          = "6800"
-          ms_bind_port_max          = "7300"
+          ms_bind_port_min = "6800"
+          ms_bind_port_max = "7300"
           # Disable features not needed for block/object storage
-          rbd_default_features      = "3" # layering, exclusive-lock (no object-map, fast-diff for performance)
+          rbd_default_features = "3" # layering, exclusive-lock (no object-map, fast-diff for performance)
         }
         mon = {
           # MON-specific settings
@@ -193,9 +193,9 @@ resource "kubernetes_manifest" "ceph_cluster" {
           # fsGroup ensures pods can write to mounted volumes
           # Using 0 (root) for maximum compatibility with hostPath mounts
           securityContext = {
-            fsGroup = 0
-            runAsUser = 0
-            runAsNonRoot = false
+            fsGroup        = 0
+            runAsUser      = 0
+            runAsNonRoot   = false
             seLinuxOptions = {}
           }
           podAntiAffinity = {
@@ -221,9 +221,9 @@ resource "kubernetes_manifest" "ceph_cluster" {
         mgr = {
           # Security context for MGR daemons
           securityContext = {
-            fsGroup = 0
-            runAsUser = 0
-            runAsNonRoot = false
+            fsGroup        = 0
+            runAsUser      = 0
+            runAsNonRoot   = false
             seLinuxOptions = {}
           }
           podAntiAffinity = {

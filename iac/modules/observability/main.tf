@@ -322,9 +322,9 @@ resource "helm_release" "loki" {
               chunks = ""
               ruler  = ""
             }
-            s3      = {}
-            gcs     = {}
-            azure   = {}
+            s3    = {}
+            gcs   = {}
+            azure = {}
             filesystem = {
               chunksDirectory = "/loki/chunks"
               rulesDirectory  = "/loki/rules"
@@ -354,7 +354,7 @@ resource "helm_release" "loki" {
                 chunks = var.loki_object_storage.bucket
                 ruler  = var.loki_object_storage.bucket
               }
-              s3    = var.loki_object_storage.type == "s3" ? merge(
+              s3 = var.loki_object_storage.type == "s3" ? merge(
                 var.loki_object_storage.region != null ? { region = var.loki_object_storage.region } : {},
                 var.loki_object_storage.endpoint != null ? { endpoint = var.loki_object_storage.endpoint } : {},
                 var.loki_object_storage.force_path_style != null ? { s3ForcePathStyle = var.loki_object_storage.force_path_style } : {}
@@ -373,9 +373,9 @@ resource "helm_release" "loki" {
               chunks = ""
               ruler  = ""
             }
-            s3      = {}
-            gcs     = {}
-            azure   = {}
+            s3    = {}
+            gcs   = {}
+            azure = {}
             filesystem = {
               chunksDirectory = "/loki/chunks"
               rulesDirectory  = "/loki/rules"

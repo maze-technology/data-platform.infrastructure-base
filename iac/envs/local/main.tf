@@ -4,7 +4,7 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version   = "~> 2.23"
+      version = "~> 2.23"
     }
     helm = {
       source  = "hashicorp/helm"
@@ -53,8 +53,8 @@ locals {
   rgw_credentials = try(
     jsondecode(try(data.vault_kv_secret_v2.rgw_credentials.data_json, "{}")),
     {
-      access_key = "AKIAIOSFODNN7EXAMPLE"  # AWS example format (20 chars)
-      secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # AWS example format (40 chars)
+      access_key = "AKIAIOSFODNN7EXAMPLE"                     # AWS example format (20 chars)
+      secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" # AWS example format (40 chars)
       endpoint   = try(module.rook_ceph.rgw_endpoint, "http://rgw-service.rook-ceph.svc.cluster.local:80")
       region     = "us-east-1"
     }
@@ -103,7 +103,7 @@ provider "aws" {
   shared_config_files      = []
 
   # Explicitly disable EC2 IMDS
-  ec2_metadata_service_endpoint     = "http://169.254.169.254"
+  ec2_metadata_service_endpoint      = "http://169.254.169.254"
   ec2_metadata_service_endpoint_mode = "IPv4"
 }
 
@@ -161,10 +161,10 @@ module "rook_ceph" {
   # - 2 MGRs spread across workers (active + standby, can co-locate with MON)
   # - OSDs distributed across all workers
   # Control-plane remains tainted; no tolerations needed for Ceph pods
-  mon_count        = 3  # 3 MONs for quorum (can survive 1 node failure)
-  mgr_count        = 2  # 2 MGRs for production (active + standby)
+  mon_count        = 3 # 3 MONs for quorum (can survive 1 node failure)
+  mgr_count        = 2 # 2 MGRs for production (active + standby)
   rgw_instances    = 1
-  replication_size = 3  # Production-like replication (3 replicas across 3+ nodes)
+  replication_size = 3 # Production-like replication (3 replicas across 3+ nodes)
 
   # Reduced resource requests for local
   resource_requests = {
@@ -185,7 +185,7 @@ module "rook_ceph" {
 
   # Recovery throttling (less aggressive for local)
   osd_recovery_max_active  = 2
-  osd_recovery_op_priority  = 5
+  osd_recovery_op_priority = 5
   osd_max_backfills        = 1
 
   # Dashboard enabled for local debugging
@@ -326,13 +326,13 @@ module "rgw_bootstrap" {
   rgw_region   = "us-east-1"
 
   # Use existing Rook-Ceph created user
-  use_existing_rook_user      = true
-  rook_rgw_secret_name        = "rook-ceph-object-user-rgw-store-s3-user"
-  rook_rgw_secret_namespace   = "rook-ceph"
+  use_existing_rook_user    = true
+  rook_rgw_secret_name      = "rook-ceph-object-user-rgw-store-s3-user"
+  rook_rgw_secret_namespace = "rook-ceph"
 
   # Vault configuration
-  vault_kv_mount_path = "secret"
-  vault_secret_path   = "rgw/credentials"
+  vault_kv_mount_path  = "secret"
+  vault_secret_path    = "rgw/credentials"
   vault_provider_ready = module.vault.helm_release
 
   depends_on = [
