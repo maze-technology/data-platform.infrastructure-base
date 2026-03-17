@@ -3,6 +3,7 @@
 .PHONY: local-setup local-teardown
 .PHONY: ensure-rook-crds
 .PHONY: prepull-ceph-image
+.PHONY: setup-loop-devices teardown-loop-devices
 
 # Variables
 CLUSTER_NAME ?= local
@@ -356,8 +357,55 @@ local-setup: ## Set up complete local development environment (Kind cluster)
 
 local-teardown: ## Tear down local development environment
 	@echo "Tearing down local development environment..."
+	@$(MAKE) teardown-loop-devices || true
 	@$(MAKE) kind-down
 	@echo "✓ Local development environment torn down"
+	@echo "Note: OSD image files preserved at /var/lib/rook/loop1*.img — delete manually if not needed"
+
+setup-loop-devices: ## Re-attach OSD loop devices after a reboot (normally handled by tofu apply)
+	@echo "Re-attaching OSD loop devices on kind worker nodes..."
+	@echo "Note: This is only needed after a host reboot or cluster restart."
+	@echo "      Under normal circumstances, 'tofu apply' handles this automatically."
+	@for NODE in local-worker local-worker2 local-worker3; do \
+		LOOP_NUM=$$((10 + $$(echo $$NODE | sed 's/local-worker//' | sed 's/^$$/0/'))); \
+		DEVICE="/dev/loop$$LOOP_NUM"; \
+		IMG_PATH="/var/lib/rook/loop$${LOOP_NUM}.img"; \
+		if ! docker ps --format '{{.Names}}' | grep -qxF "$$NODE" 2>/dev/null; then \
+			echo "  $$NODE not running, skipping"; \
+			continue; \
+		fi; \
+		if [ ! -f "$$IMG_PATH" ] && ! docker exec "$$NODE" test -f "$$IMG_PATH" 2>/dev/null; then \
+			echo "  ⚠ Image $$IMG_PATH not found on $$NODE — run 'make apply' first"; \
+			continue; \
+		fi; \
+		if docker exec "$$NODE" losetup "$$DEVICE" >/dev/null 2>&1; then \
+			echo "  $$DEVICE already attached on $$NODE"; \
+		else \
+			docker exec "$$NODE" losetup "$$DEVICE" "$$IMG_PATH" && \
+				echo "  ✓ Attached $$IMG_PATH to $$DEVICE on $$NODE" || \
+				echo "  ✗ Failed to attach $$DEVICE on $$NODE"; \
+		fi; \
+	done
+	@echo "Done. If devices were lost, also run 'make apply' to ensure Rook cluster is consistent."
+
+teardown-loop-devices: ## Detach OSD loop devices from kind worker nodes (image files are preserved)
+	@echo "Detaching OSD loop devices..."
+	@for NODE in local-worker local-worker2 local-worker3; do \
+		LOOP_NUM=$$((10 + $$(echo $$NODE | sed 's/local-worker//' | sed 's/^$$/0/'))); \
+		DEVICE="/dev/loop$$LOOP_NUM"; \
+		if ! docker ps --format '{{.Names}}' | grep -qxF "$$NODE" 2>/dev/null; then \
+			echo "  $$NODE not running, skipping"; \
+			continue; \
+		fi; \
+		if docker exec "$$NODE" losetup "$$DEVICE" >/dev/null 2>&1; then \
+			docker exec "$$NODE" losetup -d "$$DEVICE" && \
+				echo "  ✓ Detached $$DEVICE on $$NODE" || \
+				echo "  ⚠ Failed to detach $$DEVICE on $$NODE"; \
+		else \
+			echo "  $$DEVICE not attached on $$NODE, skipping"; \
+		fi; \
+	done
+	@echo "Done. Image files preserved at /var/lib/rook/loop1*.img"
 
 prepull-ceph-image: ## Pre-pull Ceph image with resumable download (handles network failures gracefully)
 	@echo "Pre-pulling Ceph image (resumable - will resume if network fails)..."

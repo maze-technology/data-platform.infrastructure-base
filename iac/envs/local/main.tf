@@ -148,12 +148,22 @@ module "rook_ceph" {
   cluster_name = local.cluster_name
   environment  = local.environment
 
-  # For local/kind: use all nodes, configure devices based on your setup
-  # SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
-  use_all_nodes = true
-  # Specify devices explicitly (e.g., loop devices for Kind: ["/dev/loop0", "/dev/loop1"])
-  # If empty, Rook will use directories (safe fallback for Kind clusters)
-  storage_devices = [] # Configure based on your local setup (e.g., ["/dev/loop0"])
+  # SAFETY: use_all_nodes = false + explicit storage_nodes prevents Rook from scanning
+  # and accidentally formatting real block devices on the host.
+  # Each worker node gets a dedicated loop device backed by a sparse image file
+  # (created by the null_resource.setup_osd_loop_devices in rook-data-dir.tf).
+  # Image files live at /var/lib/rook/<device-basename>.img (e.g. loop10.img).
+  use_all_nodes = false
+  storage_nodes = [
+    { name = "local-worker", devices = ["/dev/loop10"] },
+    { name = "local-worker2", devices = ["/dev/loop11"] },
+    { name = "local-worker3", devices = ["/dev/loop12"] },
+  ]
+
+  # Create sparse image files and attach them as loop devices on each worker node.
+  # Sparse files use no real disk space until written — completely safe for local dev.
+  create_loop_devices       = true
+  loop_device_image_size_gb = 10
 
   # Production-like sizing for local development
   # With 4 nodes (1 control-plane + 3 workers), we have:
@@ -162,9 +172,9 @@ module "rook_ceph" {
   # - OSDs distributed across all workers
   # Control-plane remains tainted; no tolerations needed for Ceph pods
   mon_count        = 3 # 3 MONs for quorum (can survive 1 node failure)
-  mgr_count        = 2 # 2 MGRs for production (active + standby)
+  mgr_count        = 1 # 1 MGR is sufficient for local dev
   rgw_instances    = 1
-  replication_size = 3 # Production-like replication (3 replicas across 3+ nodes)
+  replication_size = 3 # 3 replicas across 3 OSD nodes (one OSD per worker)
 
   # Reduced resource requests for local
   resource_requests = {

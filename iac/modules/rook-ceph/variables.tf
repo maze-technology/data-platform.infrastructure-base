@@ -254,6 +254,21 @@ variable "data_dir_host_path" {
   default     = "/var/lib/rook"
 }
 
+# Loop device configuration for local kind clusters
+# When enabled, creates sparse image files and attaches them as loop devices on kind worker nodes.
+# This ensures Rook writes to files instead of real disk partitions (safe for local dev).
+variable "create_loop_devices" {
+  description = "Create loop device-backed OSD images on kind worker nodes. Writes to files, not real disks — safe for local development. Requires storage_nodes to specify the target loop device paths."
+  type        = bool
+  default     = false
+}
+
+variable "loop_device_image_size_gb" {
+  description = "Size in GB of each OSD loop device sparse image file (only used when create_loop_devices = true). Sparse files consume no disk space until written."
+  type        = number
+  default     = 10
+}
+
 # Dashboard
 variable "dashboard_enabled" {
   description = "Enable Ceph dashboard"
