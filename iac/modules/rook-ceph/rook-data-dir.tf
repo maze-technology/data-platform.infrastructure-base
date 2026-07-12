@@ -177,7 +177,7 @@ resource "null_resource" "setup_osd_loop_devices" {
       fi
 
       # Kind node containers may not ship with high-numbered /dev/loopN nodes
-      LOOP_NUM="${DEVICE#/dev/loop}"
+      LOOP_NUM="$${DEVICE#/dev/loop}"
       if ! docker exec "$NODE" test -e "$DEVICE" 2>/dev/null; then
         echo "Creating loop device node $DEVICE (7:$LOOP_NUM) on $NODE..."
         docker exec "$NODE" mknod -m 660 "$DEVICE" b 7 "$LOOP_NUM"
