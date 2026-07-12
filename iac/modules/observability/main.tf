@@ -13,6 +13,12 @@ resource "kubernetes_namespace" "monitoring" {
 locals {
   needs_loki_s3_credentials = var.loki_deployment_mode == "scalable" && var.loki_object_storage != null
 
+  ingress_whitelist = "${var.vpn_cidr},127.0.0.1/32,10.0.0.0/8"
+
+  ingress_annotations = var.restrict_to_vpn ? {
+    "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
+  } : {}
+
   grafana_oauth_ini = var.oidc != null ? {
     auth = {
       disable_login_form = false
@@ -84,9 +90,12 @@ resource "helm_release" "prometheus_operator" {
             enabled          = var.grafana_ingress_enabled
             ingressClassName = var.grafana_ingress_class
             hosts            = var.grafana_ingress_enabled ? [var.grafana_ingress_host] : []
-            annotations = var.grafana_enable_tls ? {
-              "cert-manager.io/cluster-issuer" = "letsencrypt-production"
-            } : {}
+            annotations = merge(
+              var.grafana_enable_tls ? {
+                "cert-manager.io/cluster-issuer" = "letsencrypt-production"
+              } : {},
+              local.ingress_annotations
+            )
             tls = var.grafana_enable_tls && var.grafana_ingress_enabled ? [{
               hosts      = [var.grafana_ingress_host]
               secretName = "grafana-tls"

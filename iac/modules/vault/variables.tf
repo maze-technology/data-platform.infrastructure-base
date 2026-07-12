@@ -155,3 +155,15 @@ variable "resource_limits" {
     }
   }
 }
+
+variable "vpn_cidr" {
+  description = "WireGuard VPN CIDR allowed to reach Vault via ingress whitelist"
+  type        = string
+  default     = "10.8.0.0/24"
+}
+
+variable "restrict_to_vpn" {
+  description = "When true, Vault ingress is only reachable from the VPN subnet"
+  type        = bool
+  default     = true
+}

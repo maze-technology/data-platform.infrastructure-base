@@ -1,3 +1,11 @@
+locals {
+  ingress_whitelist = "${var.vpn_cidr},127.0.0.1/32,10.0.0.0/8"
+
+  ingress_annotations = var.restrict_to_vpn ? {
+    "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
+  } : {}
+}
+
 resource "kubernetes_namespace" "argocd" {
   metadata {
     name = var.namespace
@@ -42,6 +50,7 @@ resource "helm_release" "argocd" {
           enabled          = var.ingress_enabled
           ingressClassName = var.ingress_class
           hosts            = var.ingress_enabled ? [var.ingress_host] : []
+          annotations      = local.ingress_annotations
           tls = var.enable_tls && var.ingress_enabled ? [{
             hosts      = [var.ingress_host]
             secretName = var.tls_secret_name

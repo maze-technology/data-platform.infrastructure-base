@@ -335,7 +335,10 @@ module "observability" {
     client_secret = module.keycloak.client_secrets.grafana
   }
 
-  depends_on = [module.rook_ceph, module.keycloak]
+  vpn_cidr        = module.wireguard.vpn_subnet
+  restrict_to_vpn = true
+
+  depends_on = [module.rook_ceph, module.keycloak, module.wireguard]
 }
 
 # ============================================================================
@@ -361,7 +364,10 @@ module "argocd" {
     redirect_url  = "http://${local.hosts.argocd}${local.ingress_port}/auth/callback"
   }
 
-  depends_on = [module.keycloak]
+  vpn_cidr        = module.wireguard.vpn_subnet
+  restrict_to_vpn = true
+
+  depends_on = [module.keycloak, module.wireguard]
 }
 
 # Temporal — disabled for first release (workflow orchestration comes later)
@@ -463,6 +469,11 @@ module "vault" {
   # storage_backend = "file"
   # storage_size    = "10Gi"
   # storage_class   = module.rook_ceph.storage_class_name
+
+  vpn_cidr        = module.wireguard.vpn_subnet
+  restrict_to_vpn = true
+
+  depends_on = [module.wireguard]
 }
 
 # ============================================================================

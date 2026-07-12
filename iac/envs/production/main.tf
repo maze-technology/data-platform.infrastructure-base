@@ -154,6 +154,9 @@ module "vault" {
   storage_backend = "file"
   storage_size    = "10Gi"
   storage_class   = module.rook_ceph.storage_class_name
+
+  vpn_cidr        = var.vpn_subnet
+  restrict_to_vpn = true
 }
 
 module "rgw_bootstrap" {
@@ -286,6 +289,9 @@ module "observability" {
     client_secret = module.keycloak.client_secrets.grafana
   }
 
+  vpn_cidr        = var.vpn_subnet
+  restrict_to_vpn = true
+
   depends_on = [module.rook_ceph, module.keycloak]
 }
 
@@ -310,6 +316,9 @@ module "argocd" {
     client_secret = module.keycloak.client_secrets.argocd
     redirect_url  = "https://${local.hosts.argocd}/auth/callback"
   }
+
+  vpn_cidr        = var.vpn_subnet
+  restrict_to_vpn = true
 
   depends_on = [module.keycloak]
 }
