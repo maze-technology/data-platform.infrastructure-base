@@ -50,7 +50,7 @@ resource "helm_release" "vault" {
           devRootToken = "root"
         } : null
         standalone = {
-          enabled = var.storage_backend == "kubernetes"
+          enabled = var.storage_backend != "kubernetes"
         }
         extraArgs = ""
         # Ingress configuration
