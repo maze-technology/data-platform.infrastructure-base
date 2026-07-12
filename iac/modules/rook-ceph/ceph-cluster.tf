@@ -165,7 +165,7 @@ resource "kubernetes_manifest" "ceph_cluster" {
           mon_osd_down_out_interval = "600" # 10 minutes (default is 300s, increased for stability)
           # Conservative defaults for small cluster
           osd_pool_default_size     = tostring(var.replication_size)
-          osd_pool_default_min_size = "2" # Allow writes with 2 replicas (tolerates 1 node down)
+          osd_pool_default_min_size = var.replication_size > 1 ? "2" : "1"
           # Network tuning for low latency
           ms_bind_port_min = "6800"
           ms_bind_port_max = "7300"
@@ -286,10 +286,8 @@ resource "kubernetes_manifest" "ceph_cluster" {
     kubernetes_namespace.rook_ceph,
     kubernetes_manifest.rook_operator,
     null_resource.install_and_verify_rook_crds,
-    null_resource.create_rook_data_dir
-    # Note: We don't pre-create the version detection ConfigMap because the operator
-    # deletes manually created ConfigMaps. The operator will create a job to detect
-    # the version, which should complete once the Ceph image is pulled.
+    null_resource.create_rook_data_dir,
+    null_resource.setup_osd_loop_devices,
   ]
   # Note: prometheus_operator_dependency is not included in depends_on to avoid circular
   # dependencies when observability depends on rook_ceph for S3 storage. The CephCluster CRD

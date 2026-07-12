@@ -208,7 +208,8 @@ module "rook_ceph" {
   create_loop_devices       = true
   loop_device_image_size_gb = 10
 
-  mon_count        = 3
+  # Single MON for kind: with 3 workers and 3 MONs, MGR cannot schedule (daemon ID anti-affinity).
+  mon_count        = 1
   mgr_count        = 1
   rgw_instances    = 1
   replication_size = 1 # Local dev only — maximises usable space on small VPS loop files
