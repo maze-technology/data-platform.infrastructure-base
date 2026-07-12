@@ -27,7 +27,7 @@ ensure-rook-crds: ## Ensure Rook CRDs are installed (internal target)
 	if ! kubectl get crd cephclusters.ceph.rook.io >/dev/null 2>&1; then \
 		echo "Rook CRDs not found. Terraform will detect and install them automatically."; \
 		echo "This is required because kubernetes_manifest validates during plan/apply."; \
-		tofu apply -target='module.rook_ceph.null_resource.install_and_verify_rook_crds' -auto-approve || { \
+		tofu apply -target='module.rook_ceph.null_resource.install_rook_platform' -auto-approve || { \
 			echo "Error: CRD installation failed. Cannot proceed."; \
 			exit 1; \
 		}; \
@@ -412,7 +412,7 @@ prepull-ceph-image: ## Pre-pull Ceph image with resumable download (handles netw
 	@echo "Note: containerd automatically resumes partial downloads"
 	@echo ""
 	@NODE="local-worker"; \
-	IMAGE="quay.io/ceph/ceph:v18.2.0"; \
+	IMAGE="quay.io/ceph/ceph:v20.2.2"; \
 	echo "Pulling $$IMAGE on node $$NODE..."; \
 	echo "If network fails, just run 'make prepull-ceph-image' again - it will resume"; \
 	echo ""; \

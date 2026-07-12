@@ -87,7 +87,7 @@ variable "resource_limits" {
 variable "helm_chart_version" {
   description = "Version of the ingress-nginx Helm chart"
   type        = string
-  default     = "4.8.3"
+  default     = "4.15.1"
 }
 
 variable "prometheus_operator_dependency" {

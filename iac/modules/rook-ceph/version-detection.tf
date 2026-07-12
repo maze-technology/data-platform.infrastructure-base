@@ -4,7 +4,7 @@
 #
 # NOTE: Pre-creating the version detection ConfigMap doesn't work because the operator
 # deletes manually created ConfigMaps. The operator will create a job to detect the version.
-# The job should complete once the Ceph image (quay.io/ceph/ceph:v18.2.0) is pulled.
+# The job should complete once the Ceph image (quay.io/ceph/ceph:v20.2.2) is pulled.
 #
 # This file is kept for reference but the resource is disabled.
 
@@ -15,8 +15,9 @@ locals {
   # Format: "ceph version X.Y.Z (commit-hash) codename (release)"
   # For v18.2.0 (Pacific), the format is typically:
   # "ceph version 18.2.0 (1234567890abcdef1234567890abcdef12345678) pacific (stable)"
-  # We'll use a format that Rook can parse - the commit hash can be a placeholder
-  ceph_version_output = "ceph version ${local.ceph_version_tag} (0000000000000000000000000000000000000000) pacific (stable)"
+  # For v20.2.2 (Tentacle):
+  # "ceph version 20.2.2 (0000000000000000000000000000000000000000) tentacle (stable)"
+  ceph_version_output = "ceph version ${local.ceph_version_tag} (0000000000000000000000000000000000000000) tentacle (stable)"
 }
 
 # DISABLED: Operator deletes manually created ConfigMaps

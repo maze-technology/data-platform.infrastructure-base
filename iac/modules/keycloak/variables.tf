@@ -17,7 +17,7 @@ variable "namespace" {
 variable "helm_chart_version" {
   description = "Bitnami Keycloak Helm chart version"
   type        = string
-  default     = "24.4.10"
+  default     = "25.2.0"
 }
 
 variable "realm" {

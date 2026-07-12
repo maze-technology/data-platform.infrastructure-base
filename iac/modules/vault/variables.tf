@@ -99,13 +99,13 @@ variable "storage_class" {
 variable "vault_version" {
   description = "Vault version to deploy"
   type        = string
-  default     = "1.15.2"
+  default     = "2.0.3"
 }
 
 variable "helm_chart_version" {
   description = "Version of the Vault Helm chart"
   type        = string
-  default     = "0.25.0"
+  default     = "0.34.0"
 }
 
 variable "resource_requests" {

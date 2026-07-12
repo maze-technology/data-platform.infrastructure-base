@@ -30,7 +30,7 @@ resource "helm_release" "argocd" {
     yamlencode(merge({
       global = {
         image = {
-          tag = "v2.9.3"
+          tag = var.argocd_image_tag
         }
       }
       controller = {

@@ -111,6 +111,6 @@ variable "resource_limits" {
 variable "helm_chart_version" {
   description = "Version of the cert-manager Helm chart"
   type        = string
-  default     = "v1.13.3"
+  default     = "v1.21.0"
 }
 

@@ -30,6 +30,18 @@ locals {
       ]
     ]) : "${pair.node_name}:${pair.device_path}" => pair
   } : {}
+
+  # Derive (node, directory) pairs from storage_nodes for directory OSD setup.
+  osd_directory_pairs = {
+    for pair in flatten([
+      for node in var.storage_nodes : [
+        for dir in coalesce(node.directories, []) : {
+          node_name = node.name
+          dir_path  = dir
+        }
+      ]
+    ]) : "${pair.node_name}:${pair.dir_path}" => pair
+  }
 }
 
 # Data source to check if data directory exists on each node
@@ -166,9 +178,10 @@ resource "null_resource" "setup_osd_loop_devices" {
       set -euo pipefail
       NODE="${each.value.node_name}"
       DEVICE="${each.value.device_path}"
+      DEVICE="/dev/$${DEVICE#/dev/}"
       # Derive image filename from device basename: /dev/loop10 → loop10.img
       DEV_BASENAME=$(basename "$DEVICE")
-      IMG_PATH="${var.data_dir_host_path}/$DEV_BASENAME.img"
+      IMG_PATH="${var.data_dir_host_path}/$NODE-osd.img"
       SIZE_GB="${var.loop_device_image_size_gb}"
 
       if ! docker ps --format '{{.Names}}' | grep -qxF "$NODE"; then
@@ -220,6 +233,36 @@ resource "null_resource" "setup_osd_loop_devices" {
         echo "✗ $DEVICE is not a block device on $NODE after setup"
         exit 1
       fi
+    EOT
+  }
+
+  depends_on = [null_resource.create_rook_data_dir]
+}
+
+# Create directory-backed OSD paths on kind worker nodes (used when create_loop_devices = false).
+resource "null_resource" "setup_osd_directories" {
+  for_each = local.osd_directory_pairs
+
+  triggers = {
+    node_name = each.value.node_name
+    dir_path  = each.value.dir_path
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      NODE="${each.value.node_name}"
+      DIR="${each.value.dir_path}"
+
+      if ! docker ps --format '{{.Names}}' | grep -qxF "$NODE"; then
+        echo "✗ Node $NODE not found"
+        exit 1
+      fi
+
+      docker exec "$NODE" mkdir -p "$DIR"
+      docker exec "$NODE" chmod 777 "$DIR"
+      echo "✓ Created OSD directory $DIR on $NODE"
     EOT
   }
 

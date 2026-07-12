@@ -123,7 +123,13 @@ variable "resource_limits" {
 variable "helm_chart_version" {
   description = "Version of the Argo CD Helm chart"
   type        = string
-  default     = "7.6.8"
+  default     = "10.1.3"
+}
+
+variable "argocd_image_tag" {
+  description = "Argo CD container image tag (defaults to chart appVersion when empty)"
+  type        = string
+  default     = "v3.4.5"
 }
 
 variable "oidc" {

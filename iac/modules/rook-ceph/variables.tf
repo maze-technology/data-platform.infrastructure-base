@@ -18,13 +18,13 @@ variable "namespace" {
 variable "ceph_version" {
   description = "Ceph version image tag"
   type        = string
-  default     = "v18.2.0" # Pacific (stable, production-ready)
+  default     = "v20.2.2" # Tentacle (stable, recommended with Rook v1.20)
 }
 
 variable "rook_operator_version" {
   description = "Rook operator version"
   type        = string
-  default     = "v1.15.0" # Latest stable
+  default     = "v1.20.2"
 }
 
 # Storage configuration

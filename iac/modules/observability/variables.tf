@@ -205,31 +205,31 @@ variable "resource_limits" {
 variable "helm_chart_version_prometheus_operator" {
   description = "Helm chart version for kube-prometheus-stack"
   type        = string
-  default     = "55.5.0"
+  default     = "87.15.1"
 }
 
 variable "helm_chart_version_loki" {
   description = "Helm chart version for Loki"
   type        = string
-  default     = "5.42.0"
+  default     = "7.0.0"
 }
 
 variable "helm_chart_version_promtail" {
   description = "Helm chart version for Promtail"
   type        = string
-  default     = "6.15.0"
+  default     = "6.17.1"
 }
 
 variable "helm_chart_version_tempo" {
   description = "Helm chart version for Tempo"
   type        = string
-  default     = "1.7.0"
+  default     = "1.24.4"
 }
 
 variable "helm_chart_version_opentelemetry_collector" {
   description = "Helm chart version for OpenTelemetry Collector"
   type        = string
-  default     = "0.103.0"
+  default     = "0.165.0"
 }
 
 variable "oidc" {

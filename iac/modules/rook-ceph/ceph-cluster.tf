@@ -293,10 +293,10 @@ resource "kubernetes_manifest" "ceph_cluster" {
 
   depends_on = [
     kubernetes_namespace.rook_ceph,
-    kubernetes_manifest.rook_operator,
-    null_resource.install_and_verify_rook_crds,
+    null_resource.install_rook_platform,
     null_resource.create_rook_data_dir,
     null_resource.setup_osd_loop_devices,
+    null_resource.setup_osd_directories,
   ]
   # Note: prometheus_operator_dependency is not included in depends_on to avoid circular
   # dependencies when observability depends on rook_ceph for S3 storage. The CephCluster CRD

@@ -191,15 +191,14 @@ module "rook_ceph" {
   # Each worker node gets a dedicated loop device backed by a sparse image file
   # (created by the null_resource.setup_osd_loop_devices in rook-data-dir.tf).
   # Image files live at /var/lib/rook/<device-basename>.img (e.g. loop10.img).
-  # Directory-backed OSDs under /var/lib/rook (kind extraMount). Rook does not discover loop
-  # devices reliably; directories stay inside the mounted path and never touch the OS disk.
+  # Rook v1.20+ uses loop devices backed by per-node sparse images (see rook-data-dir.tf).
   use_all_nodes             = false
-  create_loop_devices       = false
+  create_loop_devices       = true
   loop_device_image_size_gb = 10
   storage_nodes = [
-    { name = "local-worker", directories = ["/var/lib/rook/osd0"] },
-    { name = "local-worker2", directories = ["/var/lib/rook/osd1"] },
-    { name = "local-worker3", directories = ["/var/lib/rook/osd2"] },
+    { name = "local-worker", devices = ["loop10"] },
+    { name = "local-worker2", devices = ["loop11"] },
+    { name = "local-worker3", devices = ["loop12"] },
   ]
 
   # Single MON for kind: with 3 workers and 3 MONs, MGR cannot schedule (daemon ID anti-affinity).

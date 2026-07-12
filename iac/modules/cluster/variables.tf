@@ -19,9 +19,9 @@ variable "cluster_type" {
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version to use"
+  description = "Kubernetes version to use (Rook v1.20+ requires >= 1.31)"
   type        = string
-  default     = "1.28"
+  default     = "1.31"
 }
 
 variable "node_count" {

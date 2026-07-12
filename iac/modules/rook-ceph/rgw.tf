@@ -105,7 +105,7 @@ resource "kubernetes_manifest" "ceph_object_store" {
   depends_on = [
     kubernetes_namespace.rook_ceph,
     kubernetes_manifest.ceph_cluster,
-    null_resource.install_and_verify_rook_crds
+    null_resource.install_rook_platform
   ]
 
   # Note: CephObjectStore can take time to become Ready
