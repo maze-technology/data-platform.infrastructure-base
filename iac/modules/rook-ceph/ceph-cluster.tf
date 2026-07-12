@@ -47,6 +47,25 @@ locals {
             }
           ]
         } : {},
+        length(coalesce(node.volume_claim_templates, [])) > 0 ? {
+          volumeClaimTemplates = [
+            for vc in node.volume_claim_templates : {
+              metadata = {
+                name = vc.name
+              }
+              spec = {
+                storageClassName = vc.storage_class
+                accessModes      = ["ReadWriteOnce"]
+                resources = {
+                  requests = {
+                    storage = vc.size
+                  }
+                }
+                volumeMode = vc.volume_mode
+              }
+            }
+          ]
+        } : {},
       )
     ]
   }

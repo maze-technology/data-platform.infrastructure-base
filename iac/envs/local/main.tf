@@ -188,24 +188,21 @@ module "rook_ceph" {
 
   # SAFETY: use_all_nodes = false + explicit storage_nodes prevents Rook from scanning
   # and accidentally formatting real block devices on the host.
-  # Each worker node gets a dedicated loop device backed by a sparse image file
-  # (created by the null_resource.setup_osd_loop_devices in rook-data-dir.tf).
-  # Image files live at /var/lib/rook/<device-basename>.img (e.g. loop10.img).
-  # Rook v1.20+ uses loop devices backed by per-node sparse images (see rook-data-dir.tf).
-  use_all_nodes             = false
-  create_loop_devices       = true
-  loop_device_image_size_gb = 10
+  # Kind/local uses PVC-backed OSDs on the default standard (local-path) StorageClass.
+  # Ceph v20+ rejects loop devices for OSDs; PVC-backed OSDs are the supported path here.
+  use_all_nodes       = false
+  create_loop_devices = false
   storage_nodes = [
-    { name = "local-worker", devices = ["loop10"] },
-    { name = "local-worker2", devices = ["loop11"] },
-    { name = "local-worker3", devices = ["loop12"] },
+    { name = "local-worker", volume_claim_templates = [{ size = "10Gi" }] },
+    { name = "local-worker2", volume_claim_templates = [{ size = "10Gi" }] },
+    { name = "local-worker3", volume_claim_templates = [{ size = "10Gi" }] },
   ]
 
   # Single MON for kind: with 3 workers and 3 MONs, MGR cannot schedule (daemon ID anti-affinity).
   mon_count        = 1
   mgr_count        = 1
   rgw_instances    = 1
-  replication_size = 1 # Local dev only — maximises usable space on small VPS loop files
+  replication_size = 1 # Local dev only — single replica on small PVC-backed OSDs
 
   # Reduced resource requests for local
   resource_requests = {

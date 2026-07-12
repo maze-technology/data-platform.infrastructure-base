@@ -248,7 +248,7 @@ make local-teardown
 |---------|-------|--------|
 | `useAllDevices` | **always `false`** | No automatic disk discovery |
 | `deviceFilter` | **always `""`** | No regex-based device matching |
-| Local (`kind`) | `create_loop_devices = true` | Sparse image files (`/var/lib/rook/loop10.img`) attached as loop devices — **never touches real disks** |
+| Local (`kind`) | PVC-backed OSDs on `standard` (local-path) | Ceph v20+ rejects loop devices; PVCs are safe and never touch real disks |
 | Production | Explicit `storage_nodes` per bare-metal server | Only dedicated disks (e.g. `/dev/sdb`) — **never the OS disk** |
 
 Local loop device config in `iac/envs/local/main.tf`:

@@ -42,11 +42,17 @@ variable "use_all_nodes" {
 }
 
 variable "storage_nodes" {
-  description = "List of node names to use for storage. Required if use_all_nodes is false. Use devices for bare metal or directories for kind/local."
+  description = "List of node names to use for storage. Required if use_all_nodes is false. Use devices for bare metal, volume_claim_templates for kind/local PVC-backed OSDs, or directories where supported."
   type = list(object({
-    name        = string
-    devices     = optional(list(string), [])
+    name = string
+    devices = optional(list(string), [])
     directories = optional(list(string), [])
+    volume_claim_templates = optional(list(object({
+      name          = optional(string, "data")
+      size          = string
+      storage_class = optional(string, "standard")
+      volume_mode   = optional(string, "Filesystem")
+    })), [])
   }))
   default = []
 }
