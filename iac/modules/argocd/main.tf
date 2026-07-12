@@ -69,6 +69,32 @@ resource "helm_release" "argocd" {
       redisSecretInit = {
         enabled = true
       }
+      configs = var.oidc != null ? {
+        cm = {
+          url           = var.enable_tls ? "https://${var.ingress_host}" : "http://${var.ingress_host}"
+          "oidc.config" = <<-EOT
+            name: Keycloak
+            issuer: ${var.oidc.issuer_url}
+            clientID: ${var.oidc.client_id}
+            clientSecret: ${var.oidc.client_secret}
+            requestedScopes:
+              - openid
+              - profile
+              - email
+              - groups
+            requestedIDTokenClaims:
+              groups:
+                essential: true
+          EOT
+        }
+        rbac = {
+          "policy.csv" = <<-EOT
+            g, admins, role:admin
+            g, developers, role:readonly
+          EOT
+          "scopes"     = "[groups]"
+        }
+      } : {}
     })
   ]
 

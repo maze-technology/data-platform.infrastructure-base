@@ -126,3 +126,15 @@ variable "helm_chart_version" {
   default     = "7.6.8"
 }
 
+variable "oidc" {
+  description = "Keycloak OIDC SSO configuration. When set, Argo CD login uses Keycloak."
+  type = object({
+    issuer_url    = string
+    client_id     = string
+    client_secret = string
+    redirect_url  = string
+  })
+  default   = null
+  sensitive = true
+}
+

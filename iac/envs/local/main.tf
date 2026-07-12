@@ -26,6 +26,10 @@ terraform {
       source  = "hashicorp/external"
       version = "~> 2.3"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 }
 
@@ -45,6 +49,43 @@ provider "helm" {
 locals {
   environment  = "local"
   cluster_name = "local"
+  ingress_port = ":30080"
+
+  cluster_domain = var.cluster_domain
+
+  # Feature-based hostnames (not technology names)
+  hosts = {
+    auth     = "auth.${var.cluster_domain}"
+    scm      = "scm.${var.cluster_domain}"
+    registry = "registry.scm.${var.cluster_domain}"
+    grafana  = "grafana.${var.cluster_domain}"
+    argocd   = "argocd.${var.cluster_domain}"
+    vault    = "vault.${var.cluster_domain}"
+    vpn      = "vpn.${var.cluster_domain}"
+  }
+
+  service_base_url = "http://${var.cluster_domain}${local.ingress_port}"
+
+  keycloak_bootstrap_users = concat(
+    [{
+      username           = var.bootstrap_admin.username
+      email              = var.bootstrap_admin.email
+      password           = var.bootstrap_admin.password
+      groups             = ["admins", "vpn-users", "developers"]
+      password_temporary = false
+    }],
+    [
+      for user in var.bootstrap_users : {
+        username           = user.username
+        email              = user.email
+        password           = user.password
+        groups             = user.groups
+        password_temporary = false
+      }
+    ]
+  )
+
+  wireguard_peers = var.wireguard_peers != "" ? var.wireguard_peers : var.bootstrap_admin.username
 
   # Safely extract credentials from Vault, with fallbacks for plan phase
   # This is defined early so providers can use it
@@ -114,10 +155,11 @@ provider "aws" {
 # To enable it again, uncomment the block.
 #
 # Recommended order for incremental debugging:
-# 1. Foundation Layer: Rook-Ceph (storage)
-# 2. Infrastructure Layer: Ingress, Cert-Manager
+# 1. Foundation Layer: Rook-Ceph (storage), Vault, RGW Bootstrap
+# 2. Infrastructure Layer: WireGuard VPN, Ingress, Cert-Manager
 # 3. Observability Layer: Prometheus, Grafana, Loki, Tempo
-# 4. Application Layer: Argo CD, Temporal, Vault
+# 4. Application Layer: GitLab, Argo CD
+# (Temporal is disabled for first release — uncomment when needed)
 
 # Cluster module (kind cluster assumed to be created via scripts)
 module "cluster" {
@@ -235,7 +277,33 @@ module "ingress" {
   node_port_https                = 30443
   replica_count                  = 1
   enable_metrics                 = true
-  prometheus_operator_dependency = module.observability.prometheus_operator_helm_release
+  prometheus_operator_dependency = null # Avoid circular dep with observability/keycloak; enable after stack is up
+}
+
+# Keycloak — central identity provider (users, groups, SSO)
+module "keycloak" {
+  source = "../../modules/keycloak"
+
+  cluster_name = local.cluster_name
+  environment  = local.environment
+
+  keycloak_host       = local.hosts.auth
+  ingress_port_suffix = local.ingress_port
+  enable_tls          = false
+  vpn_cidr            = "10.8.0.0/24"
+  restrict_to_vpn     = true
+  admin_username      = var.keycloak_admin_username
+  admin_password      = var.keycloak_admin_password
+  bootstrap_users     = local.keycloak_bootstrap_users
+  storage_class       = module.rook_ceph.storage_class_name
+
+  oidc_clients = {
+    gitlab_redirect_uri  = "http://${local.hosts.scm}${local.ingress_port}/users/auth/openid_connect/callback"
+    argocd_redirect_uri  = "http://${local.hosts.argocd}${local.ingress_port}/auth/callback"
+    grafana_redirect_uri = "http://${local.hosts.grafana}${local.ingress_port}/login/generic_oauth"
+  }
+
+  depends_on = [module.ingress] # Ingress controller must exist before Keycloak ingress resource
 }
 
 # ============================================================================
@@ -251,7 +319,7 @@ module "observability" {
   cluster_name            = local.cluster_name
   environment             = local.environment
   grafana_ingress_enabled = true
-  grafana_ingress_host    = "grafana.local"
+  grafana_ingress_host    = local.hosts.grafana
   grafana_enable_tls      = false # TLS not needed for local
   prometheus_storage_size = "20Gi"
   grafana_storage_size    = "5Gi"
@@ -267,7 +335,13 @@ module "observability" {
     force_path_style = true
   }
 
-  depends_on = [module.rook_ceph]
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.grafana
+    client_secret = module.keycloak.client_secrets.grafana
+  }
+
+  depends_on = [module.rook_ceph, module.keycloak]
 }
 
 # ============================================================================
@@ -283,27 +357,95 @@ module "argocd" {
   replica_count   = 1
   enable_ha       = false
   ingress_enabled = true
-  ingress_host    = "argocd.local"
+  ingress_host    = local.hosts.argocd
   enable_tls      = false # TLS not needed for local
+
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.argocd
+    client_secret = module.keycloak.client_secrets.argocd
+    redirect_url  = "http://${local.hosts.argocd}${local.ingress_port}/auth/callback"
+  }
+
+  depends_on = [module.keycloak]
 }
 
-# Temporal
-module "temporal" {
-  source = "../../modules/temporal"
+# Temporal — disabled for first release (workflow orchestration comes later)
+# module "temporal" {
+#   source = "../../modules/temporal"
+#
+#   cluster_name               = local.cluster_name
+#   environment                = local.environment
+#   replica_count              = 1
+#   enable_ha                  = false
+#   ingress_host               = "temporal.local"
+#   enable_tls                 = false
+#   temporal_namespaces        = ["data-platform", "trading-platform"]
+#   postgresql_storage_size    = "5Gi"
+#   elasticsearch_storage_size = "5Gi"
+# }
 
-  cluster_name               = local.cluster_name
-  environment                = local.environment
-  replica_count              = 1
-  enable_ha                  = false
-  ingress_host               = "temporal.local"
-  enable_tls                 = false # TLS not needed for local
-  temporal_namespaces        = ["data-platform", "trading-platform"]
-  postgresql_storage_size    = "5Gi"
-  elasticsearch_storage_size = "5Gi"
+# WireGuard VPN — required for secure access to GitLab and other web services
+module "wireguard" {
+  source = "../../modules/wireguard"
+
+  cluster_name = local.cluster_name
+  environment  = local.environment
+
+  server_url   = local.hosts.vpn # Point vpn.maze.local to VPS IP in /etc/hosts
+  service_type = "NodePort"
+  node_port    = 31820
+  vpn_subnet   = "10.8.0.0/24"
+  peers        = local.wireguard_peers
+
+  depends_on = [module.rook_ceph]
+}
+
+# GitLab CE — primary application for first release
+# Local: bundled PostgreSQL + Redis (production uses OVH managed RDS + Valkey)
+# Object storage: Rook-Ceph RGW (S3-compatible)
+# Access: VPN-only via ingress whitelist
+module "gitlab" {
+  source = "../../modules/gitlab"
+
+  cluster_name    = local.cluster_name
+  environment     = local.environment
+  gitlab_domain   = local.hosts.scm
+  registry_domain = local.hosts.registry
+  enable_tls      = false
+  vpn_cidr        = module.wireguard.vpn_subnet
+
+  # Local dev: bundled DB/Redis subcharts (production delegates to OVH managed services)
+  use_external_database = false
+
+  object_storage = {
+    endpoint         = module.rook_ceph.rgw_endpoint
+    bucket           = "gitlab-storage-local"
+    region           = "us-east-1"
+    access_key       = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key       = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style = true
+  }
+
+  storage_class       = module.rook_ceph.storage_class_name
+  gitaly_storage_size = "5Gi"
+
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.gitlab
+    client_secret = module.keycloak.client_secrets.gitlab
+    redirect_uri  = "http://${local.hosts.scm}${local.ingress_port}/users/auth/openid_connect/callback"
+  }
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.keycloak,
+  ]
 }
 
 # HashiCorp Vault - Centralized secret management
-# Provides secure secret storage, rotation, and integration with Kubernetes
 module "vault" {
   source = "../../modules/vault"
 
@@ -312,7 +454,7 @@ module "vault" {
   replica_count   = 1
   enable_ha       = false
   ingress_enabled = true
-  ingress_host    = "vault.local"
+  ingress_host    = local.hosts.vault
   enable_tls      = false # TLS not needed for local
 
   # Storage backend - use Kubernetes secrets for dev (ephemeral)
@@ -383,6 +525,23 @@ resource "aws_s3_bucket" "loki_logs" {
     Environment = local.environment
     ManagedBy   = "opentofu"
     Purpose     = "loki-logs"
+  }
+
+  depends_on = [
+    module.rgw_bootstrap,
+    data.vault_kv_secret_v2.rgw_credentials
+  ]
+}
+
+resource "aws_s3_bucket" "gitlab_storage" {
+  provider = aws.rgw
+  bucket   = "gitlab-storage-local"
+
+  tags = {
+    Name        = "gitlab-storage-local"
+    Environment = local.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "gitlab-object-storage"
   }
 
   depends_on = [

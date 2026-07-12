@@ -18,6 +18,9 @@ nodes:
       - containerPort: 443
         hostPort: 30443
         protocol: TCP
+      - containerPort: 31820
+        hostPort: 31820
+        protocol: UDP
     # Mount host /var/lib/rook into Kind node container
     # This allows Rook MON pods with hostPath volumes to access the directory
     # Terraform creates this directory on the host, and it needs to be accessible

@@ -1,344 +1,371 @@
 # Infrastructure Global
 
-This repository manages the global infrastructure for the platform, providing a consistent foundation across all environments (local, prod).
+OpenTofu-managed global infrastructure for the trading data platform. This repository bootstraps Kubernetes clusters and deploys cluster-level components shared across environments.
+
+**First release scope:** GitLab CE in-cluster, Rook-Ceph object/block storage, WireGuard VPN, observability stack, Argo CD. Temporal is deferred.
 
 ## Overview
 
-This repository is responsible for:
+This repository manages:
 
-- **Cloud Infrastructure**: Provisioning and managing cloud resources using OpenTofu (Terraform-compatible)
-- **Kubernetes Clusters**: Creating and managing Kubernetes clusters for all environments
-- **Cluster-Level Components**: Bootstrapping essential platform components:
-  - Storage (Rook-Ceph: block storage, S3-compatible object storage)
-  - Ingress controllers (NGINX)
-  - cert-manager (TLS certificate management)
-  - Observability stack (Prometheus, Grafana, Loki, Promtail)
-  - GitOps engine (Argo CD)
-  - Workflow orchestration (Temporal)
-- **Global Networking**: VPC/VNet, subnets, routing, and network policies
-- **IAM and Security**: Global IAM roles, policies, and security configurations
-- **Shared Resources**: Cross-environment resources and configurations
+- **Kubernetes clusters** — local (`kind`) now; OVH bare metal (3 servers) in production
+- **Storage (Rook-Ceph)** — block storage (RBD) and S3-compatible object storage (RGW) we operate ourselves
+- **GitLab CE** — source control and CI/CD, deployed inside the cluster
+- **WireGuard VPN** — web services reachable only over VPN (trading data cluster, max security)
+- **Observability** — Prometheus, Grafana, Loki, Tempo, OpenTelemetry Collector, Promtail
+- **Ingress** — NGINX Ingress Controller
+- **GitOps** — Argo CD
+- **Secrets** — HashiCorp Vault (local dev mode)
+- **Identity (Keycloak)** — central user directory, groups, and SSO for all services
 
-## What This Repository Does NOT Do
+### Delegated to OVH managed services (production)
+
+We do **not** self-host these in production:
+
+- **PostgreSQL** — OVH Cloud Databases (RDS)
+- **Redis/Valkey** — OVH managed Valkey
+- Other stateful services as needed
+
+Locally, GitLab uses bundled PostgreSQL/Redis subcharts for simplicity. Production switches to external managed endpoints via module variables.
+
+## Identity and access (Keycloak)
+
+We use **Keycloak** as the central identity provider — not OpenLDAP alone. Keycloak gives you:
+
+- **Single user directory** — users, passwords, groups in one place
+- **SSO (OpenID Connect)** — one login for GitLab, Grafana, Argo CD
+- **Group-based access** — membership drives permissions across services
+
+### Why Keycloak over OpenLDAP?
+
+| | Keycloak | OpenLDAP alone |
+|---|----------|----------------|
+| SSO (OIDC) | Built-in | Needs another component |
+| User/group UI | Yes | LDAP tools only |
+| GitLab CE integration | OIDC native | LDAP bind (no SSO button) |
+| WireGuard | Group → peer mapping | No native integration |
+
+OpenLDAP can be added **later** as a backend user store federated into Keycloak if you need raw LDAP for legacy apps. For first release, Keycloak's built-in directory is enough.
+
+### Groups
+
+| Group | Purpose |
+|-------|---------|
+| `vpn-users` | Allowed to connect via WireGuard VPN (peer name = Keycloak username) |
+| `developers` | GitLab, Grafana (Editor), Argo CD (readonly) |
+| `admins` | Full platform admin on all services |
+
+### How services connect
+
+```
+auth.maze.local (Keycloak — identity & SSO)
+    ├── scm.maze.local   → OIDC "Sign in with Keycloak"
+    ├── grafana          → Generic OAuth
+    ├── argocd           → OIDC + group → RBAC mapping
+    └── vpn.maze.local   → vpn-users group → WireGuard peer configs
+```
+
+**VPN access flow:** A user must be in the `vpn-users` group in Keycloak. Their Keycloak **username** becomes their WireGuard peer name. Adding a user to `vpn-users` and re-applying updates WireGuard peer configs.
+
+**Note:** WireGuard does not support OIDC login natively — identity is enforced by (1) VPN membership in Keycloak and (2) SSO on services behind the VPN.
+
+### Default bootstrap users (local)
+
+Configure in `iac/envs/local/terraform.tfvars` **before first deploy**:
+
+```hcl
+cluster_domain    = "maze.local"
+cluster_public_ip = "YOUR_VPS_IP"
+
+keycloak_admin_username = "admin"
+keycloak_admin_password = "YourKeycloakMasterPassword123!"
+
+bootstrap_admin = {
+  username = "admin"
+  password = "YourPlatformAdminPassword123!"
+  email    = "admin@maze.tech"
+}
+```
+
+| Credential | Purpose | Where to use |
+|------------|---------|--------------|
+| `keycloak_admin_*` | Keycloak master admin | `http://auth.maze.local:30080/admin` — manage users/groups |
+| `bootstrap_admin` | Platform root user | SSO login on SCM/Grafana + WireGuard peer name `admin` |
+
+### Cluster domain (`maze.local`)
+
+Hostnames describe **what the service does**, not the technology behind it:
+
+| Host | Service |
+|------|---------|
+| `vpn.maze.local` | WireGuard endpoint (UDP 31820) |
+| `auth.maze.local` | Identity, SSO, user/group admin |
+| `scm.maze.local` | Source control (GitLab) |
+| `registry.scm.maze.local` | Container registry |
+| `grafana.maze.local` | Observability dashboards |
+| `argocd.maze.local` | GitOps |
+| `vault.maze.local` | Secrets |
+
+Generate `/etc/hosts` lines after deploy:
+
+```bash
+cd iac/envs/local && tofu output etc_hosts
+```
+
+### Bootstrap access (no chicken-and-egg)
+
+**You do NOT need Keycloak to get VPN access.** Bootstrap order:
+
+1. Deploy: `make apply`
+2. Get WireGuard config (needs kubectl only, not VPN):
+   ```bash
+   tofu output wireguard_peer_config_command
+   # → kubectl exec -n wireguard deploy/wireguard -- cat /config/peer_admin/peer_admin.conf
+   ```
+3. Add `/etc/hosts` (VPS IP → all `*.maze.local` hosts)
+4. Connect WireGuard using the config (endpoint: `vpn.maze.local:31820`)
+5. Access all services via VPN — including `http://auth.maze.local:30080/admin`
+
+Local and production use the same model: **auth is VPN-restricted**. Bootstrap only requires kubectl access to retrieve the WireGuard peer config; you never need to reach Keycloak before VPN is up.
+
+### Production databases
+
+Keycloak uses OVH managed PostgreSQL in production (same pattern as GitLab). GitLab and Keycloak each have their own database instance.
+
+### What this repository does NOT do
 
 - Deploy business microservices (data or trading services)
 - Manage application-level configurations
-- Handle environment-specific application deployments
+- Run Temporal (commented out for first release)
 
-## Quick Start
+## Architecture (first release)
 
-### Local Development
+```
+┌─────────────────────────────────────────────────────────────┐
+│  VPN clients (WireGuard)                                     │
+│       │                                                      │
+│       ▼                                                      │
+│  WireGuard (in-cluster) ──► NGINX Ingress (VPN whitelist)   │
+│       │                         │                            │
+│       │              ┌──────────┼──────────┐                 │
+│       │              ▼          ▼          ▼                 │
+│       │           GitLab    Grafana    Argo CD               │
+│       │              │                                       │
+│       │    ┌─────────┴─────────┐                             │
+│       │    ▼                   ▼                             │
+│       │  Gitaly (RBD)    Object storage (RGW S3)            │
+│       │                                                      │
+│  Observability: Prometheus / Loki(S3) / Tempo / Promtail   │
+└─────────────────────────────────────────────────────────────┘
 
-1. **Create a kind cluster**:
+Production DB/Redis: OVH managed (external to cluster)
+Local DB/Redis: GitLab Helm bundled subcharts
+```
 
-   ```bash
-   make kind-up
-   ```
+## Quick Start (local)
 
-2. **Configure storage devices (optional for local testing)**:
+### Prerequisites
 
-   For local/kind, you may need to set up loop devices or configure storage:
+- OpenTofu >= 1.5.0
+- kubectl, kind, docker
+- helm provider dependencies resolved via `tofu init`
+- ~16 GB RAM recommended (GitLab is resource-heavy)
 
-   ```bash
-   # Example: Create loop devices for testing
-   sudo losetup -fP /path/to/disk.img
-   ```
-
-   Then update `iac/envs/local/main.tf` with your device paths:
-
-   ```hcl
-   # SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
-   storage_devices = ["/dev/loop0"]  # Adjust based on your setup
-   ```
-
-3. **Deploy infrastructure**:
-
-   ```bash
-   cd iac/envs/local
-   tofu init
-   tofu plan
-   tofu apply
-   ```
-
-   This will automatically:
-
-   - Install Rook-Ceph CRDs
-   - Deploy Rook-Ceph storage (RBD + RGW S3)
-   - Deploy observability stack (Loki uses RGW for S3 storage)
-   - Deploy other components
-
-4. **Access services**:
-   - Grafana: http://localhost:30080 (via ingress) or port-forward
-   - Argo CD: http://localhost:30080 (via ingress) or port-forward
-   - Temporal UI: http://localhost:30080 (via ingress) or port-forward
-   - Ceph Dashboard: Port-forward to `rook-ceph-mgr-dashboard` service
-
-### Cloud Environments
-
-1. **Configure environment**:
-
-   ```bash
-   cd iac/envs/<environment>
-   cp terraform.tfvars.example terraform.tfvars
-   # Edit terraform.tfvars with your values
-   ```
-
-2. **Deploy**:
-   ```bash
-   tofu init
-   tofu plan -var-file=terraform.tfvars
-   tofu apply
-   ```
-
-## Modules
-
-### Cluster Module
-
-Manages Kubernetes cluster creation and configuration. Supports:
-
-- Local development with `kind`
-- Cloud-managed Kubernetes clusters (AWS EKS, Azure AKS, GKE, etc.)
-
-### Network Module
-
-Manages networking infrastructure:
-
-- VPC/VNet creation
-- Subnet configuration (public/private)
-- Routing and NAT gateways
-
-### Ingress Module
-
-Installs and configures ingress controllers:
-
-- NGINX Ingress Controller (default)
-- Service type configuration (LoadBalancer, NodePort)
-- Metrics and monitoring integration
-
-### Cert-Manager Module
-
-Manages TLS certificates:
-
-- cert-manager installation
-- Let's Encrypt integration
-- Automatic certificate provisioning
-
-### Rook-Ceph Module
-
-Production-grade distributed storage:
-
-- **CephCluster**: MON, MGR, OSD daemons for distributed storage
-- **RBD (Block Storage)**: Kubernetes StorageClass for persistent volumes (PostgreSQL, etc.)
-- **RGW (Object Storage)**: S3-compatible object storage for applications and Loki
-- **Recovery Throttling**: Configured for latency-sensitive workloads
-- **High Availability**: Cluster remains HEALTH_OK with 1 node down
-
-### Observability Module
-
-Complete observability stack:
-
-- **Prometheus**: Metrics collection and storage
-- **Grafana**: Visualization and dashboards
-- **Loki**: Log aggregation (uses Rook-Ceph RGW for S3 storage)
-- **Promtail**: Log collection agent
-
-### Argo CD Module
-
-GitOps deployment engine:
-
-- Argo CD installation
-- High availability configuration
-- Ingress and TLS support
-
-### Temporal Module
-
-Workflow orchestration platform:
-
-- Temporal server installation
-- Configurable persistence backend (PostgreSQL or Cassandra)
-- Elasticsearch for advanced visibility
-- Multiple Temporal namespaces support (data-platform, trading-platform)
-- Web UI with ingress support
-- High availability configuration for production
-
-## Environments
-
-### Local
-
-- Uses `kind` for local Kubernetes cluster
-- NodePort services for ingress (ports 30080/30443)
-- Reduced resource requirements
-- No TLS (for simplicity)
-- Uses Rook-Ceph RGW for S3-compatible object storage (same scalable Loki configuration as prod)
-- Single-node Ceph cluster (can be scaled for multi-node testing)
-
-### Prod
-
-- Maximum availability and redundancy
-- Largest resource allocations
-- Production-grade security
-
-See [docs/environments.md](docs/environments.md) for detailed environment documentation.
-
-## Prerequisites
-
-- OpenTofu (Terraform-compatible) >= 1.5.0
-- Kubernetes provider >= 2.23
-- Helm provider >= 2.11
-- kubectl (for local development and CRD installation)
-- kind (for local development)
-- Raw storage devices (for production) or loop devices (for local testing)
-
-## Local Development Setup
-
-The local environment uses Rook-Ceph RGW to provide S3-compatible object storage, allowing you to use the same scalable Loki configuration as production. This eliminates the need for external services like LocalStack.
-
-### Quick Start
-
-Set up the complete local development environment with one command:
+### 1. Create the kind cluster
 
 ```bash
 make local-setup
 ```
 
-This will:
+This creates a 4-node cluster (1 control-plane + 3 workers) with:
 
-- Create the kind Kubernetes cluster
-- You can then deploy infrastructure which includes Rook-Ceph for storage
+- Ingress NodePorts: `30080` (HTTP), `30443` (HTTPS)
+- WireGuard NodePort: `31820` (UDP)
+- Host mount `/var/lib/rook` for Rook-Ceph data and loop-device images
 
-### Manual Setup
+### 2. Deploy infrastructure
 
-1. **Create the kind cluster:**
+```bash
+cd iac/envs/local
+make init
+make apply
+```
 
-   ```bash
-   make kind-up
-   ```
+The Makefile runs a **two-stage apply**:
 
-2. **Configure storage devices (for local/kind):**
+1. **Foundation** — Rook-Ceph, Vault, RGW credential bootstrap
+2. **Services** — S3 buckets, ingress, observability, WireGuard, GitLab, Argo CD
 
-   For local testing, you can use loop devices:
+Alternatively, deploy incrementally by commenting/uncommenting modules in `iac/envs/local/main.tf`.
 
-   ```bash
-   # Create a loop device (example)
-   sudo losetup -fP /path/to/disk.img
-   # This creates /dev/loop0, /dev/loop1, etc.
-   ```
+### 3. Connect via VPN and access services
 
-   Then update `iac/envs/local/main.tf` to reference these devices:
+```bash
+# Retrieve a WireGuard peer config (replace 'admin' with your peer name)
+kubectl exec -n wireguard deploy/wireguard -- cat /config/peer_admin/peer_admin.conf
 
-   ```hcl
-   # SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
-   storage_devices = ["/dev/loop0"]  # Adjust based on your setup
-   ```
+# Connect (save config to a file first)
+sudo wg-quick up ./wg-admin.conf
 
-3. **Deploy infrastructure:**
+# Add to /etc/hosts (see: cd iac/envs/local && tofu output etc_hosts)
+# VPS_IP  vpn.maze.local auth.maze.local scm.maze.local ...
 
-   ```bash
-   cd iac/envs/local
-   make init
-   make plan
-   make apply
-   ```
+# Or generate lines automatically:
+tofu output wireguard_peer_config_command
 
-   This will:
+# Connect VPN, then access services (auth is VPN-restricted — same as production)
+open http://auth.maze.local:30080/admin
+open http://scm.maze.local:30080
+```
 
-   - Install Rook-Ceph CRDs automatically
-   - Deploy Rook-Ceph operator and cluster
-   - Create RGW S3-compatible object store
-   - Deploy observability stack (Loki will use RGW for storage)
-   - Deploy other components (ingress, Argo CD, Temporal)
+**Default credentials:** GitLab root password is set by the Helm chart on first install (check `gitlab-gitlab-initial-root-password` secret).
 
-### Stopping Local Services
+### 4. Access observability
 
-To stop all local services:
+| Service   | URL (via VPN + /etc/hosts)     |
+|-----------|--------------------------------|
+| Grafana   | http://grafana.local:30080     |
+| Argo CD   | http://argocd.local:30080      |
+| Vault     | http://vault.local:30080       |
+
+Grafana default login: `admin` / `admin` (override in production).
+
+### Teardown
 
 ```bash
 make local-teardown
 ```
 
-This will delete the kind cluster. All data in Rook-Ceph will be lost (this is expected for local development).
+## Rook-Ceph storage safety
 
-## Makefile Commands
+**Previous issue:** Rook could auto-discover and format the first available disk partition, destroying the host OS disk on a VPS.
 
-The project includes a comprehensive Makefile for common operations:
+**Current fix:**
 
-### Terraform/OpenTofu Commands
+| Setting | Value | Effect |
+|---------|-------|--------|
+| `useAllDevices` | **always `false`** | No automatic disk discovery |
+| `deviceFilter` | **always `""`** | No regex-based device matching |
+| Local (`kind`) | `create_loop_devices = true` | Sparse image files (`/var/lib/rook/loop10.img`) attached as loop devices — **never touches real disks** |
+| Production | Explicit `storage_nodes` per bare-metal server | Only dedicated disks (e.g. `/dev/sdb`) — **never the OS disk** |
 
-- `make format` - Format all Terraform files
-- `make validate` - Validate Terraform configuration (defaults to local environment)
-- `make plan` - Plan Terraform changes
-- `make apply` - Apply Terraform changes
-- `make destroy` - Destroy Terraform infrastructure
-- `make init` - Initialize Terraform
+Local loop device config in `iac/envs/local/main.tf`:
 
-### Local Development Commands
-
-- `make local-setup` - Set up complete local environment (Kind cluster)
-- `make local-teardown` - Tear down local environment
-- `make kind-up` - Create kind cluster
-- `make kind-down` - Delete kind cluster
-- `make kind-status` - Check kind cluster status
-
-### Environment Variables
-
-- `ENV` - Terraform environment (default: `local`)
-- `CLUSTER_NAME` - Kind cluster name (default: `local`)
-
-Example:
-
-```bash
-make validate ENV=prod
-make kind-up CLUSTER_NAME=dev
+```hcl
+use_all_nodes         = false
+create_loop_devices   = true
+loop_device_image_size_gb = 10
+storage_nodes = [
+  { name = "local-worker",  devices = ["/dev/loop10"] },
+  { name = "local-worker2", devices = ["/dev/loop11"] },
+  { name = "local-worker3", devices = ["/dev/loop12"] },
+]
 ```
 
-Run `make help` to see all available commands.
+After a host reboot, re-attach loop devices:
+
+```bash
+make setup-loop-devices
+```
+
+## Modules
+
+| Module | Purpose |
+|--------|---------|
+| `rook-ceph` | CephCluster, RBD block storage, RGW S3 object storage |
+| `wireguard` | WireGuard VPN server (linuxserver/wireguard) |
+| `keycloak` | Identity module (served at `auth.<domain>`) — users, groups, OIDC SSO |
+| `gitlab` | SCM module (served at `scm.<domain>`) — GitLab CE, VPN-only ingress |
+| `observability` | Prometheus, Grafana, Loki, Tempo, OTel, Promtail |
+| `ingress` | NGINX Ingress Controller |
+| `cert-manager` | TLS certificate management |
+| `argocd` | GitOps engine |
+| `vault` | Secret management (dev mode locally) |
+| `rgw-bootstrap` | RGW credentials → Vault |
+| `cluster` | Kind cluster validation |
+| `temporal` | Workflow orchestration (**disabled for first release**) |
+
+## Environments — there are only two
+
+| Environment | Directory | Where it runs | What you do |
+|-------------|-----------|---------------|-------------|
+| **local** | `iac/envs/local/` | Your VPS via **kind** (simulated K8s cluster) | `make local-setup && cd iac/envs/local && make apply` |
+| **production** | `iac/envs/production/` | **OVH bare metal** (3 servers with real Kubernetes) | Bootstrap K8s on bare metal first, then `cd iac/envs/production && tofu apply` |
+
+Both environments deploy the **same stack** inside Kubernetes: Rook-Ceph, WireGuard, GitLab, observability, Argo CD. The only differences are sizing, TLS, and where GitLab's database lives:
+
+| | local | production |
+|---|-------|------------|
+| Kubernetes | kind on 1 VPS | Real K8s on 3 OVH bare metal servers |
+| GitLab database | Bundled in Helm chart | OVH managed PostgreSQL |
+| GitLab Redis | Bundled in Helm chart | OVH managed Valkey |
+| Rook-Ceph disks | Safe loop image files | Dedicated `/dev/sdb` per server |
+| VPN | NodePort on localhost | LoadBalancer on public IP |
+
+You do **not** uncomment modules in `production/main.tf`. Everything is already wired. You only fill in `terraform.tfvars` (copy from `terraform.tfvars.example`).
+
+### Production setup
+
+```bash
+# 1. Bootstrap Kubernetes on your 3 OVH bare metal servers (outside this repo)
+# 2. Configure access
+cd iac/envs/production
+cp terraform.tfvars.example terraform.tfvars
+# Edit: kubeconfig_context, storage_nodes, wireguard_server_url, OVH DB endpoints
+
+make init
+make apply   # or: make apply-foundation && make apply-services
+```
+
+Required values in `terraform.tfvars`:
+
+- `kubeconfig_context` — your kubectl context name
+- `storage_nodes` — node hostnames + dedicated disk paths (must match `kubectl get nodes`)
+- `wireguard_server_url` — public IP for VPN
+- `gitlab_postgresql_host` / `gitlab_redis_host` — OVH managed database endpoints
+- Passwords via env vars: `export TF_VAR_gitlab_postgresql_password=...`
+
+### What was removed: `iac/envs/gitlab/`
+
+There used to be a third directory called `gitlab/` that installed GitLab **directly on a bare metal server** (not in Kubernetes) using OVH API + SSH scripts. That approach has been **removed**. GitLab now runs **inside the Kubernetes cluster** in both local and production environments, using the `iac/modules/gitlab/` module.
+
+## Makefile commands
+
+```bash
+make help              # All targets
+make local-setup       # Create kind cluster
+make apply             # Full two-stage deploy
+make apply-foundation  # Rook-Ceph + Vault + RGW bootstrap only
+make apply-services    # Everything else (needs AWS creds exported)
+make local-teardown    # Destroy kind cluster
+make setup-loop-devices # Re-attach Rook loop devices after reboot
+make prepull-ceph-image # Pre-pull Ceph image (large download)
+make validate          # tofu validate (ENV=local|production)
+```
 
 ## Configuration
 
-### Secrets Management
+### Secrets
 
-**Never commit secrets to the repository!**
+Never commit secrets. Provide via:
 
-Secrets should be provided via:
-
-- Environment variables: `export TF_VAR_letsencrypt_email="admin@maze.tech"`
-- Secret managers (AWS Secrets Manager, Azure Key Vault, etc.)
+- Environment variables: `export TF_VAR_gitlab_postgresql_password="..."`
 - CI/CD pipeline variables
-- `terraform.tfvars` files (excluded from git via `.gitignore`)
+- `terraform.tfvars` (gitignored)
 
-### Environment Variables
+### Incremental debugging
 
-Set environment-specific variables:
+Comment/uncomment module blocks in `iac/envs/local/main.tf`:
 
-```bash
-export TF_VAR_letsencrypt_email="admin@maze.tech"
-export TF_VAR_grafana_host="grafana.prod.maze.tech"
-export TF_VAR_argocd_host="argocd.prod.maze.tech"
-```
+1. Foundation: `rook_ceph`, `vault`, `rgw_bootstrap`
+2. Infrastructure: `wireguard`, `cert_manager`, `ingress`
+3. Observability: `observability`
+4. Applications: `gitlab`, `argocd`
 
-## Documentation
-
-- [Architecture Overview](docs/architecture.md)
-- [Environment Guide](docs/environments.md)
-
-## Style Guidelines
-
-- Use UTF-8 encoding, 2 spaces for indentation, LF line endings
-- No trailing whitespace, final newline required
-- Small, composable modules with clear inputs/outputs
-- Meaningful variable names with descriptions
+- UTF-8, 2-space indent, LF line endings
+- Small composable modules with clear inputs/outputs
 - Environment differences via variables and `*.tfvars`, not copy-pasted resources
 - Production-ready defaults (resource requests/limits, labels, annotations)
-
-## Contributing
-
-When making changes:
-
-1. Ensure changes fit the repository's responsibilities (global infra only)
-2. Respect the modular layout
-3. Keep configuration environment-agnostic where possible
-4. Push environment specifics into `envs/*` and variable values
-5. Follow the existing code style and conventions
 
 ## License
 

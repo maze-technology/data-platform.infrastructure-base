@@ -220,3 +220,14 @@ variable "helm_chart_version_opentelemetry_collector" {
   default     = "0.103.0"
 }
 
+variable "oidc" {
+  description = "Keycloak OIDC SSO configuration for Grafana login"
+  type = object({
+    issuer_url    = string
+    client_id     = string
+    client_secret = string
+  })
+  default   = null
+  sensitive = true
+}
+

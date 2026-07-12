@@ -10,10 +10,26 @@ resource "kubernetes_namespace" "monitoring" {
 }
 
 # Local value to determine if S3 credentials secret is needed
-# We check if scalable mode is enabled and object storage is configured
-# We don't check access_key directly as it may come from computed values
 locals {
   needs_loki_s3_credentials = var.loki_deployment_mode == "scalable" && var.loki_object_storage != null
+
+  grafana_oauth_ini = var.oidc != null ? {
+    auth = {
+      disable_login_form = false
+    }
+    "auth.generic_oauth" = {
+      enabled             = true
+      name                = "Keycloak"
+      allow_sign_up       = true
+      client_id           = var.oidc.client_id
+      client_secret       = var.oidc.client_secret
+      scopes              = "openid profile email groups"
+      auth_url            = "${var.oidc.issuer_url}/protocol/openid-connect/auth"
+      token_url           = "${var.oidc.issuer_url}/protocol/openid-connect/token"
+      api_url             = "${var.oidc.issuer_url}/protocol/openid-connect/userinfo"
+      role_attribute_path = "contains(groups[*], 'admins') && 'Admin' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'"
+    }
+  } : {}
 }
 
 # Prometheus Operator (includes Prometheus, Alertmanager, and ServiceMonitor CRDs)
@@ -75,11 +91,14 @@ resource "helm_release" "prometheus_operator" {
             }] : []
           }
           # Enable correlation between metrics, logs, and traces
-          ini = {
-            feature_toggles = {
-              enable = "correlations"
-            }
-          }
+          ini = merge(
+            {
+              feature_toggles = {
+                enable = "correlations"
+              }
+            },
+            local.grafana_oauth_ini
+          )
           # Build additional data sources array
           additionalDataSources = concat(
             # Loki data source (required for unified observability)

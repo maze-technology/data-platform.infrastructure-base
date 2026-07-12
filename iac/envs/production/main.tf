@@ -10,54 +10,183 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.11"
     }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    vault = {
+      source  = "hashicorp/vault"
+      version = "~> 3.23"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 }
 
-# Provider configuration for production environment
 provider "kubernetes" {
-  # Configure based on your cloud provider
+  config_path    = pathexpand(var.kubeconfig_path)
+  config_context = var.kubeconfig_context
 }
 
 provider "helm" {
-  # Inherits configuration from kubernetes provider
+  kubernetes {
+    config_path    = pathexpand(var.kubeconfig_path)
+    config_context = var.kubeconfig_context
+  }
 }
 
 locals {
   environment  = "production"
-  cluster_name = "production-cluster"
-}
+  cluster_name = var.cluster_name
 
-# Network module
-module "network" {
-  source = "../../modules/network"
+  cluster_domain = var.cluster_domain
 
-  environment          = local.environment
-  vpc_cidr             = var.vpc_cidr
-  availability_zones   = var.availability_zones
-  public_subnet_cidrs  = var.public_subnet_cidrs
-  private_subnet_cidrs = var.private_subnet_cidrs
-  enable_nat_gateway   = true
-  tags = {
-    Environment = local.environment
-    ManagedBy   = "opentofu"
+  hosts = {
+    auth     = "auth.${var.cluster_domain}"
+    scm      = "scm.${var.cluster_domain}"
+    registry = "registry.scm.${var.cluster_domain}"
+    grafana  = "grafana.${var.cluster_domain}"
+    argocd   = "argocd.${var.cluster_domain}"
+    vault    = "vault.${var.cluster_domain}"
+    vpn      = "vpn.${var.cluster_domain}"
   }
+
+  keycloak_bootstrap_users = concat(
+    [{
+      username           = var.bootstrap_admin.username
+      email              = var.bootstrap_admin.email
+      password           = var.bootstrap_admin.password
+      groups             = ["admins", "vpn-users", "developers"]
+      password_temporary = false
+    }],
+    [
+      for user in var.bootstrap_users : {
+        username           = user.username
+        email              = user.email
+        password           = user.password
+        groups             = user.groups
+        password_temporary = false
+      }
+    ]
+  )
+
+  wireguard_peers  = var.wireguard_peers != "" ? var.wireguard_peers : var.bootstrap_admin.username
+  wireguard_server = var.wireguard_server_url != "" ? var.wireguard_server_url : local.hosts.vpn
+
+  rgw_credentials = try(
+    jsondecode(try(data.vault_kv_secret_v2.rgw_credentials.data_json, "{}")),
+    {
+      access_key = "AKIAIOSFODNN7EXAMPLE"
+      secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      endpoint   = try(module.rook_ceph.rgw_endpoint, "http://rgw-service.rook-ceph.svc.cluster.local:80")
+      region     = "us-east-1"
+    }
+  )
 }
 
-# Cluster module
-module "cluster" {
-  source = "../../modules/cluster"
+provider "vault" {
+  address          = var.vault_address
+  skip_tls_verify  = var.vault_skip_tls_verify
+  skip_child_token = true
+  token            = var.vault_token
+}
 
-  cluster_name       = local.cluster_name
-  environment        = local.environment
-  cluster_type       = "cloud"
-  kubernetes_version = var.kubernetes_version
-  tags = {
-    Environment = local.environment
-    ManagedBy   = "opentofu"
+provider "aws" {
+  alias = "rgw"
+
+  endpoints {
+    s3 = local.rgw_credentials.endpoint
   }
+
+  region                      = local.rgw_credentials.region
+  s3_use_path_style           = true
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_region_validation      = true
+  skip_requesting_account_id  = true
+  shared_credentials_files    = []
+  shared_config_files         = []
 }
 
-# Cert-manager
+# ============================================================================
+# FOUNDATION LAYER
+# ============================================================================
+
+# Rook-Ceph — block + object storage on OVH bare metal
+# SAFETY: devices are explicitly listed per node. Never use the OS disk.
+# Set storage_nodes in terraform.tfvars to match your 3 server hostnames + disks.
+module "rook_ceph" {
+  source = "../../modules/rook-ceph"
+
+  cluster_name = local.cluster_name
+  environment  = local.environment
+
+  use_all_nodes       = false
+  storage_nodes       = var.storage_nodes
+  create_loop_devices = false
+
+  mon_count        = 3
+  mgr_count        = 1
+  rgw_instances    = 2
+  replication_size = 3
+
+  osd_recovery_max_active  = 3
+  osd_recovery_op_priority = 3
+  osd_max_backfills        = 1
+
+  monitoring_enabled             = false
+  prometheus_operator_dependency = null
+}
+
+module "vault" {
+  source = "../../modules/vault"
+
+  cluster_name    = local.cluster_name
+  environment     = local.environment
+  replica_count   = 3
+  enable_ha       = true
+  ingress_enabled = true
+  ingress_host    = local.hosts.vault
+  enable_tls      = true
+
+  storage_backend = "file"
+  storage_size    = "10Gi"
+  storage_class   = module.rook_ceph.storage_class_name
+}
+
+module "rgw_bootstrap" {
+  source = "../../modules/rgw-bootstrap"
+
+  rgw_endpoint = module.rook_ceph.rgw_endpoint
+  rgw_region   = "us-east-1"
+
+  use_existing_rook_user    = true
+  rook_rgw_secret_name      = "rook-ceph-object-user-rgw-store-s3-user"
+  rook_rgw_secret_namespace = "rook-ceph"
+
+  vault_kv_mount_path  = "secret"
+  vault_secret_path    = "rgw/credentials"
+  vault_provider_ready = module.vault.helm_release
+
+  depends_on = [
+    module.rook_ceph,
+    module.vault,
+  ]
+}
+
+data "vault_kv_secret_v2" "rgw_credentials" {
+  mount = "secret"
+  name  = "rgw/credentials"
+
+  depends_on = [module.rgw_bootstrap]
+}
+
+# ============================================================================
+# INFRASTRUCTURE LAYER
+# ============================================================================
+
 module "cert_manager" {
   source = "../../modules/cert-manager"
 
@@ -68,96 +197,101 @@ module "cert_manager" {
   replica_count      = 3
 }
 
-# TODO: Storage like in local
-# module "rook_ceph" {
-#   source = "../../modules/rook-ceph"
-
-#   cluster_name = "production-cluster"
-#   environment  = "production"
-
-#     # Storage devices (one per node, minimum 3 nodes)
-# SAFETY: Devices MUST be explicitly specified - automatic device discovery is disabled
-#   storage_devices = ["/dev/sdb", "/dev/sdc", "/dev/sdd"]
-#   use_all_nodes   = false
-#   storage_nodes = [
-#     {
-#       name    = "node1"
-#       devices = ["/dev/sdb"]
-#     },
-#     {
-#       name    = "node2"
-#       devices = ["/dev/sdb"]
-#     },
-#     {
-#       name    = "node3"
-#       devices = ["/dev/sdb"]
-#     }
-#   ]
-
-#   # Cluster sizing
-#   mon_count = 3
-#   mgr_count = 1
-#   rgw_instances = 2
-
-#   # Replication
-#   replication_size = 3
-#   failure_domain   = "host"
-
-#   # Resource limits (adjust based on node capacity)
-#   resource_requests = {
-#     operator = { cpu = "100m", memory = "128Mi" }
-#     mon      = { cpu = "500m", memory = "2Gi" }
-#     mgr      = { cpu = "500m", memory = "512Mi" }
-#     osd      = { cpu = "1", memory = "2Gi" }
-#     rgw      = { cpu = "500m", memory = "512Mi" }
-#   }
-
-#   resource_limits = {
-#     operator = { cpu = "500m", memory = "512Mi" }
-#     mon      = { cpu = "1000m", memory = "4Gi" }
-#     mgr      = { cpu = "1000m", memory = "1Gi" }
-#     osd      = { cpu = "2", memory = "4Gi" }
-#     rgw      = { cpu = "1000m", memory = "1Gi" }
-#   }
-
-#   # Recovery throttling (critical for latency-sensitive workloads)
-#   osd_recovery_max_active   = 3
-#   osd_recovery_op_priority  = 3
-#   osd_max_backfills         = 1
-# }
-
-# Ingress controller
 module "ingress" {
   source = "../../modules/ingress"
 
-  cluster_name   = local.cluster_name
-  environment    = local.environment
-  service_type   = "LoadBalancer"
-  replica_count  = 3
-  enable_metrics = true
+  cluster_name                   = local.cluster_name
+  environment                    = local.environment
+  service_type                   = "LoadBalancer"
+  replica_count                  = 3
+  enable_metrics                 = true
+  prometheus_operator_dependency = null
 }
 
-# Observability stack
+module "keycloak" {
+  source = "../../modules/keycloak"
+
+  cluster_name = local.cluster_name
+  environment  = local.environment
+
+  keycloak_host       = local.hosts.auth
+  enable_tls      = true
+  vpn_cidr        = var.vpn_subnet
+  restrict_to_vpn = true
+  admin_username  = var.keycloak_admin_username
+  admin_password  = var.keycloak_admin_password
+  bootstrap_users = local.keycloak_bootstrap_users
+  replica_count   = 2
+  storage_class   = module.rook_ceph.storage_class_name
+
+  use_external_database = true
+  postgresql_host       = var.keycloak_postgresql_host
+  postgresql_password   = var.keycloak_postgresql_password
+
+  oidc_clients = {
+    gitlab_redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
+    argocd_redirect_uri  = "https://${local.hosts.argocd}/auth/callback"
+    grafana_redirect_uri = "https://${local.hosts.grafana}/login/generic_oauth"
+  }
+
+  depends_on = [module.ingress]
+}
+
+module "wireguard" {
+  source = "../../modules/wireguard"
+
+  cluster_name = local.cluster_name
+  environment  = local.environment
+
+  server_url   = local.wireguard_server
+  service_type = "LoadBalancer"
+  vpn_subnet   = var.vpn_subnet
+  peers        = local.wireguard_peers
+
+  storage_class = module.rook_ceph.storage_class_name
+
+  depends_on = [module.rook_ceph]
+}
+
+# ============================================================================
+# OBSERVABILITY LAYER
+# ============================================================================
+
 module "observability" {
   source = "../../modules/observability"
 
   cluster_name            = local.cluster_name
   environment             = local.environment
   grafana_ingress_enabled = true
-  grafana_ingress_host    = var.grafana_host
+  grafana_ingress_host    = local.hosts.grafana
   grafana_enable_tls      = true
   prometheus_storage_size = "500Gi"
   grafana_storage_size    = "100Gi"
   loki_storage_size       = "1Ti"
-  loki_deployment_mode    = "scalable" # Scalable mode for production (requires object storage)
-  # loki_object_storage = {
-  #   type   = "s3" # or "gcs", "azure"
-  #   bucket = "loki-logs-production"
-  #   region = "us-east-1"
-  # }
+  loki_deployment_mode    = "scalable"
+  loki_object_storage = {
+    type             = "s3"
+    bucket           = "loki-logs-production"
+    region           = "us-east-1"
+    endpoint         = module.rook_ceph.rgw_endpoint
+    access_key       = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key       = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style = true
+  }
+
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.grafana
+    client_secret = module.keycloak.client_secrets.grafana
+  }
+
+  depends_on = [module.rook_ceph, module.keycloak]
 }
 
-# Argo CD
+# ============================================================================
+# APPLICATION LAYER
+# ============================================================================
+
 module "argocd" {
   source = "../../modules/argocd"
 
@@ -166,22 +300,98 @@ module "argocd" {
   replica_count   = 3
   enable_ha       = true
   ingress_enabled = true
-  ingress_host    = var.argocd_host
+  ingress_host    = local.hosts.argocd
   enable_tls      = true
+
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.argocd
+    client_secret = module.keycloak.client_secrets.argocd
+    redirect_url  = "https://${local.hosts.argocd}/auth/callback"
+  }
+
+  depends_on = [module.keycloak]
 }
 
-# Temporal
-module "temporal" {
-  source = "../../modules/temporal"
+module "gitlab" {
+  source = "../../modules/gitlab"
 
-  cluster_name               = local.cluster_name
-  environment                = local.environment
-  replica_count              = 3
-  enable_ha                  = true
-  ingress_host               = var.temporal_host
-  enable_tls                 = true
-  temporal_namespaces        = ["data-platform", "trading-platform"]
-  postgresql_storage_size    = "100Gi"
-  elasticsearch_storage_size = "50Gi"
+  cluster_name    = local.cluster_name
+  environment     = local.environment
+  gitlab_domain   = local.hosts.scm
+  registry_domain = local.hosts.registry
+  enable_tls      = true
+  vpn_cidr        = var.vpn_subnet
+
+  use_external_database = true
+  postgresql_host       = var.gitlab_postgresql_host
+  postgresql_password   = var.gitlab_postgresql_password
+  redis_host            = var.gitlab_redis_host
+  redis_password        = var.gitlab_redis_password
+
+  object_storage = {
+    endpoint         = module.rook_ceph.rgw_endpoint
+    bucket           = "gitlab-storage-production"
+    region           = "us-east-1"
+    access_key       = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key       = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style = true
+  }
+
+  storage_class           = module.rook_ceph.storage_class_name
+  gitaly_storage_size     = "100Gi"
+  webservice_min_replicas = 2
+  webservice_max_replicas = 4
+
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.gitlab
+    client_secret = module.keycloak.client_secrets.gitlab
+    redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
+  }
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.keycloak,
+  ]
 }
 
+# ============================================================================
+# S3 BUCKETS (created after foundation layer — use make apply)
+# ============================================================================
+
+resource "aws_s3_bucket" "loki_logs" {
+  provider = aws.rgw
+  bucket   = "loki-logs-production"
+
+  tags = {
+    Name        = "loki-logs-production"
+    Environment = local.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "loki-logs"
+  }
+
+  depends_on = [
+    module.rgw_bootstrap,
+    data.vault_kv_secret_v2.rgw_credentials,
+  ]
+}
+
+resource "aws_s3_bucket" "gitlab_storage" {
+  provider = aws.rgw
+  bucket   = "gitlab-storage-production"
+
+  tags = {
+    Name        = "gitlab-storage-production"
+    Environment = local.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "gitlab-object-storage"
+  }
+
+  depends_on = [
+    module.rgw_bootstrap,
+    data.vault_kv_secret_v2.rgw_credentials,
+  ]
+}

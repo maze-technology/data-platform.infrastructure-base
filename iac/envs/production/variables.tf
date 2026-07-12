@@ -1,54 +1,145 @@
-variable "vpc_cidr" {
-  description = "CIDR block for the VPC"
+variable "cluster_name" {
+  description = "Kubernetes cluster name (must match kubeconfig context naming)"
   type        = string
-  default     = "10.0.0.0/16"
+  default     = "production"
 }
 
-variable "availability_zones" {
-  description = "List of availability zones"
-  type        = list(string)
-  default     = ["us-east-1a", "us-east-1b", "us-east-1c"]
-}
-
-variable "public_subnet_cidrs" {
-  description = "CIDR blocks for public subnets"
-  type        = list(string)
-  default     = ["10.3.1.0/24", "10.3.2.0/24", "10.3.3.0/24"]
-}
-
-variable "private_subnet_cidrs" {
-  description = "CIDR blocks for private subnets"
-  type        = list(string)
-  default     = ["10.3.10.0/24", "10.3.11.0/24", "10.3.12.0/24"]
-}
-
-variable "kubernetes_version" {
-  description = "Kubernetes version"
+variable "cluster_domain" {
+  description = "Base domain for all cluster services (e.g. prod.maze.tech). DNS or /etc/hosts must resolve subdomains to the cluster."
   type        = string
-  default     = "1.28"
+  default     = "prod.maze.tech"
+}
+
+variable "kubeconfig_path" {
+  description = "Path to kubeconfig for the OVH bare metal Kubernetes cluster"
+  type        = string
+  default     = "~/.kube/config"
+}
+
+variable "kubeconfig_context" {
+  description = "kubectl context for the production cluster (set after K8s bootstrap on bare metal)"
+  type        = string
+}
+
+variable "storage_nodes" {
+  description = "Rook-Ceph OSD nodes — one dedicated disk per OVH bare metal server. NEVER include the OS disk."
+  type = list(object({
+    name    = string
+    devices = list(string)
+  }))
+  default = [
+    { name = "node1", devices = ["/dev/sdb"] },
+    { name = "node2", devices = ["/dev/sdb"] },
+    { name = "node3", devices = ["/dev/sdb"] },
+  ]
 }
 
 variable "letsencrypt_email" {
-  description = "Email address for Let's Encrypt"
+  description = "Email address for Let's Encrypt certificates"
   type        = string
   sensitive   = true
 }
 
-variable "grafana_host" {
-  description = "Hostname for Grafana ingress"
+variable "vault_address" {
+  description = "Vault API address (in-cluster or external)"
   type        = string
-  default     = "grafana.production.maze.tech"
+  default     = "http://vault.vault.svc.cluster.local:8200"
 }
 
-variable "argocd_host" {
-  description = "Hostname for Argo CD ingress"
+variable "vault_token" {
+  description = "Vault authentication token (required for production)"
   type        = string
-  default     = "argocd.production.maze.tech"
+  sensitive   = true
+  default     = ""
 }
 
-variable "temporal_host" {
-  description = "Hostname for Temporal UI ingress"
-  type        = string
-  default     = "temporal.production.maze.tech"
+variable "vault_skip_tls_verify" {
+  description = "Skip TLS verification for Vault (set false in production with proper TLS)"
+  type        = bool
+  default     = true
 }
 
+variable "vpn_subnet" {
+  description = "WireGuard VPN subnet CIDR — used for ingress whitelisting"
+  type        = string
+  default     = "10.8.0.0/24"
+}
+
+variable "wireguard_server_url" {
+  description = "WireGuard endpoint hostname or IP (defaults to vpn.<cluster_domain> if empty)"
+  type        = string
+  default     = ""
+}
+
+variable "keycloak_admin_username" {
+  description = "Keycloak master realm admin username"
+  type        = string
+  default     = "admin"
+}
+
+variable "keycloak_admin_password" {
+  description = "Keycloak master realm admin password"
+  type        = string
+  sensitive   = true
+}
+
+variable "bootstrap_admin" {
+  description = "Root platform admin in the maze realm (SSO + VPN). WireGuard peer name matches username."
+  type = object({
+    username = string
+    password = string
+    email    = string
+  })
+  sensitive = true
+}
+
+variable "bootstrap_users" {
+  description = "Additional Keycloak users created at bootstrap"
+  type = list(object({
+    username = string
+    password = string
+    email    = string
+    groups   = list(string)
+  }))
+  sensitive = true
+  default   = []
+}
+
+variable "wireguard_peers" {
+  description = "WireGuard peer names (defaults to bootstrap_admin.username)"
+  type        = string
+  default     = ""
+}
+
+variable "keycloak_postgresql_host" {
+  description = "OVH managed PostgreSQL endpoint for Keycloak"
+  type        = string
+}
+
+variable "keycloak_postgresql_password" {
+  description = "OVH managed PostgreSQL password for Keycloak"
+  type        = string
+  sensitive   = true
+}
+
+variable "gitlab_postgresql_host" {
+  description = "OVH managed PostgreSQL endpoint for GitLab"
+  type        = string
+}
+
+variable "gitlab_postgresql_password" {
+  description = "OVH managed PostgreSQL password for GitLab"
+  type        = string
+  sensitive   = true
+}
+
+variable "gitlab_redis_host" {
+  description = "OVH managed Valkey/Redis endpoint for GitLab"
+  type        = string
+}
+
+variable "gitlab_redis_password" {
+  description = "OVH managed Valkey/Redis password for GitLab"
+  type        = string
+  sensitive   = true
+}

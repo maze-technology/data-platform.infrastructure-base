@@ -1,19 +1,45 @@
-# Example terraform.tfvars for production environment
-# Copy this to terraform.tfvars and customize as needed
+# Production — copy to terraform.tfvars and fill in values
 # DO NOT commit terraform.tfvars with secrets
 
-vpc_cidr = "10.0.0.0/16"
+# ── Cluster domain ───────────────────────────────────────────────────────────
+# All services: auth.<domain>, scm.<domain>, vpn.<domain>, etc.
+cluster_domain = "prod.maze.tech"
 
-availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
+# ── Kubernetes access ────────────────────────────────────────────────────────
+kubeconfig_context = "production"
 
-public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24", "10.0.12.0/24"]
+# ── Bootstrap admin (configure BEFORE first deploy) ──────────────────────────
+# keycloak_admin_username = "admin"
+# keycloak_admin_password = "..."
+# bootstrap_admin = {
+#   username = "admin"
+#   password = "..."
+#   email    = "admin@maze.tech"
+# }
 
-kubernetes_version = "1.28"
+# ── WireGuard ────────────────────────────────────────────────────────────────
+# Defaults to vpn.<cluster_domain> — ensure DNS points to your public IP
+# wireguard_server_url = "vpn.prod.maze.tech"
 
-# Secrets - provide via environment variables or secret manager
+# ── Rook-Ceph storage ────────────────────────────────────────────────────────
+# storage_nodes = [
+#   { name = "bm-node-01", devices = ["/dev/sdb"] },
+#   { name = "bm-node-02", devices = ["/dev/sdb"] },
+#   { name = "bm-node-03", devices = ["/dev/sdb"] },
+# ]
+
+# ── TLS ──────────────────────────────────────────────────────────────────────
 # letsencrypt_email = "admin@maze.tech"
-# grafana_host      = "grafana.production.maze.tech"
-# argocd_host       = "argocd.production.maze.tech"
-# temporal_host     = "temporal.production.maze.tech"
 
+# ── Keycloak database (OVH managed PostgreSQL) ───────────────────────────────
+# keycloak_postgresql_host     = "postgresql-xxxxx.database.cloud.ovh.net"
+# keycloak_postgresql_password = "..."
+
+# ── GitLab databases (OVH managed) ───────────────────────────────────────────
+# gitlab_postgresql_host     = "postgresql-xxxxx.database.cloud.ovh.net"
+# gitlab_postgresql_password = "..."
+# gitlab_redis_host          = "redis-xxxxx.database.cloud.ovh.net"
+# gitlab_redis_password      = "..."
+
+# ── Vault ────────────────────────────────────────────────────────────────────
+# vault_token = "..."
