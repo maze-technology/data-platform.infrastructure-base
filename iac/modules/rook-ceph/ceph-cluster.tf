@@ -28,17 +28,26 @@ locals {
     deviceFilter  = "" # Not used when useAllDevices is false
     devices       = [] # Not used when useAllNodes is false
     nodes = [
-      for node in var.storage_nodes : {
-        name = node.name
-        devices = [
-          for device in node.devices : {
-            name = device
-            config = {
-              osdsPerDevice = "1" # One OSD per device as per requirements
+      for node in var.storage_nodes : merge(
+        { name = node.name },
+        length(node.devices) > 0 ? {
+          devices = [
+            for device in node.devices : {
+              name = device
+              config = {
+                osdsPerDevice = "1"
+              }
             }
-          }
-        ]
-      }
+          ]
+        } : {},
+        length(node.directories) > 0 ? {
+          directories = [
+            for dir in node.directories : {
+              path = dir
+            }
+          ]
+        } : {},
+      )
     ]
   }
 }

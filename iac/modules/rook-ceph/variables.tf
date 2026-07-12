@@ -42,10 +42,11 @@ variable "use_all_nodes" {
 }
 
 variable "storage_nodes" {
-  description = "List of node names to use for storage. Required if use_all_nodes is false"
+  description = "List of node names to use for storage. Required if use_all_nodes is false. Use devices for bare metal or directories for kind/local."
   type = list(object({
-    name    = string
-    devices = list(string) # Devices on this specific node
+    name        = string
+    devices     = optional(list(string), [])
+    directories = optional(list(string), [])
   }))
   default = []
 }

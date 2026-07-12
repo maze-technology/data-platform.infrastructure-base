@@ -255,17 +255,16 @@ Local loop device config in `iac/envs/local/main.tf`:
 
 ```hcl
 use_all_nodes             = false
-create_loop_devices       = true
-loop_device_image_size_gb = 10   # 3 × 10 GB max on disk under /var/lib/rook
-replication_size          = 1    # local dev only — ~27 GB usable (RBD + RGW shared)
+create_loop_devices       = false   # loop devices are not used — Rook skips them in discovery
+replication_size          = 1       # local dev only — ~27 GB usable under /var/lib/rook
 storage_nodes = [
-  { name = "local-worker",  devices = ["/dev/loop10"] },
-  { name = "local-worker2", devices = ["/dev/loop11"] },
-  { name = "local-worker3", devices = ["/dev/loop12"] },
+  { name = "local-worker",  directories = ["/var/lib/rook/osd0"] },
+  { name = "local-worker2", directories = ["/var/lib/rook/osd1"] },
+  { name = "local-worker3", directories = ["/var/lib/rook/osd2"] },
 ]
 ```
 
-Local PVC sizes are tuned to fit a small VPS (~150 GB total). Loki/GitLab object data uses RGW (same Ceph pool). Production uses dedicated disks and larger PVCs.
+Directory OSDs live under the kind `extraMount` at `/var/lib/rook` — safe for VPS dev, no loop files required.
 
 After a host reboot, re-attach loop devices:
 
