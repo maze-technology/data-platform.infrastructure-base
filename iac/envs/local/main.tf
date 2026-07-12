@@ -102,15 +102,11 @@ locals {
   )
 }
 
-# Vault provider configuration
-# For local dev, Vault runs in dev mode and is accessible via ClusterIP service
-# In production, configure proper Vault address and authentication
+# Vault provider — requires `kubectl port-forward svc/vault 8200:8200 -n vault` during apply
 provider "vault" {
-  address = "http://vault.vault.svc.cluster.local:8200"
-  # For local dev mode, no token needed (dev mode auto-unseals)
-  # For production, use proper authentication (token, app role, etc.)
-  skip_tls_verify = true
-  # Skip child token check for dev mode
+  address          = "http://127.0.0.1:8200"
+  token            = "root"
+  skip_tls_verify  = true
   skip_child_token = true
 }
 

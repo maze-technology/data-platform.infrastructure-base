@@ -44,9 +44,15 @@ resource "helm_release" "vault" {
           size         = var.storage_size
           storageClass = var.storage_class != "" ? var.storage_class : null
         }
-        # Dev mode for local development (ephemeral storage)
-        # For production, use file or raft storage backend
-        extraArgs = var.storage_backend == "kubernetes" ? "-dev -dev-listen-address=0.0.0.0:8200" : ""
+        # Dev mode for local (in-memory, auto-unsealed). Use chart dev block — not extraArgs -dev (port conflict).
+        dev = var.storage_backend == "kubernetes" ? {
+          enabled      = true
+          devRootToken = "root"
+        } : null
+        standalone = {
+          enabled = var.storage_backend == "kubernetes"
+        }
+        extraArgs = ""
         # Ingress configuration
         ingress = {
           enabled          = var.ingress_enabled
