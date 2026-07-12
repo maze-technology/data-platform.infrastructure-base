@@ -49,15 +49,13 @@ resource "null_resource" "install_rook_platform" {
       curl -fsSL "$BASE/crds.yaml" -o "$TMPDIR/crds.yaml"
       $KUBECTL apply --server-side --force-conflicts -f "$TMPDIR/crds.yaml" || $KUBECTL apply -f "$TMPDIR/crds.yaml"
 
-      CRDS=(
+      ROOK_CRDS=(
         cephclusters.ceph.rook.io
         cephblockpools.ceph.rook.io
         cephobjectstores.ceph.rook.io
         cephobjectstoreusers.ceph.rook.io
-        drivers.csi.ceph.io
-        operatorconfigs.csi.ceph.io
       )
-      for crd in "$${CRDS[@]}"; do
+      for crd in "$${ROOK_CRDS[@]}"; do
         echo "Waiting for CRD: $crd"
         $KUBECTL wait --for condition=established --timeout=180s "crd/$crd"
       done
@@ -69,6 +67,15 @@ resource "null_resource" "install_rook_platform" {
       echo "Applying ceph-csi-operator ($ROOK_VER)..."
       curl -fsSL "$BASE/csi-operator.yaml" | sed_namespace > "$TMPDIR/csi-operator.yaml"
       $KUBECTL apply -f "$TMPDIR/csi-operator.yaml"
+
+      CSI_CRDS=(
+        drivers.csi.ceph.io
+        operatorconfigs.csi.ceph.io
+      )
+      for crd in "$${CSI_CRDS[@]}"; do
+        echo "Waiting for CRD: $crd"
+        $KUBECTL wait --for condition=established --timeout=180s "crd/$crd"
+      done
 
       echo "Applying Rook operator ($ROOK_VER)..."
       curl -fsSL "$BASE/operator.yaml" | sed_namespace > "$TMPDIR/operator.yaml"
