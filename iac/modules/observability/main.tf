@@ -50,7 +50,7 @@ resource "helm_release" "prometheus_operator" {
           storageSpec = {
             volumeClaimTemplate = {
               spec = {
-                accessModes = ["ReadWriteOnce"]
+                accessModes      = ["ReadWriteOnce"]
                 storageClassName = var.storage_class != "" ? var.storage_class : null
                 resources = {
                   requests = {

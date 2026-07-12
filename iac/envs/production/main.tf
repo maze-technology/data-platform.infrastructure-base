@@ -214,7 +214,7 @@ module "keycloak" {
   cluster_name = local.cluster_name
   environment  = local.environment
 
-  keycloak_host       = local.hosts.auth
+  keycloak_host   = local.hosts.auth
   enable_tls      = true
   vpn_cidr        = var.vpn_subnet
   restrict_to_vpn = true

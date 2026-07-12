@@ -6,13 +6,13 @@ output "cluster_domain" {
 output "service_urls" {
   description = "Service URLs (add cluster_domain hosts to /etc/hosts first)"
   value = {
-    auth_admin = "${module.keycloak.admin_console_url}/admin"
-    auth_realm = module.keycloak.issuer_url
-    scm        = "http://${local.hosts.scm}${local.ingress_port}"
-    grafana        = "http://${local.hosts.grafana}${local.ingress_port}"
-    argocd         = "http://${local.hosts.argocd}${local.ingress_port}"
-    vault          = "http://${local.hosts.vault}${local.ingress_port}"
-    vpn_endpoint   = "${local.hosts.vpn}:31820/udp"
+    auth_admin   = "${module.keycloak.admin_console_url}/admin"
+    auth_realm   = module.keycloak.issuer_url
+    scm          = "http://${local.hosts.scm}${local.ingress_port}"
+    grafana      = "http://${local.hosts.grafana}${local.ingress_port}"
+    argocd       = "http://${local.hosts.argocd}${local.ingress_port}"
+    vault        = "http://${local.hosts.vault}${local.ingress_port}"
+    vpn_endpoint = "${local.hosts.vpn}:31820/udp"
   }
 }
 
