@@ -38,8 +38,6 @@ kubeconfig_context = "production"
 # ── GitLab databases (OVH managed) ───────────────────────────────────────────
 # gitlab_postgresql_host     = "postgresql-xxxxx.database.cloud.ovh.net"
 # gitlab_postgresql_password = "..."
-# gitlab_redis_host          = "redis-xxxxx.database.cloud.ovh.net"
-# gitlab_redis_password      = "..."
 
 # ── Vault ────────────────────────────────────────────────────────────────────
 # vault_token = "..."

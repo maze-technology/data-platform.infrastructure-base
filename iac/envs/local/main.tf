@@ -324,6 +324,7 @@ module "observability" {
   prometheus_storage_size = "20Gi"
   grafana_storage_size    = "5Gi"
   loki_storage_size       = "20Gi"
+  storage_class           = module.rook_ceph.storage_class_name
   loki_deployment_mode    = "scalable" # Use scalable mode with Rook-Ceph RGW S3
   loki_object_storage = {
     type             = "s3"
@@ -402,7 +403,8 @@ module "wireguard" {
 }
 
 # GitLab CE — primary application for first release
-# Local: bundled PostgreSQL + Redis (production uses OVH managed RDS + Valkey)
+# Local: bundled PostgreSQL + in-cluster Redis
+# Production: OVH managed PostgreSQL + in-cluster Redis on Rook-Ceph
 # Object storage: Rook-Ceph RGW (S3-compatible)
 # Access: VPN-only via ingress whitelist
 module "gitlab" {
@@ -415,8 +417,8 @@ module "gitlab" {
   enable_tls      = false
   vpn_cidr        = module.wireguard.vpn_subnet
 
-  # Local dev: bundled DB/Redis subcharts (production delegates to OVH managed services)
-  use_external_database = false
+  # Local dev: bundled PostgreSQL + in-cluster Redis (production uses OVH PostgreSQL + in-cluster Redis)
+  use_external_postgresql = false
 
   object_storage = {
     endpoint         = module.rook_ceph.rgw_endpoint

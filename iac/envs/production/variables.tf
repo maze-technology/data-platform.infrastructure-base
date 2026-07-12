@@ -132,14 +132,3 @@ variable "gitlab_postgresql_password" {
   type        = string
   sensitive   = true
 }
-
-variable "gitlab_redis_host" {
-  description = "OVH managed Valkey/Redis endpoint for GitLab"
-  type        = string
-}
-
-variable "gitlab_redis_password" {
-  description = "OVH managed Valkey/Redis password for GitLab"
-  type        = string
-  sensitive   = true
-}

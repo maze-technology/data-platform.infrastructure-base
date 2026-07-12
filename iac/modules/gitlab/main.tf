@@ -132,10 +132,23 @@ locals {
       install = false
     }
     postgresql = {
-      install = !var.use_external_database
+      install = !var.use_external_postgresql
+      primary = {
+        persistence = {
+          enabled      = true
+          storageClass = var.storage_class != "" ? var.storage_class : null
+        }
+      }
     }
     redis = {
-      install = !var.use_external_database
+      install = true
+      master = {
+        persistence = {
+          enabled      = true
+          size         = var.redis_storage_size
+          storageClass = var.storage_class != "" ? var.storage_class : null
+        }
+      }
     }
     gitlab = {
       webservice = {
@@ -246,7 +259,7 @@ resource "kubernetes_secret" "gitlab_backup_storage" {
 }
 
 resource "kubernetes_secret" "gitlab_postgresql" {
-  count = var.use_external_database ? 1 : 0
+  count = var.use_external_postgresql ? 1 : 0
 
   metadata {
     name      = "gitlab-postgresql-password"
@@ -259,25 +272,6 @@ resource "kubernetes_secret" "gitlab_postgresql" {
 
   data = {
     password = var.postgresql_password
-  }
-
-  type = "Opaque"
-}
-
-resource "kubernetes_secret" "gitlab_redis" {
-  count = var.use_external_database ? 1 : 0
-
-  metadata {
-    name      = "gitlab-redis-secret"
-    namespace = kubernetes_namespace.gitlab.metadata[0].name
-    labels = {
-      environment = var.environment
-      managed-by  = "opentofu"
-    }
-  }
-
-  data = {
-    redis-password = var.redis_password
   }
 
   type = "Opaque"
@@ -322,7 +316,7 @@ resource "kubernetes_secret" "gitlab_oidc" {
 }
 
 resource "helm_release" "gitlab_bundled" {
-  count = var.use_external_database ? 0 : 1
+  count = var.use_external_postgresql ? 0 : 1
 
   name       = "gitlab"
   repository = "https://charts.gitlab.io"
@@ -348,7 +342,7 @@ resource "helm_release" "gitlab_bundled" {
 }
 
 resource "helm_release" "gitlab_external" {
-  count = var.use_external_database ? 1 : 0
+  count = var.use_external_postgresql ? 1 : 0
 
   name       = "gitlab"
   repository = "https://charts.gitlab.io"
@@ -372,15 +366,6 @@ resource "helm_release" "gitlab_external" {
               key    = "password"
             }
           }
-          redis = {
-            host = var.redis_host
-            port = var.redis_port
-            auth = {
-              enabled = true
-              secret  = kubernetes_secret.gitlab_redis[0].metadata[0].name
-              key     = "redis-password"
-            }
-          }
         })
       },
       local.gitlab_helm_chart_values,
@@ -393,6 +378,5 @@ resource "helm_release" "gitlab_external" {
     kubernetes_secret.gitlab_registry_storage,
     kubernetes_secret.gitlab_backup_storage,
     kubernetes_secret.gitlab_postgresql,
-    kubernetes_secret.gitlab_redis,
   ]
 }

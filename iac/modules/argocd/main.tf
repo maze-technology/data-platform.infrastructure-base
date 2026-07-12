@@ -19,7 +19,7 @@ resource "helm_release" "argocd" {
   timeout = 600
 
   values = [
-    yamlencode({
+    yamlencode(merge({
       global = {
         image = {
           tag = "v2.9.3"
@@ -58,14 +58,13 @@ resource "helm_release" "argocd" {
       applicationSet = {
         replicas = var.enable_ha ? 2 : 1
       }
-      # Redis configuration - ensure Redis is enabled and secret is created
+      # In-cluster Redis — ephemeral cache only; Helm deploys redis or redis-ha automatically
       redis = {
-        enabled = !var.enable_ha # Use single Redis for non-HA
+        enabled = !var.enable_ha
       }
-      redis-ha = {
-        enabled = var.enable_ha # Use Redis HA for HA deployments
+      "redis-ha" = {
+        enabled = var.enable_ha
       }
-      # Ensure the Redis secret initialization job runs
       redisSecretInit = {
         enabled = true
       }
@@ -95,7 +94,7 @@ resource "helm_release" "argocd" {
           "scopes"     = "[groups]"
         }
       } : {}
-    })
+    }))
   ]
 
   depends_on = [kubernetes_namespace.argocd]

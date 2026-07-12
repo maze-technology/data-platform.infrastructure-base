@@ -268,6 +268,7 @@ module "observability" {
   prometheus_storage_size = "500Gi"
   grafana_storage_size    = "100Gi"
   loki_storage_size       = "1Ti"
+  storage_class           = module.rook_ceph.storage_class_name
   loki_deployment_mode    = "scalable"
   loki_object_storage = {
     type             = "s3"
@@ -323,11 +324,9 @@ module "gitlab" {
   enable_tls      = true
   vpn_cidr        = var.vpn_subnet
 
-  use_external_database = true
-  postgresql_host       = var.gitlab_postgresql_host
-  postgresql_password   = var.gitlab_postgresql_password
-  redis_host            = var.gitlab_redis_host
-  redis_password        = var.gitlab_redis_password
+  use_external_postgresql = true
+  postgresql_host         = var.gitlab_postgresql_host
+  postgresql_password     = var.gitlab_postgresql_password
 
   object_storage = {
     endpoint         = module.rook_ceph.rgw_endpoint

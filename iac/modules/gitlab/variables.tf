@@ -32,7 +32,7 @@ variable "registry_domain" {
 }
 
 variable "root_password" {
-  description = "Initial GitLab root password (min 8 chars). Ignored when use_external_database is true and secret is pre-provisioned."
+  description = "Initial GitLab root password (min 8 chars). Ignored when use_external_postgresql is true and secret is pre-provisioned."
   type        = string
   sensitive   = true
   default     = ""
@@ -56,14 +56,14 @@ variable "vpn_cidr" {
   default     = "10.8.0.0/24"
 }
 
-variable "use_external_database" {
-  description = "Use external PostgreSQL and Redis/Valkey (OVH managed services). When false, bundled subcharts are used (local dev only)."
+variable "use_external_postgresql" {
+  description = "Use external PostgreSQL (OVH managed). When false, bundled PostgreSQL subchart is used (local dev). Redis is always in-cluster."
   type        = bool
   default     = false
 }
 
 variable "postgresql_host" {
-  description = "External PostgreSQL host (required when use_external_database = true)"
+  description = "External PostgreSQL host (required when use_external_postgresql = true)"
   type        = string
   default     = ""
 }
@@ -93,23 +93,10 @@ variable "postgresql_password" {
   default     = ""
 }
 
-variable "redis_host" {
-  description = "External Redis/Valkey host (required when use_external_database = true)"
+variable "redis_storage_size" {
+  description = "Persistent volume size for in-cluster Redis"
   type        = string
-  default     = ""
-}
-
-variable "redis_port" {
-  description = "External Redis/Valkey port"
-  type        = number
-  default     = 6379
-}
-
-variable "redis_password" {
-  description = "External Redis/Valkey password"
-  type        = string
-  sensitive   = true
-  default     = ""
+  default     = "8Gi"
 }
 
 variable "object_storage" {

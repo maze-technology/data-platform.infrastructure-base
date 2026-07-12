@@ -22,11 +22,12 @@ This repository manages:
 
 We do **not** self-host these in production:
 
-- **PostgreSQL** — OVH Cloud Databases (RDS)
-- **Redis/Valkey** — OVH managed Valkey
+- **PostgreSQL** — OVH Cloud Databases (RDS) for GitLab and Keycloak
 - Other stateful services as needed
 
-Locally, GitLab uses bundled PostgreSQL/Redis subcharts for simplicity. Production switches to external managed endpoints via module variables.
+Redis/Valkey for GitLab and Argo CD runs **in-cluster** (Helm subcharts) — ephemeral cache and job queues, backed by Rook-Ceph PVCs where persistence is enabled.
+
+Locally, GitLab uses bundled PostgreSQL and in-cluster Redis. Production uses OVH PostgreSQL with in-cluster Redis.
 
 ## Identity and access (Keycloak)
 
@@ -158,8 +159,9 @@ Keycloak uses OVH managed PostgreSQL in production (same pattern as GitLab). Git
 │  Observability: Prometheus / Loki(S3) / Tempo / Promtail   │
 └─────────────────────────────────────────────────────────────┘
 
-Production DB/Redis: OVH managed (external to cluster)
-Local DB/Redis: GitLab Helm bundled subcharts
+Production PostgreSQL: OVH managed (external to cluster)
+GitLab/Argo CD Redis: in-cluster Helm subcharts (Rook-Ceph PVCs)
+Local PostgreSQL/Redis: GitLab Helm bundled subcharts
 ```
 
 ## Quick Start (local)
@@ -298,7 +300,9 @@ Both environments deploy the **same stack** inside Kubernetes: Rook-Ceph, WireGu
 |---|-------|------------|
 | Kubernetes | kind on 1 VPS | Real K8s on 3 OVH bare metal servers |
 | GitLab database | Bundled in Helm chart | OVH managed PostgreSQL |
-| GitLab Redis | Bundled in Helm chart | OVH managed Valkey |
+| GitLab Redis | In-cluster (Helm subchart) | In-cluster (Helm subchart, Rook PVC) |
+| Argo CD Redis | In-cluster (Helm subchart) | In-cluster redis-ha (Helm subchart) |
+| Observability PVCs | Prometheus, Grafana, Tempo on Rook-Ceph | Same |
 | Rook-Ceph disks | Safe loop image files | Dedicated `/dev/sdb` per server |
 | VPN | NodePort on localhost | LoadBalancer on public IP |
 
@@ -322,7 +326,7 @@ Required values in `terraform.tfvars`:
 - `kubeconfig_context` — your kubectl context name
 - `storage_nodes` — node hostnames + dedicated disk paths (must match `kubectl get nodes`)
 - `wireguard_server_url` — public IP for VPN
-- `gitlab_postgresql_host` / `gitlab_redis_host` — OVH managed database endpoints
+- `gitlab_postgresql_host` — OVH managed PostgreSQL endpoint for GitLab
 - Passwords via env vars: `export TF_VAR_gitlab_postgresql_password=...`
 
 ### What was removed: `iac/envs/gitlab/`

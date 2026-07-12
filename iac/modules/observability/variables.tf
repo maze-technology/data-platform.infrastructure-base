@@ -22,6 +22,12 @@ variable "namespace" {
 # - OpenTelemetry Collector (unified collection)
 # - Promtail (log collection)
 
+variable "storage_class" {
+  description = "StorageClass for Prometheus and Grafana PVCs (e.g. rook-ceph-block). Empty uses cluster default."
+  type        = string
+  default     = ""
+}
+
 variable "prometheus_storage_size" {
   description = "Storage size for Prometheus"
   type        = string

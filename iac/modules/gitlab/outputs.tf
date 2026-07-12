@@ -15,5 +15,5 @@ output "registry_url" {
 
 output "helm_release" {
   description = "GitLab Helm release metadata"
-  value       = var.use_external_database ? helm_release.gitlab_external[0] : helm_release.gitlab_bundled[0]
+  value       = var.use_external_postgresql ? helm_release.gitlab_external[0] : helm_release.gitlab_bundled[0]
 }

@@ -51,6 +51,7 @@ resource "helm_release" "prometheus_operator" {
             volumeClaimTemplate = {
               spec = {
                 accessModes = ["ReadWriteOnce"]
+                storageClassName = var.storage_class != "" ? var.storage_class : null
                 resources = {
                   requests = {
                     storage = var.prometheus_storage_size
@@ -71,8 +72,9 @@ resource "helm_release" "prometheus_operator" {
           enabled       = true    # Always enabled for unified observability visualization
           adminPassword = "admin" # Should be overridden via secrets in production
           persistence = {
-            enabled = true
-            size    = var.grafana_storage_size
+            enabled          = true
+            size             = var.grafana_storage_size
+            storageClassName = var.storage_class != "" ? var.storage_class : null
           }
           resources = {
             requests = var.resource_requests.grafana
@@ -474,7 +476,8 @@ resource "helm_release" "tempo" {
       storage = {
         type = "pvc"
         pvc = {
-          size = var.tempo_storage_size
+          size             = var.tempo_storage_size
+          storageClassName = var.storage_class != "" ? var.storage_class : null
         }
       }
       # Enable OTLP receivers for traces
