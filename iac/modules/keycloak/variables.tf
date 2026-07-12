@@ -143,3 +143,9 @@ variable "storage_class" {
   type        = string
   default     = ""
 }
+
+variable "postgresql_storage_size" {
+  description = "Persistent volume size for bundled PostgreSQL"
+  type        = string
+  default     = "8Gi"
+}

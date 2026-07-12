@@ -64,7 +64,7 @@ resource "helm_release" "prometheus_operator" {
             requests = var.resource_requests.prometheus
             limits   = var.resource_limits.prometheus
           }
-          retention = "30d"
+          retention = var.prometheus_retention
         }
       }
       grafana = merge(

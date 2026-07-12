@@ -104,7 +104,7 @@ resource "helm_release" "keycloak" {
           persistence = {
             enabled      = true
             storageClass = var.storage_class != "" ? var.storage_class : null
-            size         = "8Gi"
+            size         = var.postgresql_storage_size
           }
         }
       }

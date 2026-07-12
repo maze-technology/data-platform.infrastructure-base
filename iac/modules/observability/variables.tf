@@ -34,6 +34,12 @@ variable "prometheus_storage_size" {
   default     = "50Gi"
 }
 
+variable "prometheus_retention" {
+  description = "Prometheus TSDB retention period (e.g. 7d, 30d)"
+  type        = string
+  default     = "30d"
+}
+
 variable "grafana_storage_size" {
   description = "Storage size for Grafana"
   type        = string

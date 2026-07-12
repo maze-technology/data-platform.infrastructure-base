@@ -204,19 +204,14 @@ module "rook_ceph" {
 
   # Create sparse image files and attach them as loop devices on each worker node.
   # Sparse files use no real disk space until written — completely safe for local dev.
+  # Budget: 3 × 10 GB loop files → ~30 GB raw Ceph; rep=1 → ~27 GB usable (RBD + RGW shared).
   create_loop_devices       = true
   loop_device_image_size_gb = 10
 
-  # Production-like sizing for local development
-  # With 4 nodes (1 control-plane + 3 workers), we have:
-  # - 3 MONs on 3 workers (one per worker for HA, required spread)
-  # - 2 MGRs spread across workers (active + standby, can co-locate with MON)
-  # - OSDs distributed across all workers
-  # Control-plane remains tainted; no tolerations needed for Ceph pods
-  mon_count        = 3 # 3 MONs for quorum (can survive 1 node failure)
-  mgr_count        = 1 # 1 MGR is sufficient for local dev
+  mon_count        = 3
+  mgr_count        = 1
   rgw_instances    = 1
-  replication_size = 3 # 3 replicas across 3 OSD nodes (one OSD per worker)
+  replication_size = 1 # Local dev only — maximises usable space on small VPS loop files
 
   # Reduced resource requests for local
   resource_requests = {
@@ -287,15 +282,16 @@ module "keycloak" {
   cluster_name = local.cluster_name
   environment  = local.environment
 
-  keycloak_host       = local.hosts.auth
-  ingress_port_suffix = local.ingress_port
-  enable_tls          = false
-  vpn_cidr            = "10.8.0.0/24"
-  restrict_to_vpn     = true
-  admin_username      = var.keycloak_admin_username
-  admin_password      = var.keycloak_admin_password
-  bootstrap_users     = local.keycloak_bootstrap_users
-  storage_class       = module.rook_ceph.storage_class_name
+  keycloak_host           = local.hosts.auth
+  ingress_port_suffix     = local.ingress_port
+  enable_tls              = false
+  vpn_cidr                = "10.8.0.0/24"
+  restrict_to_vpn         = true
+  admin_username          = var.keycloak_admin_username
+  admin_password          = var.keycloak_admin_password
+  bootstrap_users         = local.keycloak_bootstrap_users
+  storage_class           = module.rook_ceph.storage_class_name
+  postgresql_storage_size = "2Gi"
 
   oidc_clients = {
     gitlab_redirect_uri  = "http://${local.hosts.scm}${local.ingress_port}/users/auth/openid_connect/callback"
@@ -321,9 +317,11 @@ module "observability" {
   grafana_ingress_enabled = true
   grafana_ingress_host    = local.hosts.grafana
   grafana_enable_tls      = false # TLS not needed for local
-  prometheus_storage_size = "20Gi"
-  grafana_storage_size    = "5Gi"
-  loki_storage_size       = "20Gi"
+  prometheus_storage_size = "3Gi"
+  prometheus_retention    = "7d"
+  grafana_storage_size    = "1Gi"
+  loki_storage_size       = "1Gi"
+  tempo_storage_size      = "2Gi"
   storage_class           = module.rook_ceph.storage_class_name
   loki_deployment_mode    = "scalable" # Use scalable mode with Rook-Ceph RGW S3
   loki_object_storage = {
@@ -393,11 +391,13 @@ module "wireguard" {
   cluster_name = local.cluster_name
   environment  = local.environment
 
-  server_url   = local.hosts.vpn # Point vpn.maze.local to VPS IP in /etc/hosts
-  service_type = "NodePort"
-  node_port    = 31820
-  vpn_subnet   = "10.8.0.0/24"
-  peers        = local.wireguard_peers
+  server_url    = local.hosts.vpn # Point vpn.maze.local to VPS IP in /etc/hosts
+  service_type  = "NodePort"
+  node_port     = 31820
+  vpn_subnet    = "10.8.0.0/24"
+  peers         = local.wireguard_peers
+  storage_class = module.rook_ceph.storage_class_name
+  storage_size  = "512Mi"
 
   depends_on = [module.rook_ceph]
 }
@@ -429,8 +429,10 @@ module "gitlab" {
     force_path_style = true
   }
 
-  storage_class       = module.rook_ceph.storage_class_name
-  gitaly_storage_size = "5Gi"
+  storage_class           = module.rook_ceph.storage_class_name
+  gitaly_storage_size     = "4Gi"
+  postgresql_storage_size = "3Gi"
+  redis_storage_size      = "1Gi"
 
   oidc = {
     issuer_url    = module.keycloak.issuer_url

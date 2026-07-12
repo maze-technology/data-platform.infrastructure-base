@@ -254,15 +254,18 @@ make local-teardown
 Local loop device config in `iac/envs/local/main.tf`:
 
 ```hcl
-use_all_nodes         = false
-create_loop_devices   = true
-loop_device_image_size_gb = 10
+use_all_nodes             = false
+create_loop_devices       = true
+loop_device_image_size_gb = 10   # 3 × 10 GB max on disk under /var/lib/rook
+replication_size          = 1    # local dev only — ~27 GB usable (RBD + RGW shared)
 storage_nodes = [
   { name = "local-worker",  devices = ["/dev/loop10"] },
   { name = "local-worker2", devices = ["/dev/loop11"] },
   { name = "local-worker3", devices = ["/dev/loop12"] },
 ]
 ```
+
+Local PVC sizes are tuned to fit a small VPS (~150 GB total). Loki/GitLab object data uses RGW (same Ceph pool). Production uses dedicated disks and larger PVCs.
 
 After a host reboot, re-attach loop devices:
 

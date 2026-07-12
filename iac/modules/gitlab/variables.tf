@@ -99,6 +99,12 @@ variable "redis_storage_size" {
   default     = "8Gi"
 }
 
+variable "postgresql_storage_size" {
+  description = "Persistent volume size for bundled PostgreSQL"
+  type        = string
+  default     = "8Gi"
+}
+
 variable "object_storage" {
   description = "S3-compatible object storage configuration (Rook-Ceph RGW or OVH Object Storage)"
   type = object({

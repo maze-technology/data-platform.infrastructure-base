@@ -136,6 +136,7 @@ locals {
       primary = {
         persistence = {
           enabled      = true
+          size         = var.postgresql_storage_size
           storageClass = var.storage_class != "" ? var.storage_class : null
         }
       }
