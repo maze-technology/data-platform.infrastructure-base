@@ -84,7 +84,8 @@ resource "null_resource" "create_rook_data_dir" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
       set -euo pipefail
       NODE="${each.key}"
       DIR="${var.data_dir_host_path}"
@@ -160,7 +161,8 @@ resource "null_resource" "setup_osd_loop_devices" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
       set -euo pipefail
       NODE="${each.value.node_name}"
       DEVICE="${each.value.device_path}"
