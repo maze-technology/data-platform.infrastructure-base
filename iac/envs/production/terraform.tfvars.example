@@ -3,7 +3,7 @@
 
 # ── Cluster domain ───────────────────────────────────────────────────────────
 # All services: auth.<domain>, scm.<domain>, vpn.<domain>, etc.
-cluster_domain = "prod.maze.tech"
+cluster_domain = "maze.tech"
 
 # ── Kubernetes access ────────────────────────────────────────────────────────
 kubeconfig_context = "production"

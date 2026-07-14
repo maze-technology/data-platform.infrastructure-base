@@ -21,6 +21,10 @@ nodes:
       - containerPort: 31820
         hostPort: 31820
         protocol: UDP
+      # GitLab CE chart v8+ (Envoy Gateway) — NodePort 32458 inside kind node
+      - containerPort: 32458
+        hostPort: 32458
+        protocol: TCP
     # Mount host /var/lib/rook into Kind node container
     # This allows Rook MON pods with hostPath volumes to access the directory
     # Terraform creates this directory on the host, and it needs to be accessible

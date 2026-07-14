@@ -77,7 +77,7 @@ resource "helm_release" "temporal" {
             }]
           }]
           annotations = var.enable_tls ? {
-            "cert-manager.io/cluster-issuer" = "letsencrypt-production"
+            "cert-manager.io/cluster-issuer" = "letsencrypt-prod"
           } : {}
           tls = var.enable_tls ? [{
             hosts      = [var.ingress_host]

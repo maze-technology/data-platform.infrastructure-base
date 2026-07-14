@@ -22,6 +22,12 @@ variable "namespace" {
 # - OpenTelemetry Collector (unified collection)
 # - Promtail (log collection)
 
+variable "enable_promtail" {
+  description = "Deploy Promtail DaemonSet for log shipping to Loki. Disable on kind/local (too many open files)."
+  type        = bool
+  default     = true
+}
+
 variable "storage_class" {
   description = "StorageClass for Prometheus and Grafana PVCs (e.g. rook-ceph-block). Empty uses cluster default."
   type        = string

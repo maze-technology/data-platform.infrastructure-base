@@ -92,7 +92,7 @@ resource "helm_release" "prometheus_operator" {
             hosts            = var.grafana_ingress_enabled ? [var.grafana_ingress_host] : []
             annotations = merge(
               var.grafana_enable_tls ? {
-                "cert-manager.io/cluster-issuer" = "letsencrypt-production"
+                "cert-manager.io/cluster-issuer" = "letsencrypt-prod"
               } : {},
               local.ingress_annotations
             )
@@ -438,8 +438,9 @@ resource "helm_release" "loki" {
   depends_on = [kubernetes_namespace.monitoring]
 }
 
-# Promtail for log collection
+# Promtail for log collection (optional — disabled on kind)
 resource "helm_release" "promtail" {
+  count = var.enable_promtail ? 1 : 0
 
   name       = "promtail"
   repository = "https://grafana.github.io/helm-charts"

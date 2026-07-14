@@ -8,7 +8,8 @@ output "service_urls" {
   value = {
     auth_admin   = "${module.keycloak.admin_console_url}/admin"
     auth_realm   = module.keycloak.issuer_url
-    scm          = "http://${local.hosts.scm}${local.ingress_port}"
+    scm          = "http://${local.hosts.scm}${local.gitlab_http_port}"
+    registry     = "http://${local.hosts.registry}${local.gitlab_http_port}"
     grafana      = "http://${local.hosts.grafana}${local.ingress_port}"
     argocd       = "http://${local.hosts.argocd}${local.ingress_port}"
     vault        = "http://${local.hosts.vault}${local.ingress_port}"

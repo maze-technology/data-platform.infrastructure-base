@@ -46,9 +46,10 @@ provider "helm" {
 }
 
 locals {
-  environment  = "local"
-  cluster_name = "local"
-  ingress_port = ":30080"
+  environment      = "local"
+  cluster_name     = "local"
+  ingress_port     = ":30080"
+  gitlab_http_port = ":32458" # GitLab chart v8+ Envoy Gateway NodePort (see kind-config extraPortMappings)
 
   cluster_domain = var.cluster_domain
 
@@ -315,6 +316,7 @@ module "observability" {
   grafana_ingress_enabled = true
   grafana_ingress_host    = local.hosts.grafana
   grafana_enable_tls      = false # TLS not needed for local
+  enable_promtail         = false # kind hits EMFILE watching pod log files
   prometheus_storage_size = "3Gi"
   prometheus_retention    = "7d"
   grafana_storage_size    = "1Gi"

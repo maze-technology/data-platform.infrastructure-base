@@ -356,6 +356,7 @@ module "gitlab" {
 
   storage_class           = module.rook_ceph.storage_class_name
   gitaly_storage_size     = "100Gi"
+  valkey_storage_size     = "8Gi"
   webservice_min_replicas = 2
   webservice_max_replicas = 4
 

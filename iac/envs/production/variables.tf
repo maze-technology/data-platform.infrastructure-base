@@ -5,9 +5,9 @@ variable "cluster_name" {
 }
 
 variable "cluster_domain" {
-  description = "Base domain for all cluster services (e.g. prod.maze.tech). DNS or /etc/hosts must resolve subdomains to the cluster."
+  description = "Base domain for all cluster services (e.g. maze.tech). DNS must resolve auth.<domain>, scm.<domain>, etc. to the cluster."
   type        = string
-  default     = "prod.maze.tech"
+  default     = "maze.tech"
 }
 
 variable "kubeconfig_path" {
