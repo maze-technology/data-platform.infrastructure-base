@@ -34,6 +34,7 @@ ensure-rook-crds: ## Ensure Rook CRDs are installed (internal target)
 	if ! kubectl get crd cephclusters.ceph.rook.io >/dev/null 2>&1; then \
 		echo "Rook CRDs not found. Terraform will detect and install them automatically."; \
 		echo "This is required because kubernetes_manifest validates during plan/apply."; \
+		tofu taint -allow-missing module.rook_ceph.null_resource.install_rook_platform 2>/dev/null || true; \
 		tofu apply -target='module.rook_ceph.null_resource.install_rook_platform' -auto-approve || { \
 			echo "Error: CRD installation failed. Cannot proceed."; \
 			exit 1; \
@@ -273,12 +274,6 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 	@echo "=========================================="
 	@echo "Services Layer: S3 Buckets + Applications"
 	@echo "=========================================="
-	@if [ -z "$$AWS_ACCESS_KEY_ID" ] || [ -z "$$AWS_SECRET_ACCESS_KEY" ]; then \
-		echo "Error: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set"; \
-		echo "Run: eval \$$(vault kv get -format=json secret/rgw/credentials | jq -r '.data.data | \"export AWS_ACCESS_KEY_ID=\(.access_key)\nexport AWS_SECRET_ACCESS_KEY=\(.secret_key)\"')"; \
-		exit 1; \
-	fi
-	@echo "Applying S3 buckets and remaining infrastructure..."
 	@if [ -z "$$TF_VAR_rgw_s3_endpoint" ]; then \
 		kubectl port-forward -n $(RGW_PF_NAMESPACE) $(RGW_PF_SERVICE) $(RGW_PF_LOCAL_PORT):$(RGW_PF_REMOTE_PORT) >/dev/null 2>&1 & RPF=$$!; \
 		RGW_ENDPOINT="http://127.0.0.1:$(RGW_PF_LOCAL_PORT)"; \
@@ -293,6 +288,15 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 	fi; \
 	trap 'kill $$VPF $$RPF 2>/dev/null || true' EXIT; \
 	sleep 4; \
+	if [ -z "$$AWS_ACCESS_KEY_ID" ] || [ -z "$$AWS_SECRET_ACCESS_KEY" ]; then \
+		echo "Exporting RGW credentials from Vault..."; \
+		export VAULT_ADDR="$$VAULT_ADDR" VAULT_TOKEN=$${VAULT_TOKEN:-root}; \
+		eval $$(vault kv get -format=json secret/rgw/credentials | jq -r '.data.data | "export AWS_ACCESS_KEY_ID=\(.access_key)\nexport AWS_SECRET_ACCESS_KEY=\(.secret_key)"') || { \
+			echo "Error: Could not export credentials from Vault at $$VAULT_ADDR"; \
+			exit 1; \
+		}; \
+	fi; \
+	echo "Applying S3 buckets and remaining infrastructure..."; \
 	cd iac/envs/$(ENV) && \
 	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
 	tofu import aws_s3_bucket.loki_logs loki-logs-local 2>/dev/null || true; \
@@ -301,6 +305,7 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
 	tofu import module.keycloak.helm_release.keycloak keycloak/keycloak 2>/dev/null || true; \
 	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
 	tofu apply -auto-approve
 	@echo ""
 	@echo "✓ Services layer complete!"
@@ -386,10 +391,16 @@ local-setup: ## Set up complete local development environment (Kind cluster)
 
 local-teardown: ## Tear down local development environment
 	@echo "Tearing down local development environment..."
+	@if kind get clusters 2>/dev/null | grep -q "^$(CLUSTER_NAME)$$"; then \
+		echo "Destroying Terraform-managed resources while cluster is still up..."; \
+		$(MAKE) ensure-rook-crds ENV=$(ENV); \
+		cd iac/envs/$(ENV) && tofu destroy -auto-approve || { \
+			echo "Warning: tofu destroy failed; continuing with cluster deletion."; \
+		}; \
+	fi
 	@$(MAKE) teardown-loop-devices || true
 	@$(MAKE) kind-down
 	@echo "✓ Local development environment torn down"
-	@echo "Note: OSD image files preserved at /var/lib/rook/*-osd.img — delete manually if not needed"
 
 setup-loop-devices: ## Re-attach OSD loop devices after a reboot (normally handled by tofu apply)
 	@echo "Re-attaching OSD loop devices on kind worker nodes..."
@@ -417,8 +428,12 @@ setup-loop-devices: ## Re-attach OSD loop devices after a reboot (normally handl
 	done
 	@echo "Done. If devices were lost, also run 'make apply' to ensure Rook cluster is consistent."
 
-teardown-loop-devices: ## Detach OSD loop devices from kind worker nodes (image files are preserved)
+teardown-loop-devices: ## Detach OSD loop devices from kind worker nodes
 	@echo "Detaching OSD loop devices..."
+	@sudo dmsetup remove rookosd--localworker-data rookosd--localworker2-data rookosd--localworker3-data 2>/dev/null || true
+	@for d in /dev/loop10 /dev/loop11 /dev/loop12 /dev/loop13; do \
+		sudo losetup -d $$d 2>/dev/null || true; \
+	done
 	@for NODE in local-worker local-worker2 local-worker3; do \
 		LOOP_NUM=$$((10 + $$(echo $$NODE | sed 's/local-worker//' | sed 's/^$$/0/'))); \
 		DEVICE="/dev/loop$$LOOP_NUM"; \
@@ -434,7 +449,8 @@ teardown-loop-devices: ## Detach OSD loop devices from kind worker nodes (image 
 			echo "  $$DEVICE not attached on $$NODE, skipping"; \
 		fi; \
 	done
-	@echo "Done. Image files preserved at /var/lib/rook/*-osd.img"
+	@rm -f /var/lib/rook/*-osd.img 2>/dev/null || true
+	@echo "Done. OSD image files removed."
 
 prepull-ceph-image: ## Pre-pull Ceph image with resumable download (handles network failures gracefully)
 	@echo "Pre-pulling Ceph image (resumable - will resume if network fails)..."

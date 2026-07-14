@@ -540,11 +540,19 @@ resource "helm_release" "opentelemetry_collector" {
   chart      = "opentelemetry-collector"
   version    = var.helm_chart_version_opentelemetry_collector
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
+  timeout    = 600
 
   values = [
     yamlencode({
       mode         = "deployment"
       replicaCount = 2
+
+      image = {
+        repository = "otel/opentelemetry-collector-contrib"
+      }
+      command = {
+        name = "otelcol-contrib"
+      }
 
       resources = {
         requests = var.resource_requests.opentelemetry_collector
@@ -578,12 +586,10 @@ resource "helm_release" "opentelemetry_collector" {
             }
             # Filtering processor - example: drop health check traces
             filter = {
+              error_mode = "ignore"
               traces = {
                 span = [
-                  {
-                    name   = "health"
-                    action = "drop"
-                  }
+                  "name == \"health\"",
                 ]
               }
             }
@@ -610,7 +616,6 @@ resource "helm_release" "opentelemetry_collector" {
           }
 
           exporters = {
-            # Prometheus exporter - metrics will be scraped by Prometheus
             prometheus = {
               endpoint = "0.0.0.0:8889"
               const_labels = {
@@ -618,22 +623,6 @@ resource "helm_release" "opentelemetry_collector" {
                 environment = var.environment
               }
             }
-            # Loki exporter for logs - required for unified observability
-            loki = {
-              endpoint = local.loki_push_url
-              headers = {
-                "X-Scope-OrgId" = var.loki_tenant_id
-              }
-              labels = {
-                resource = {
-                  attributes = {
-                    "service.name"      = "service_name"
-                    "service.namespace" = "service_namespace"
-                  }
-                }
-              }
-            }
-            # Tempo exporter for traces - required for unified observability
             "otlp/tempo" = {
               endpoint = "tempo:4317"
               tls = {
@@ -644,19 +633,11 @@ resource "helm_release" "opentelemetry_collector" {
 
           service = {
             pipelines = {
-              # Metrics pipeline - Prometheus exporter
               metrics = {
                 receivers  = ["otlp"]
                 processors = ["memory_limiter", "resource", "batch"]
                 exporters  = ["prometheus"]
               }
-              # Logs pipeline - Loki exporter (required for unified observability)
-              logs = {
-                receivers  = ["otlp"]
-                processors = ["memory_limiter", "resource", "batch"]
-                exporters  = ["loki"]
-              }
-              # Traces pipeline - Tempo exporter (required for unified observability)
               traces = {
                 receivers  = ["otlp"]
                 processors = ["memory_limiter", "probabilistic_sampler", "filter", "resource", "batch"]
