@@ -27,23 +27,13 @@ locals {
   # If using existing Rook user, get credentials from secret
   # Use try() to handle cases where secret exists but data is not yet populated
   access_key = var.use_existing_rook_user && local.secret_data_available ? (
-    try(
-      base64decode(
-        try(local.secret_data["AccessKey"], "")
-      ),
-      ""
-    )
+    try(local.secret_data["AccessKey"], "")
     ) : (
     var.rgw_admin_access_key # Fallback if creating new user (would need rissson/rgw)
   )
 
   secret_key = var.use_existing_rook_user && local.secret_data_available ? (
-    try(
-      base64decode(
-        try(local.secret_data["SecretKey"], "")
-      ),
-      ""
-    )
+    try(local.secret_data["SecretKey"], "")
     ) : (
     var.rgw_admin_secret_key # Fallback if creating new user
   )

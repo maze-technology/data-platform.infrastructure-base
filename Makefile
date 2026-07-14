@@ -243,7 +243,10 @@ apply-foundation: ensure-rook-crds ## Apply foundation layer (Rook-Ceph, Vault, 
 	fi
 	@echo ""
 	@echo "Step 7: Applying RGW Bootstrap (stores credentials in Vault)..."
-	@cd iac/envs/$(ENV) && tofu apply \
+	@kubectl port-forward -n vault svc/vault 8200:8200 >/dev/null 2>&1 & PF_PID=$$!; \
+	trap 'kill $$PF_PID 2>/dev/null || true' EXIT; \
+	sleep 2; \
+	cd iac/envs/$(ENV) && tofu apply \
 		-target='module.rgw_bootstrap' \
 		-target='data.vault_kv_secret_v2.rgw_credentials' \
 		-auto-approve
@@ -360,7 +363,7 @@ local-teardown: ## Tear down local development environment
 	@$(MAKE) teardown-loop-devices || true
 	@$(MAKE) kind-down
 	@echo "✓ Local development environment torn down"
-	@echo "Note: OSD image files preserved at /var/lib/rook/loop1*.img — delete manually if not needed"
+	@echo "Note: OSD image files preserved at /var/lib/rook/*-osd.img — delete manually if not needed"
 
 setup-loop-devices: ## Re-attach OSD loop devices after a reboot (normally handled by tofu apply)
 	@echo "Re-attaching OSD loop devices on kind worker nodes..."
@@ -369,7 +372,7 @@ setup-loop-devices: ## Re-attach OSD loop devices after a reboot (normally handl
 	@for NODE in local-worker local-worker2 local-worker3; do \
 		LOOP_NUM=$$((10 + $$(echo $$NODE | sed 's/local-worker//' | sed 's/^$$/0/'))); \
 		DEVICE="/dev/loop$$LOOP_NUM"; \
-		IMG_PATH="/var/lib/rook/loop$${LOOP_NUM}.img"; \
+		IMG_PATH="/var/lib/rook/$$NODE-osd.img"; \
 		if ! docker ps --format '{{.Names}}' | grep -qxF "$$NODE" 2>/dev/null; then \
 			echo "  $$NODE not running, skipping"; \
 			continue; \
@@ -405,7 +408,7 @@ teardown-loop-devices: ## Detach OSD loop devices from kind worker nodes (image 
 			echo "  $$DEVICE not attached on $$NODE, skipping"; \
 		fi; \
 	done
-	@echo "Done. Image files preserved at /var/lib/rook/loop1*.img"
+	@echo "Done. Image files preserved at /var/lib/rook/*-osd.img"
 
 prepull-ceph-image: ## Pre-pull Ceph image with resumable download (handles network failures gracefully)
 	@echo "Pre-pulling Ceph image (resumable - will resume if network fails)..."

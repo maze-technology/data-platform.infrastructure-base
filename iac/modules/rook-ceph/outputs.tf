@@ -60,13 +60,13 @@ output "rgw_user_name" {
 
 output "rgw_access_key" {
   description = "S3 access key for RGW user (from Kubernetes secret)"
-  value       = try(base64decode(data.kubernetes_secret.rgw_credentials.data["AccessKey"]), null)
+  value       = try(data.kubernetes_secret.rgw_credentials.data["AccessKey"], null)
   sensitive   = true
 }
 
 output "rgw_secret_key" {
   description = "S3 secret key for RGW user (from Kubernetes secret)"
-  value       = try(base64decode(data.kubernetes_secret.rgw_credentials.data["SecretKey"]), null)
+  value       = try(data.kubernetes_secret.rgw_credentials.data["SecretKey"], null)
   sensitive   = true
 }
 

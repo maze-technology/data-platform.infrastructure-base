@@ -193,9 +193,9 @@ module "rook_ceph" {
   create_loop_devices = true
   allow_loop_devices  = true
   storage_nodes = [
-    { name = "local-worker", devices = ["mapper/rookosd--localworker-data"], loop_device = "loop10" },
-    { name = "local-worker2", devices = ["mapper/rookosd--localworker2-data"], loop_device = "loop11" },
-    { name = "local-worker3", devices = ["mapper/rookosd--localworker3-data"], loop_device = "loop12" },
+    { name = "local-worker", devices = ["dm-1"], loop_device = "loop10" },
+    { name = "local-worker2", devices = ["dm-2"], loop_device = "loop11" },
+    { name = "local-worker3", devices = ["dm-0"], loop_device = "loop12" },
   ]
   local_block_osd_devices   = {}
   storage_class_device_sets = []

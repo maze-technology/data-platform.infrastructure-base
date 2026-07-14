@@ -202,35 +202,53 @@ resource "null_resource" "setup_osd_loop_devices" {
         echo "✓ Created sparse OSD image $IMG_PATH on $NODE"
       fi
 
-      # Check if this image is already attached to any loop device
-      EXISTING_LOOP=$(docker exec "$NODE" losetup -j "$IMG_PATH" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
-      if [ -n "$EXISTING_LOOP" ]; then
-        if [ "$EXISTING_LOOP" = "$DEVICE" ]; then
-          echo "  $DEVICE already attached to $IMG_PATH on $NODE — nothing to do"
-        else
-          echo "  $IMG_PATH is attached to $EXISTING_LOOP (expected $DEVICE) on $NODE — using existing attachment"
+      # Detach ghost loops and wrong-path attachments for this node's device only.
+      docker exec "$NODE" bash -c '
+        set -euo pipefail
+        IMG="'"$IMG_PATH"'"
+        DEV="'"$DEVICE"'"
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          loop="$${line%%:*}"
+          if echo "$line" | grep -q "(deleted)"; then
+            echo "  Detaching ghost loop $loop"
+            losetup -d "$loop" 2>/dev/null || true
+          fi
+        done < <(losetup -a 2>/dev/null || true)
+        if losetup "$DEV" >/dev/null 2>&1; then
+          backing=$(losetup -n -O BACK-FILE "$DEV" 2>/dev/null || true)
+          if [ -n "$backing" ] && [ "$backing" != "$IMG" ]; then
+            echo "  Detaching $DEV (was backed by $backing, want $IMG)"
+            losetup -d "$DEV" 2>/dev/null || true
+          fi
         fi
+        # Drop stale LVM on this loop before re-attach (kind nodes share the host loop table).
+        VG="rookosd-$(echo "'"$NODE"'" | tr -cd "[:alnum:]")"
+        vgchange -an "$VG" 2>/dev/null || true
+        vgremove -f "$VG" 2>/dev/null || true
+      '
+
+      # Attach image to the expected loop device.
+      EXISTING_LOOP=$(docker exec "$NODE" losetup -j "$IMG_PATH" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+      if [ -n "$EXISTING_LOOP" ] && [ "$EXISTING_LOOP" = "$DEVICE" ]; then
+        echo "  $DEVICE already attached to $IMG_PATH on $NODE"
       else
-        # Target loop device might be in use by something else — detach it first
         if docker exec "$NODE" losetup "$DEVICE" >/dev/null 2>&1; then
-          echo "⚠ $DEVICE is already in use on $NODE, detaching..."
+          echo "⚠ $DEVICE in use on $NODE, detaching..."
           docker exec "$NODE" losetup -d "$DEVICE" 2>/dev/null || true
         fi
-
         echo "Attaching $IMG_PATH to $DEVICE on $NODE..."
         docker exec "$NODE" losetup "$DEVICE" "$IMG_PATH"
         echo "✓ Attached $IMG_PATH to $DEVICE on $NODE"
       fi
 
-      # Verify the result is a usable block device
-      if docker exec "$NODE" test -b "$DEVICE" 2>/dev/null; then
-        echo "✓ OSD block device $DEVICE is ready on $NODE (backed by $IMG_PATH)"
-      else
+      if ! docker exec "$NODE" test -b "$DEVICE" 2>/dev/null; then
         echo "✗ $DEVICE is not a block device on $NODE after setup"
         exit 1
       fi
+      echo "✓ OSD block device $DEVICE is ready on $NODE (backed by $IMG_PATH)"
 
-      # Ceph-volume needs LVM/dm devices on kind — loop devices lack udev data in containers.
+      # Ceph-volume on kind needs LVM + /dev/mapper symlinks (no udev in containers).
       echo "Ensuring LVM volume on $NODE..."
       docker exec "$NODE" bash -c '
         set -euo pipefail
@@ -238,29 +256,117 @@ resource "null_resource" "setup_osd_loop_devices" {
         VG="rookosd-$(echo "$NODE" | tr -cd "[:alnum:]")"
         LV=data
         DEV="'"$DEVICE"'"
+        MAPPER="rookosd--$(echo "$NODE" | sed "s/-//g")-data"
+
+        refresh_dm_nodes() {
+          mkdir -p /dev/mapper
+          dmsetup mknodes 2>/dev/null || true
+          for d in $(dmsetup ls 2>/dev/null | cut -f1); do
+            major=$(dmsetup info -c --noheadings -o major "$d")
+            minor=$(dmsetup info -c --noheadings -o minor "$d")
+            node="/dev/dm-$minor"
+            [ -e "$node" ] || mknod -m 660 "$node" b "$major" "$minor"
+            ln -sf "../dm-$minor" "/dev/mapper/$d"
+          done
+        }
+
+        refresh_lvm_dev_nodes() {
+          for d in $(dmsetup ls 2>/dev/null | cut -f1); do
+            case "$d" in
+              rookosd--*-data)
+                nodepart=$(echo "$d" | sed "s/^rookosd--//; s/-data$//")
+                vg="rookosd-$nodepart"
+                lv=data
+                minor=$(dmsetup info -c --noheadings -o minor "$d")
+                mkdir -p "/dev/$vg"
+                ln -sf "../dm-$minor" "/dev/$vg/$lv"
+                ;;
+            esac
+          done
+        }
+
+        # kind has no udevd (/sys is ro) — ceph-volume v20 requires /run/udev/data stubs.
+        refresh_udev_stubs() {
+          mkdir -p /run/udev/data
+          for devpath in /sys/block/*; do
+            [ -f "$devpath/dev" ] || continue
+            dev=$(basename "$devpath")
+            majmin=$(tr -d " \n" < "$devpath/dev")
+            major=$${majmin%%:*}
+            minor=$${majmin##*:}
+            file="/run/udev/data/b$${major}:$${minor}"
+            cat > "$file" <<EOF
+S:disk/by-diskseq/$${dev}
+E:DEVTYPE=disk
+E:ID_FS_TYPE=
+EOF
+            for part in "$devpath"/*; do
+              [ -f "$part/dev" ] || continue
+              pname=$(basename "$part")
+              majmin=$(tr -d " \n" < "$part/dev")
+              major=$${majmin%%:*}
+              minor=$${majmin##*:}
+              file="/run/udev/data/b$${major}:$${minor}"
+              cat > "$file" <<EOF
+S:disk/by-diskseq/$${dev}-$${pname}
+E:DEVTYPE=partition
+E:ID_FS_TYPE=
+EOF
+            done
+          done
+          for d in $(dmsetup ls 2>/dev/null | cut -f1); do
+            minor=$(dmsetup info -c --noheadings -o minor "$d")
+            major=$(dmsetup info -c --noheadings -o major "$d")
+            file="/run/udev/data/b$${major}:$${minor}"
+            cat > "$file" <<EOF
+S:disk/by-id/dm-name-$${d}
+S:mapper/$${d}
+E:DEVTYPE=disk
+E:DM_NAME=$${d}
+E:ID_FS_TYPE=
+E:ID_PART_TABLE=
+EOF
+          done
+        }
+
         if ! command -v pvcreate >/dev/null 2>&1; then
           apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq lvm2
         fi
+
+        needs_create=true
         if lvs "$VG/$LV" &>/dev/null; then
-          echo "  LVM $VG/$LV already exists on $NODE"
-          exit 0
+          pv_dev=$(pvs --noheadings -o pv_name -S vg_name="$VG" 2>/dev/null | tr -d " " | head -1 || true)
+          if [ "$pv_dev" = "$DEV" ] && [ -e "/dev/mapper/$MAPPER" ]; then
+            echo "  LVM $VG/$LV already valid on $NODE"
+            needs_create=false
+          else
+            echo "  Recreating LVM $VG/$LV (pv=$pv_dev dev=$DEV mapper=$MAPPER)"
+            vgremove -f "$VG" 2>/dev/null || true
+          fi
         fi
-        if vgs "$VG" &>/dev/null; then
-          vgremove -f "$VG" || true
+
+        if [ "$needs_create" = true ]; then
+          if vgs "$VG" &>/dev/null; then
+            vgremove -f "$VG" || true
+          fi
+          wipefs -a "$DEV" 2>/dev/null || true
+          pvcreate --yes -ff "$DEV"
+          vgcreate "$VG" "$DEV"
+          lvcreate --yes --noudevsync -Zn -l 100%FREE -n "$LV" "$VG"
+          vgchange -ay "$VG"
+          echo "  Created LVM $VG/$LV on $NODE"
         fi
-        wipefs -a "$DEV" 2>/dev/null || true
-        pvcreate --yes -ff "$DEV"
-        vgcreate "$VG" "$DEV"
-        lvcreate --yes --noudevsync -Zn -l 100%FREE -n "$LV" "$VG"
-        vgchange -ay "$VG"
-        dmsetup mknodes
-        for d in $(dmsetup ls | cut -f1); do
-          major=$(dmsetup info -c --noheadings -o major "$d")
-          minor=$(dmsetup info -c --noheadings -o minor "$d")
-          node="/dev/dm-$minor"
-          [ -e "$node" ] || mknod -m 660 "$node" b "$major" "$minor"
-        done
-        echo "  Created LVM $VG/$LV on $NODE"
+
+        refresh_dm_nodes
+        refresh_lvm_dev_nodes
+        refresh_udev_stubs
+        if [ ! -e "/dev/mapper/$MAPPER" ]; then
+          echo "✗ /dev/mapper/$MAPPER missing after LVM setup on $NODE"
+          dmsetup ls
+          ls -la /dev/mapper/ || true
+          exit 1
+        fi
+        echo "  ✓ /dev/mapper/$MAPPER ready on $NODE"
       '
       echo "✓ LVM ready on $NODE"
     EOT
