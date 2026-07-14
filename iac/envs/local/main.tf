@@ -188,20 +188,17 @@ module "rook_ceph" {
 
   # SAFETY: use_all_nodes = false + explicit storage_nodes prevents Rook from scanning
   # and accidentally formatting real block devices on the host.
-  # Kind/local uses PVC-backed OSDs via storageClassDeviceSets on standard (local-path).
-  # Ceph v20+ rejects loop devices; local-path volumes are node-bound (portable=false).
-  use_all_nodes             = false
-  create_loop_devices       = false
-  storage_nodes             = []
-  storage_class_device_sets = [{
-    name     = "set1"
-    count    = 3
-    portable = false
-    volume_claim_templates = [{
-      size        = "10Gi"
-      volume_mode = "Filesystem"
-    }]
-  }]
+  # Kind/local: per-node loop devices with ROOK_CEPH_ALLOW_LOOP_DEVICES (see rook-operator-config.tf).
+  use_all_nodes       = false
+  create_loop_devices = true
+  allow_loop_devices  = true
+  storage_nodes = [
+    { name = "local-worker", devices = ["mapper/rookosd--localworker-data"], loop_device = "loop10" },
+    { name = "local-worker2", devices = ["mapper/rookosd--localworker2-data"], loop_device = "loop11" },
+    { name = "local-worker3", devices = ["mapper/rookosd--localworker3-data"], loop_device = "loop12" },
+  ]
+  local_block_osd_devices   = {}
+  storage_class_device_sets = []
 
   # Single MON for kind: with 3 workers and 3 MONs, MGR cannot schedule (daemon ID anti-affinity).
   mon_count        = 1

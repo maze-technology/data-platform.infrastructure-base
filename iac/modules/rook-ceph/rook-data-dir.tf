@@ -21,14 +21,10 @@ locals {
   # Derive (node, device) pairs from storage_nodes for loop device setup.
   # Only populated when create_loop_devices = true.
   osd_device_pairs = var.create_loop_devices ? {
-    for pair in flatten([
-      for node in var.storage_nodes : [
-        for device in node.devices : {
-          node_name   = node.name
-          device_path = device
-        }
-      ]
-    ]) : "${pair.node_name}:${pair.device_path}" => pair
+    for node in var.storage_nodes : "${node.name}:${coalesce(node.loop_device, try(node.devices[0], ""))}" => {
+      node_name   = node.name
+      device_path = coalesce(node.loop_device, try(node.devices[0], ""))
+    } if coalesce(node.loop_device, try(node.devices[0], "")) != ""
   } : {}
 
   # Derive (node, directory) pairs from storage_nodes for directory OSD setup.
@@ -233,6 +229,40 @@ resource "null_resource" "setup_osd_loop_devices" {
         echo "✗ $DEVICE is not a block device on $NODE after setup"
         exit 1
       fi
+
+      # Ceph-volume needs LVM/dm devices on kind — loop devices lack udev data in containers.
+      echo "Ensuring LVM volume on $NODE..."
+      docker exec "$NODE" bash -c '
+        set -euo pipefail
+        NODE="'"$NODE"'"
+        VG="rookosd-$(echo "$NODE" | tr -cd "[:alnum:]")"
+        LV=data
+        DEV="'"$DEVICE"'"
+        if ! command -v pvcreate >/dev/null 2>&1; then
+          apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq lvm2
+        fi
+        if lvs "$VG/$LV" &>/dev/null; then
+          echo "  LVM $VG/$LV already exists on $NODE"
+          exit 0
+        fi
+        if vgs "$VG" &>/dev/null; then
+          vgremove -f "$VG" || true
+        fi
+        wipefs -a "$DEV" 2>/dev/null || true
+        pvcreate --yes -ff "$DEV"
+        vgcreate "$VG" "$DEV"
+        lvcreate --yes --noudevsync -Zn -l 100%FREE -n "$LV" "$VG"
+        vgchange -ay "$VG"
+        dmsetup mknodes
+        for d in $(dmsetup ls | cut -f1); do
+          major=$(dmsetup info -c --noheadings -o major "$d")
+          minor=$(dmsetup info -c --noheadings -o minor "$d")
+          node="/dev/dm-$minor"
+          [ -e "$node" ] || mknod -m 660 "$node" b "$major" "$minor"
+        done
+        echo "  Created LVM $VG/$LV on $NODE"
+      '
+      echo "✓ LVM ready on $NODE"
     EOT
   }
 

@@ -47,6 +47,7 @@ variable "storage_nodes" {
     name        = string
     devices     = optional(list(string), [])
     directories = optional(list(string), [])
+    loop_device = optional(string) # kind only: loop device basename backing LVM (e.g. loop10)
   }))
   default = []
 }
@@ -62,7 +63,7 @@ variable "storage_class_device_sets" {
       name          = optional(string, "data")
       size          = string
       storage_class = optional(string, "standard")
-      volume_mode   = optional(string, "Filesystem")
+      volume_mode   = optional(string, "Block")
     }))
   }))
   default = []
@@ -275,6 +276,12 @@ variable "data_dir_host_path" {
 # Loop device configuration for local kind clusters
 # When enabled, creates sparse image files and attaches them as loop devices on kind worker nodes.
 # This ensures Rook writes to files instead of real disk partitions (safe for local dev).
+variable "allow_loop_devices" {
+  description = "Set ROOK_CEPH_ALLOW_LOOP_DEVICES on the operator (required for kind loop-backed Local PV OSDs)."
+  type        = bool
+  default     = false
+}
+
 variable "create_loop_devices" {
   description = "Create loop device-backed OSD images on kind worker nodes. Writes to files, not real disks — safe for local development. Requires storage_nodes to specify the target loop device paths."
   type        = bool

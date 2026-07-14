@@ -325,6 +325,7 @@ resource "kubernetes_manifest" "ceph_cluster" {
   depends_on = [
     kubernetes_namespace.rook_ceph,
     null_resource.install_rook_platform,
+    null_resource.rook_allow_loop_devices,
     null_resource.create_rook_data_dir,
     null_resource.setup_osd_loop_devices,
     null_resource.setup_osd_directories,

@@ -248,7 +248,7 @@ make local-teardown
 |---------|-------|--------|
 | `useAllDevices` | **always `false`** | No automatic disk discovery |
 | `deviceFilter` | **always `""`** | No regex-based device matching |
-| Local (`kind`) | `storageClassDeviceSets` on `standard` (local-path) | Ceph v20+ rejects loop devices; PVC-backed OSDs never touch real disks |
+| Local (`kind`) | Loop image + LVM (`rookosd/data`) per worker | Ceph v20 needs LVM/dm devices; loop-only lacks udev in kind |
 | Production | Explicit `storage_nodes` per bare-metal server | Only dedicated disks (e.g. `/dev/sdb`) — **never the OS disk** |
 
 Local loop device config in `iac/envs/local/main.tf`:
