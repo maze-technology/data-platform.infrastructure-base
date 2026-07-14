@@ -9,6 +9,13 @@
 CLUSTER_NAME ?= local
 ENV ?= local
 KIND_CONFIG ?= config/kind-config.yaml
+VAULT_PF_LOCAL_PORT ?= 8200
+RGW_PF_LOCAL_PORT ?= 9000
+VAULT_PF_NAMESPACE ?= vault
+VAULT_PF_SERVICE ?= svc/vault
+RGW_PF_NAMESPACE ?= rook-ceph
+RGW_PF_SERVICE ?= svc/rook-ceph-rgw-rgw-store
+RGW_PF_REMOTE_PORT ?= 80
 
 # Default target
 help: ## Show this help message
@@ -243,10 +250,12 @@ apply-foundation: ensure-rook-crds ## Apply foundation layer (Rook-Ceph, Vault, 
 	fi
 	@echo ""
 	@echo "Step 7: Applying RGW Bootstrap (stores credentials in Vault)..."
-	@kubectl port-forward -n vault svc/vault 8200:8200 >/dev/null 2>&1 & PF_PID=$$!; \
+	@kubectl port-forward -n $(VAULT_PF_NAMESPACE) $(VAULT_PF_SERVICE) $(VAULT_PF_LOCAL_PORT):8200 >/dev/null 2>&1 & PF_PID=$$!; \
 	trap 'kill $$PF_PID 2>/dev/null || true' EXIT; \
 	sleep 2; \
-	cd iac/envs/$(ENV) && tofu apply \
+	cd iac/envs/$(ENV) && \
+	TF_VAR_vault_address="http://127.0.0.1:$(VAULT_PF_LOCAL_PORT)" \
+	tofu apply \
 		-target='module.rgw_bootstrap' \
 		-target='data.vault_kv_secret_v2.rgw_credentials' \
 		-auto-approve
@@ -270,12 +279,28 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 		exit 1; \
 	fi
 	@echo "Applying S3 buckets and remaining infrastructure..."
-	@kubectl port-forward -n vault svc/vault 8200:8200 >/dev/null 2>&1 & VPF=$$!; \
-	kubectl port-forward -n rook-ceph svc/rook-ceph-rgw-rgw-store 9000:80 >/dev/null 2>&1 & RPF=$$!; \
+	@if [ -z "$$TF_VAR_rgw_s3_endpoint" ]; then \
+		kubectl port-forward -n $(RGW_PF_NAMESPACE) $(RGW_PF_SERVICE) $(RGW_PF_LOCAL_PORT):$(RGW_PF_REMOTE_PORT) >/dev/null 2>&1 & RPF=$$!; \
+		RGW_ENDPOINT="http://127.0.0.1:$(RGW_PF_LOCAL_PORT)"; \
+	else \
+		RPF=""; RGW_ENDPOINT="$$TF_VAR_rgw_s3_endpoint"; \
+	fi; \
+	if [ -z "$$TF_VAR_vault_address" ]; then \
+		kubectl port-forward -n $(VAULT_PF_NAMESPACE) $(VAULT_PF_SERVICE) $(VAULT_PF_LOCAL_PORT):8200 >/dev/null 2>&1 & VPF=$$!; \
+		VAULT_ADDR="http://127.0.0.1:$(VAULT_PF_LOCAL_PORT)"; \
+	else \
+		VPF=""; VAULT_ADDR="$$TF_VAR_vault_address"; \
+	fi; \
 	trap 'kill $$VPF $$RPF 2>/dev/null || true' EXIT; \
 	sleep 2; \
-	cd iac/envs/$(ENV) && tofu import aws_s3_bucket.loki_logs loki-logs-local 2>/dev/null || true; \
+	cd iac/envs/$(ENV) && \
+	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	tofu import aws_s3_bucket.loki_logs loki-logs-local 2>/dev/null || true; \
+	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
 	tofu import aws_s3_bucket.gitlab_storage gitlab-storage-local 2>/dev/null || true; \
+	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	tofu import module.keycloak.helm_release.keycloak keycloak/keycloak 2>/dev/null || true; \
+	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
 	tofu apply -auto-approve
 	@echo ""
 	@echo "✓ Services layer complete!"

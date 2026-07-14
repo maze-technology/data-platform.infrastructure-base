@@ -59,6 +59,12 @@ variable "vault_skip_tls_verify" {
   default     = true
 }
 
+variable "rgw_s3_endpoint" {
+  description = "S3 endpoint reachable from where OpenTofu runs; empty falls back to in-cluster URL from Vault"
+  type        = string
+  default     = ""
+}
+
 variable "vpn_subnet" {
   description = "WireGuard VPN subnet CIDR — used for ingress whitelisting"
   type        = string

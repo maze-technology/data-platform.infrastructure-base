@@ -75,14 +75,22 @@ locals {
   wireguard_peers  = var.wireguard_peers != "" ? var.wireguard_peers : var.bootstrap_admin.username
   wireguard_server = var.wireguard_server_url != "" ? var.wireguard_server_url : local.hosts.vpn
 
+  rgw_in_cluster_endpoint = try(module.rook_ceph.rgw_endpoint, "http://rgw-service.rook-ceph.svc.cluster.local:80")
+
   rgw_credentials = try(
     jsondecode(try(data.vault_kv_secret_v2.rgw_credentials.data_json, "{}")),
     {
       access_key = "AKIAIOSFODNN7EXAMPLE"
       secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-      endpoint   = try(module.rook_ceph.rgw_endpoint, "http://rgw-service.rook-ceph.svc.cluster.local:80")
+      endpoint   = local.rgw_in_cluster_endpoint
       region     = "us-east-1"
     }
+  )
+
+  rgw_s3_apply_endpoint = coalesce(
+    var.rgw_s3_endpoint != "" ? var.rgw_s3_endpoint : null,
+    try(local.rgw_credentials.endpoint, null),
+    local.rgw_in_cluster_endpoint,
   )
 }
 
@@ -97,7 +105,7 @@ provider "aws" {
   alias = "rgw"
 
   endpoints {
-    s3 = local.rgw_credentials.endpoint
+    s3 = local.rgw_s3_apply_endpoint
   }
 
   region                      = local.rgw_credentials.region

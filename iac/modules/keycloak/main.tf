@@ -127,8 +127,9 @@ resource "helm_release" "keycloak" {
       }
 
       extraEnvVars = var.use_external_database ? [] : [
-        { name = "POSTGRESQL_HOST", value = "keycloak-postgresql" },
-        { name = "POSTGRESQL_PORT_NUMBER", value = "5432" },
+        # Bitnami setup script reads KEYCLOAK_DATABASE_HOST (defaults to "postgresql")
+        { name = "KEYCLOAK_DATABASE_HOST", value = "keycloak-postgresql" },
+        { name = "KEYCLOAK_DATABASE_PORT", value = "5432" },
       ]
 
       resources = {
@@ -141,7 +142,7 @@ resource "helm_release" "keycloak" {
           memory = "1Gi"
         }
       }
-    }, var.use_external_database ? {
+      }, var.use_external_database ? {
       externalDatabase = {
         host     = var.postgresql_host
         port     = var.postgresql_port

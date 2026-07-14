@@ -34,15 +34,14 @@ terraform {
 }
 
 provider "kubernetes" {
-  # Construct absolute path to kubeconfig using pathexpand to expand ~
-  config_path    = pathexpand("~/.kube/config")
-  config_context = "kind-local"
+  config_path    = pathexpand(var.kubeconfig_path)
+  config_context = var.kubeconfig_context
 }
 
 provider "helm" {
   kubernetes {
-    config_path    = pathexpand("~/.kube/config")
-    config_context = "kind-local"
+    config_path    = pathexpand(var.kubeconfig_path)
+    config_context = var.kubeconfig_context
   }
 }
 
@@ -87,41 +86,43 @@ locals {
 
   wireguard_peers = var.wireguard_peers != "" ? var.wireguard_peers : var.bootstrap_admin.username
 
-  # Host-reachable RGW for OpenTofu S3 bucket management (requires port-forward during apply)
-  rgw_apply_endpoint = "http://127.0.0.1:9000"
+  rgw_in_cluster_endpoint = try(module.rook_ceph.rgw_endpoint, "http://rgw-service.rook-ceph.svc.cluster.local:80")
 
-  # Safely extract credentials from Vault, with fallbacks for plan phase
-  # This is defined early so providers can use it
-  # Use try() to handle cases where data source doesn't exist or fails
-  # Use AWS example credentials format for plan phase (20 char access key, 40 char secret key)
   rgw_credentials = try(
     jsondecode(try(data.vault_kv_secret_v2.rgw_credentials.data_json, "{}")),
     {
-      access_key = "AKIAIOSFODNN7EXAMPLE"                     # AWS example format (20 chars)
-      secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" # AWS example format (40 chars)
-      endpoint   = try(module.rook_ceph.rgw_endpoint, "http://rgw-service.rook-ceph.svc.cluster.local:80")
+      access_key = "AKIAIOSFODNN7EXAMPLE"
+      secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      endpoint   = local.rgw_in_cluster_endpoint
       region     = "us-east-1"
     }
   )
+
+  rgw_s3_apply_endpoint = coalesce(
+    var.rgw_s3_endpoint != "" ? var.rgw_s3_endpoint : null,
+    try(local.rgw_credentials.endpoint, null),
+    local.rgw_in_cluster_endpoint,
+  )
+
+  vault_apply_address = coalesce(
+    var.vault_address != "" ? var.vault_address : null,
+    "http://vault.vault.svc.cluster.local:8200",
+  )
 }
 
-# Vault provider — requires `kubectl port-forward svc/vault 8200:8200 -n vault` during apply
 provider "vault" {
-  address          = "http://127.0.0.1:8200"
-  token            = "root"
-  skip_tls_verify  = true
+  address          = local.vault_apply_address
+  token            = var.vault_token
+  skip_tls_verify  = var.vault_skip_tls_verify
   skip_child_token = true
 }
 
 # AWS provider for S3 bucket management (using RGW endpoint)
-# Credentials come from environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-# These are set after foundation layer (bootstrap) completes
 provider "aws" {
   alias = "rgw"
 
-  # RGW endpoint for host-side OpenTofu (port-forward rook-ceph/rgw-service 9000:80 during apply)
   endpoints {
-    s3 = local.rgw_apply_endpoint
+    s3 = local.rgw_s3_apply_endpoint
   }
 
   # Credentials from environment variables (set after bootstrap)

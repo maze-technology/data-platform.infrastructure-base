@@ -55,3 +55,40 @@ variable "wireguard_peers" {
   type        = string
   default     = ""
 }
+
+variable "kubeconfig_path" {
+  description = "Path to kubeconfig for the target cluster"
+  type        = string
+  default     = "~/.kube/config"
+}
+
+variable "kubeconfig_context" {
+  description = "kubectl context for the target cluster"
+  type        = string
+  default     = "kind-local"
+}
+
+variable "vault_address" {
+  description = "Vault API URL reachable from where OpenTofu runs (port-forward, VPN, or ingress)"
+  type        = string
+  default     = ""
+}
+
+variable "vault_token" {
+  description = "Vault token for OpenTofu (local kind bootstrap default)"
+  type        = string
+  sensitive   = true
+  default     = "root"
+}
+
+variable "vault_skip_tls_verify" {
+  description = "Skip TLS verification for Vault"
+  type        = bool
+  default     = true
+}
+
+variable "rgw_s3_endpoint" {
+  description = "S3 endpoint reachable from where OpenTofu runs; empty falls back to in-cluster URL from Vault/Rook"
+  type        = string
+  default     = ""
+}
