@@ -121,6 +121,7 @@ locals {
   gitlab_helm_chart_values = {
     certmanager-issuer = {
       install = false
+      email   = "admin@local.invalid"
     }
     nginx-ingress = {
       enabled = false
