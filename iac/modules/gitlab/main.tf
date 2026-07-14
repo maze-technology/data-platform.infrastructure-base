@@ -119,6 +119,9 @@ locals {
   }
 
   gitlab_helm_chart_values = {
+    certmanager-issuer = {
+      install = false
+    }
     nginx-ingress = {
       enabled = false
     }

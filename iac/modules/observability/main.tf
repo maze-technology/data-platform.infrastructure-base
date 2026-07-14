@@ -347,6 +347,7 @@ resource "helm_release" "loki" {
       var.loki_deployment_mode == "single-binary" ? {
         # Single binary mode: all-in-one deployment (suitable for local/dev)
         loki = {
+          useTestSchema = true
           storage = {
             type = "filesystem"
             bucketNames = {
@@ -378,6 +379,7 @@ resource "helm_release" "loki" {
         } : {
         # Scalable mode: separate components for production (requires object storage)
         loki = {
+          useTestSchema = var.loki_deployment_mode != "scalable"
           storage = var.loki_object_storage != null ? merge(
             {
               type = var.loki_object_storage.type
