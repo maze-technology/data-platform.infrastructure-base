@@ -13,6 +13,12 @@ resource "random_password" "grafana_client_secret" {
   special = false
 }
 
+resource "random_password" "postgresql_password" {
+  count   = var.use_external_database ? 0 : 1
+  length  = 32
+  special = false
+}
+
 resource "kubernetes_namespace" "keycloak" {
   metadata {
     name = var.namespace
@@ -110,6 +116,11 @@ resource "helm_release" "keycloak" {
           registry   = "docker.io"
           repository = "bitnamilegacy/postgresql"
         }
+        auth = var.use_external_database ? null : {
+          username = "bn_keycloak"
+          password = random_password.postgresql_password[0].result
+          database = "bitnami_keycloak"
+        }
         primary = {
           persistence = {
             enabled      = true
@@ -127,9 +138,12 @@ resource "helm_release" "keycloak" {
       }
 
       extraEnvVars = var.use_external_database ? [] : [
-        # Bitnami setup script reads KEYCLOAK_DATABASE_HOST (defaults to "postgresql")
         { name = "KEYCLOAK_DATABASE_HOST", value = "keycloak-postgresql" },
         { name = "KEYCLOAK_DATABASE_PORT", value = "5432" },
+        { name = "KEYCLOAK_DATABASE_USER", value = "bn_keycloak" },
+        { name = "KEYCLOAK_DATABASE_NAME", value = "bitnami_keycloak" },
+        { name = "KEYCLOAK_DATABASE_PASSWORD", value = random_password.postgresql_password[0].result },
+        { name = "KC_DB_PASSWORD", value = random_password.postgresql_password[0].result },
       ]
 
       resources = {
