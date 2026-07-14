@@ -320,8 +320,8 @@ module "observability" {
   grafana_storage_size    = "1Gi"
   loki_storage_size       = "1Gi"
   tempo_storage_size      = "2Gi"
-  storage_class           = "standard" # local-path; RBD mount fails on kind (sysfs/udev)
-  loki_deployment_mode    = "scalable" # Use scalable mode with Rook-Ceph RGW S3
+  storage_class           = "standard"      # local-path; RBD mount fails on kind (sysfs/udev)
+  loki_deployment_mode    = "single-binary" # filesystem on kind; scalable/S3 needs schema_config
   loki_object_storage = {
     type             = "s3"
     bucket           = "loki-logs-local"

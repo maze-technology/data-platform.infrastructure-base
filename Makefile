@@ -292,7 +292,7 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 		VPF=""; VAULT_ADDR="$$TF_VAR_vault_address"; \
 	fi; \
 	trap 'kill $$VPF $$RPF 2>/dev/null || true' EXIT; \
-	sleep 2; \
+	sleep 4; \
 	cd iac/envs/$(ENV) && \
 	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
 	tofu import aws_s3_bucket.loki_logs loki-logs-local 2>/dev/null || true; \

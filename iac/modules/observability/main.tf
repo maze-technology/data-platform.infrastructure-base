@@ -473,38 +473,11 @@ resource "helm_release" "tempo" {
           requests = var.resource_requests.tempo
           limits   = var.resource_limits.tempo
         }
-        storage = {
-          traces = {
-            backend = "local"
-            local = {
-              path = "/var/tempo/traces"
-            }
-          }
-        }
       }
-      storage = {
-        type = "pvc"
-        pvc = {
-          size             = var.tempo_storage_size
-          storageClassName = var.storage_class != "" ? var.storage_class : null
-        }
-      }
-      # Enable OTLP receivers for traces
-      distributor = {
-        receivers = {
-          otlp = {
-            protocols = {
-              grpc = {
-                enabled  = true
-                endpoint = "0.0.0.0:4317"
-              }
-              http = {
-                enabled  = true
-                endpoint = "0.0.0.0:4318"
-              }
-            }
-          }
-        }
+      persistence = {
+        enabled          = true
+        size             = var.tempo_storage_size
+        storageClassName = var.storage_class != "" ? var.storage_class : null
       }
     })
   ]
