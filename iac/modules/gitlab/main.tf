@@ -117,6 +117,30 @@ locals {
       }
     } : {})
   }
+}
+
+resource "random_password" "gitlab_postgresql" {
+  count   = var.postgresql_password != "" ? 0 : 1
+  length  = 32
+  special = false
+}
+
+locals {
+  postgresql_password = var.postgresql_password != "" ? var.postgresql_password : random_password.gitlab_postgresql[0].result
+  postgresql_host     = var.use_external_postgresql ? var.postgresql_host : "gitlab-postgresql.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
+
+  gitlab_global = merge(local.global_base, {
+    psql = {
+      host     = local.postgresql_host
+      port     = var.postgresql_port
+      database = var.postgresql_database
+      username = var.postgresql_username
+      password = {
+        secret = kubernetes_secret.gitlab_postgresql.metadata[0].name
+        key    = "password"
+      }
+    }
+  })
 
   gitlab_helm_chart_values = {
     certmanager-issuer = {
@@ -131,16 +155,6 @@ locals {
     }
     gitlab-runner = {
       install = false
-    }
-    postgresql = {
-      install = !var.use_external_postgresql
-      primary = {
-        persistence = {
-          enabled      = true
-          size         = var.postgresql_storage_size
-          storageClass = var.storage_class != "" ? var.storage_class : null
-        }
-      }
     }
     redis = {
       install = true
@@ -261,8 +275,6 @@ resource "kubernetes_secret" "gitlab_backup_storage" {
 }
 
 resource "kubernetes_secret" "gitlab_postgresql" {
-  count = var.use_external_postgresql ? 1 : 0
-
   metadata {
     name      = "gitlab-postgresql-password"
     namespace = kubernetes_namespace.gitlab.metadata[0].name
@@ -273,10 +285,42 @@ resource "kubernetes_secret" "gitlab_postgresql" {
   }
 
   data = {
-    password = var.postgresql_password
+    password = local.postgresql_password
   }
 
   type = "Opaque"
+}
+
+resource "helm_release" "gitlab_postgresql" {
+  count = var.use_external_postgresql ? 0 : 1
+
+  name       = "gitlab-postgresql"
+  repository = "oci://registry-1.docker.io/bitnamicharts"
+  chart      = "postgresql"
+  namespace  = kubernetes_namespace.gitlab.metadata[0].name
+
+  values = [
+    yamlencode({
+      auth = {
+        username = var.postgresql_username
+        password = local.postgresql_password
+        database = var.postgresql_database
+      }
+      primary = {
+        persistence = {
+          enabled      = true
+          size         = var.postgresql_storage_size
+          storageClass = var.storage_class != "" ? var.storage_class : null
+        }
+      }
+      image = {
+        registry   = "docker.io"
+        repository = "bitnamilegacy/postgresql"
+      }
+    })
+  ]
+
+  depends_on = [kubernetes_namespace.gitlab]
 }
 
 resource "kubernetes_secret" "gitlab_oidc" {
@@ -317,9 +361,7 @@ resource "kubernetes_secret" "gitlab_oidc" {
   type = "Opaque"
 }
 
-resource "helm_release" "gitlab_bundled" {
-  count = var.use_external_postgresql ? 0 : 1
-
+resource "helm_release" "gitlab" {
   name       = "gitlab"
   repository = "https://charts.gitlab.io"
   chart      = "gitlab"
@@ -327,49 +369,11 @@ resource "helm_release" "gitlab_bundled" {
   namespace  = kubernetes_namespace.gitlab.metadata[0].name
 
   timeout = 1200
+  wait    = false
 
   values = [
     yamlencode(merge(
-      { global = local.global_base },
-      local.gitlab_helm_chart_values,
-    ))
-  ]
-
-  depends_on = [
-    kubernetes_namespace.gitlab,
-    kubernetes_secret.gitlab_object_storage,
-    kubernetes_secret.gitlab_registry_storage,
-    kubernetes_secret.gitlab_backup_storage,
-  ]
-}
-
-resource "helm_release" "gitlab_external" {
-  count = var.use_external_postgresql ? 1 : 0
-
-  name       = "gitlab"
-  repository = "https://charts.gitlab.io"
-  chart      = "gitlab"
-  version    = var.helm_chart_version
-  namespace  = kubernetes_namespace.gitlab.metadata[0].name
-
-  timeout = 1200
-
-  values = [
-    yamlencode(merge(
-      {
-        global = merge(local.global_base, {
-          psql = {
-            host     = var.postgresql_host
-            port     = var.postgresql_port
-            database = var.postgresql_database
-            username = var.postgresql_username
-            password = {
-              secret = kubernetes_secret.gitlab_postgresql[0].metadata[0].name
-              key    = "password"
-            }
-          }
-        })
-      },
+      { global = local.gitlab_global },
       local.gitlab_helm_chart_values,
     ))
   ]
@@ -380,5 +384,6 @@ resource "helm_release" "gitlab_external" {
     kubernetes_secret.gitlab_registry_storage,
     kubernetes_secret.gitlab_backup_storage,
     kubernetes_secret.gitlab_postgresql,
+    helm_release.gitlab_postgresql,
   ]
 }
