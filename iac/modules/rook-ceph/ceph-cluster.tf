@@ -8,11 +8,11 @@ locals {
   # This prevents accidental data loss from Rook formatting disks with existing filesystems.
 
   storage_config = length(var.storage_class_device_sets) > 0 ? {
-    useAllNodes              = false
-    useAllDevices            = false
-    deviceFilter             = ""
-    devices                  = []
-    nodes                    = []
+    useAllNodes   = false
+    useAllDevices = false
+    deviceFilter  = ""
+    devices       = []
+    nodes         = []
     storageClassDeviceSets = [
       for ds in var.storage_class_device_sets : {
         name      = ds.name
@@ -39,9 +39,9 @@ locals {
       }
     ]
     } : var.use_all_nodes ? {
-    useAllNodes              = true
-    useAllDevices            = false
-    deviceFilter             = ""
+    useAllNodes   = true
+    useAllDevices = false
+    deviceFilter  = ""
     devices = [
       for device in var.storage_devices : {
         name = device
@@ -50,14 +50,14 @@ locals {
         }
       }
     ]
-    nodes                    = []
-    storageClassDeviceSets   = []
+    nodes                  = []
+    storageClassDeviceSets = []
     } : {
-    useAllNodes              = false
-    useAllDevices            = false
-    deviceFilter             = ""
-    devices                  = []
-    storageClassDeviceSets   = []
+    useAllNodes            = false
+    useAllDevices          = false
+    deviceFilter           = ""
+    devices                = []
+    storageClassDeviceSets = []
     nodes = [
       for node in var.storage_nodes : merge(
         { name = node.name },
