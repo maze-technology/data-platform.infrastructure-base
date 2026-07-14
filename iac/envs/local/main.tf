@@ -188,15 +188,20 @@ module "rook_ceph" {
 
   # SAFETY: use_all_nodes = false + explicit storage_nodes prevents Rook from scanning
   # and accidentally formatting real block devices on the host.
-  # Kind/local uses PVC-backed OSDs on the default standard (local-path) StorageClass.
-  # Ceph v20+ rejects loop devices for OSDs; PVC-backed OSDs are the supported path here.
-  use_all_nodes       = false
-  create_loop_devices = false
-  storage_nodes = [
-    { name = "local-worker", volume_claim_templates = [{ size = "10Gi" }] },
-    { name = "local-worker2", volume_claim_templates = [{ size = "10Gi" }] },
-    { name = "local-worker3", volume_claim_templates = [{ size = "10Gi" }] },
-  ]
+  # Kind/local uses PVC-backed OSDs via storageClassDeviceSets on standard (local-path).
+  # Ceph v20+ rejects loop devices; local-path volumes are node-bound (portable=false).
+  use_all_nodes             = false
+  create_loop_devices       = false
+  storage_nodes             = []
+  storage_class_device_sets = [{
+    name     = "set1"
+    count    = 3
+    portable = false
+    volume_claim_templates = [{
+      size        = "10Gi"
+      volume_mode = "Filesystem"
+    }]
+  }]
 
   # Single MON for kind: with 3 workers and 3 MONs, MGR cannot schedule (daemon ID anti-affinity).
   mon_count        = 1
@@ -393,7 +398,7 @@ module "wireguard" {
   node_port     = 31820
   vpn_subnet    = "10.8.0.0/24"
   peers         = local.wireguard_peers
-  storage_class = module.rook_ceph.storage_class_name
+  storage_class = "standard" # local-path; avoid rook-ceph-block until Ceph OSDs are ready
   storage_size  = "512Mi"
 
   depends_on = [module.rook_ceph]

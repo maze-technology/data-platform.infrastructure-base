@@ -7,26 +7,57 @@ locals {
   # SAFETY: Automatic device discovery is FORCED OFF. Devices MUST be explicitly specified.
   # This prevents accidental data loss from Rook formatting disks with existing filesystems.
 
-  storage_config = var.use_all_nodes ? {
-    useAllNodes = true
-    # FORCED: Always false - automatic device discovery is disabled for safety
-    useAllDevices = false
-    deviceFilter  = "" # Not used when useAllDevices is false
+  storage_config = length(var.storage_class_device_sets) > 0 ? {
+    useAllNodes              = false
+    useAllDevices            = false
+    deviceFilter             = ""
+    devices                  = []
+    nodes                    = []
+    storageClassDeviceSets = [
+      for ds in var.storage_class_device_sets : {
+        name      = ds.name
+        count     = ds.count
+        portable  = ds.portable
+        encrypted = ds.encrypted
+        volumeClaimTemplates = [
+          for vc in ds.volume_claim_templates : {
+            metadata = {
+              name = vc.name
+            }
+            spec = {
+              storageClassName = vc.storage_class
+              accessModes      = ["ReadWriteOnce"]
+              resources = {
+                requests = {
+                  storage = vc.size
+                }
+              }
+              volumeMode = vc.volume_mode
+            }
+          }
+        ]
+      }
+    ]
+    } : var.use_all_nodes ? {
+    useAllNodes              = true
+    useAllDevices            = false
+    deviceFilter             = ""
     devices = [
       for device in var.storage_devices : {
         name = device
         config = {
-          osdsPerDevice = "1" # One OSD per device as per requirements
+          osdsPerDevice = "1"
         }
       }
     ]
-    nodes = [] # Not used when useAllNodes is true
+    nodes                    = []
+    storageClassDeviceSets   = []
     } : {
-    useAllNodes = false
-    # FORCED: Always false - automatic device discovery is disabled for safety
-    useAllDevices = false
-    deviceFilter  = "" # Not used when useAllDevices is false
-    devices       = [] # Not used when useAllNodes is false
+    useAllNodes              = false
+    useAllDevices            = false
+    deviceFilter             = ""
+    devices                  = []
+    storageClassDeviceSets   = []
     nodes = [
       for node in var.storage_nodes : merge(
         { name = node.name },
@@ -44,25 +75,6 @@ locals {
           directories = [
             for dir in node.directories : {
               path = dir
-            }
-          ]
-        } : {},
-        length(coalesce(node.volume_claim_templates, [])) > 0 ? {
-          volumeClaimTemplates = [
-            for vc in node.volume_claim_templates : {
-              metadata = {
-                name = vc.name
-              }
-              spec = {
-                storageClassName = vc.storage_class
-                accessModes      = ["ReadWriteOnce"]
-                resources = {
-                  requests = {
-                    storage = vc.size
-                  }
-                }
-                volumeMode = vc.volume_mode
-              }
             }
           ]
         } : {},

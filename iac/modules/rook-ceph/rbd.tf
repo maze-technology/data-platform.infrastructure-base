@@ -35,8 +35,6 @@ resource "kubernetes_manifest" "ceph_block_pool" {
         # Compression disabled for latency-sensitive workloads
         # PostgreSQL WAL writes benefit from no compression overhead
         compression_mode = "none"
-        # Enable application-level snapshots
-        application = "rbd"
       }
       # Enable mirroring if needed (disabled by default)
       mirroring = {
