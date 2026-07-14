@@ -436,7 +436,7 @@ module "gitlab" {
   storage_class           = "standard" # local-path; RBD mount fails on kind (sysfs/udev)
   gitaly_storage_size     = "4Gi"
   postgresql_storage_size = "3Gi"
-  redis_storage_size      = "1Gi"
+  valkey_storage_size     = "1Gi"
 
   oidc = {
     issuer_url    = module.keycloak.issuer_url

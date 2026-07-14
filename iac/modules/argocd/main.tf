@@ -29,6 +29,7 @@ resource "helm_release" "argocd" {
   values = [
     yamlencode(merge({
       global = {
+        domain = var.ingress_host
         image = {
           tag = var.argocd_image_tag
         }
@@ -49,12 +50,11 @@ resource "helm_release" "argocd" {
         ingress = {
           enabled          = var.ingress_enabled
           ingressClassName = var.ingress_class
-          hosts            = var.ingress_enabled ? [var.ingress_host] : []
-          annotations      = local.ingress_annotations
-          tls = var.enable_tls && var.ingress_enabled ? [{
-            hosts      = [var.ingress_host]
-            secretName = var.tls_secret_name
-          }] : []
+          hostname         = var.ingress_host
+          annotations = merge(local.ingress_annotations, var.enable_tls ? {} : {
+            "nginx.ingress.kubernetes.io/backend-protocol" = "HTTP"
+          })
+          tls = var.enable_tls && var.ingress_enabled
         }
       }
       repoServer = {

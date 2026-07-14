@@ -173,7 +173,7 @@ resource "kubernetes_service" "rgw" {
     port {
       name        = "http"
       port        = var.rgw_port
-      target_port = var.rgw_port
+      target_port = var.rgw_target_port
       protocol    = "TCP"
     }
   }

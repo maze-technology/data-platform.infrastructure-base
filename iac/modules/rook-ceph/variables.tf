@@ -248,9 +248,15 @@ variable "rgw_service_name" {
 }
 
 variable "rgw_port" {
-  description = "Port for RGW service"
+  description = "Port for RGW Kubernetes Service (cluster clients connect here)"
   type        = number
   default     = 80
+}
+
+variable "rgw_target_port" {
+  description = "RGW gateway port inside the pod (Rook defaults to 8080 via beast frontend)"
+  type        = number
+  default     = 8080
 }
 
 variable "rgw_user_name" {

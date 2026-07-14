@@ -93,8 +93,8 @@ variable "postgresql_password" {
   default     = ""
 }
 
-variable "redis_storage_size" {
-  description = "Persistent volume size for in-cluster Redis"
+variable "valkey_storage_size" {
+  description = "Persistent volume size for in-cluster Valkey (Redis protocol)"
   type        = string
   default     = "8Gi"
 }

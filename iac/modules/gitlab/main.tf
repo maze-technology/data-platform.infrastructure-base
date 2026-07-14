@@ -30,13 +30,13 @@ locals {
 
   registry_storage_config = yamlencode({
     s3 = {
-      bucket    = var.object_storage.bucket
-      region    = var.object_storage.region
-      endpoint  = var.object_storage.endpoint
-      accesskey = var.object_storage.access_key
-      secretkey = var.object_storage.secret_key
-      v4auth    = true
-      pathstyle = var.object_storage.force_path_style
+      bucket         = var.object_storage.bucket
+      region         = var.object_storage.region
+      regionendpoint = var.object_storage.endpoint
+      accesskey      = var.object_storage.access_key
+      secretkey      = var.object_storage.secret_key
+      v4auth         = true
+      pathstyle      = var.object_storage.force_path_style
     }
   })
 
@@ -125,7 +125,7 @@ resource "random_password" "gitlab_postgresql" {
   special = false
 }
 
-resource "random_password" "gitlab_redis" {
+resource "random_password" "gitlab_valkey" {
   length  = 32
   special = false
 }
@@ -133,7 +133,7 @@ resource "random_password" "gitlab_redis" {
 locals {
   postgresql_password = var.postgresql_password != "" ? var.postgresql_password : random_password.gitlab_postgresql[0].result
   postgresql_host     = var.use_external_postgresql ? var.postgresql_host : "gitlab-postgresql.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
-  redis_host          = "gitlab-redis-master.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
+  valkey_host         = "gitlab-valkey-primary.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
 
   gitlab_global = merge(local.global_base, {
     psql = {
@@ -147,11 +147,11 @@ locals {
       }
     }
     redis = {
-      host = local.redis_host
+      host = local.valkey_host
       port = 6379
       auth = {
         enabled = true
-        secret  = kubernetes_secret.gitlab_redis.metadata[0].name
+        secret  = kubernetes_secret.gitlab_redis_password.metadata[0].name
         key     = "redis-password"
       }
     }
@@ -318,6 +318,16 @@ resource "helm_release" "gitlab_postgresql" {
           size         = var.postgresql_storage_size
           storageClass = var.storage_class != "" ? var.storage_class : null
         }
+        resources = {
+          requests = {
+            cpu    = "250m"
+            memory = "512Mi"
+          }
+          limits = {
+            cpu    = "500m"
+            memory = "1Gi"
+          }
+        }
       }
       image = {
         registry   = "docker.io"
@@ -329,7 +339,7 @@ resource "helm_release" "gitlab_postgresql" {
   depends_on = [kubernetes_namespace.gitlab]
 }
 
-resource "kubernetes_secret" "gitlab_redis" {
+resource "kubernetes_secret" "gitlab_redis_password" {
   metadata {
     name      = "gitlab-redis-password"
     namespace = kubernetes_namespace.gitlab.metadata[0].name
@@ -340,33 +350,34 @@ resource "kubernetes_secret" "gitlab_redis" {
   }
 
   data = {
-    "redis-password" = random_password.gitlab_redis.result
+    "redis-password" = random_password.gitlab_valkey.result
   }
 
   type = "Opaque"
 }
 
-resource "helm_release" "gitlab_redis" {
-  name       = "gitlab-redis"
+resource "helm_release" "gitlab_valkey" {
+  name       = "gitlab-valkey"
   repository = "oci://registry-1.docker.io/bitnamicharts"
-  chart      = "redis"
+  chart      = "valkey"
   namespace  = kubernetes_namespace.gitlab.metadata[0].name
 
   values = [
     yamlencode({
       auth = {
-        password = random_password.gitlab_redis.result
+        password = random_password.gitlab_valkey.result
       }
-      master = {
+      architecture = "standalone"
+      primary = {
         persistence = {
           enabled      = true
-          size         = var.redis_storage_size
+          size         = var.valkey_storage_size
           storageClass = var.storage_class != "" ? var.storage_class : null
         }
       }
       image = {
         registry   = "docker.io"
-        repository = "bitnamilegacy/redis"
+        repository = "bitnamilegacy/valkey"
       }
     })
   ]
@@ -436,7 +447,7 @@ resource "helm_release" "gitlab" {
     kubernetes_secret.gitlab_backup_storage,
     kubernetes_secret.gitlab_postgresql,
     helm_release.gitlab_postgresql,
-    kubernetes_secret.gitlab_redis,
-    helm_release.gitlab_redis,
+    kubernetes_secret.gitlab_redis_password,
+    helm_release.gitlab_valkey,
   ]
 }
