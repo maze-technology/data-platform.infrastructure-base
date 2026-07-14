@@ -242,6 +242,7 @@ resource "helm_release" "loki" {
     yamlencode(merge(
       {
         loki = {
+          useTestSchema = true
           resources = {
             requests = var.resource_requests.loki
             limits   = var.resource_limits.loki
