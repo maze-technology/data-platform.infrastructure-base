@@ -316,7 +316,7 @@ module "observability" {
   grafana_ingress_enabled = true
   grafana_ingress_host    = local.hosts.grafana
   grafana_enable_tls      = false # TLS not needed for local
-  enable_promtail         = false # kind hits EMFILE watching pod log files
+  enable_promtail         = true # inotify limits raised in config/kind-config.yaml
   prometheus_storage_size = "3Gi"
   prometheus_retention    = "7d"
   grafana_storage_size    = "1Gi"

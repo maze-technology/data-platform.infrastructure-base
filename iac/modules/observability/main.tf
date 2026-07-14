@@ -13,6 +13,10 @@ resource "kubernetes_namespace" "monitoring" {
 locals {
   needs_loki_s3_credentials = var.loki_deployment_mode == "scalable" && var.loki_object_storage != null
 
+  # Gateway is the Loki ingress in both SingleBinary and SimpleScalable modes
+  loki_gateway_url = "http://loki-gateway.${var.namespace}.svc.cluster.local"
+  loki_push_url    = "${local.loki_gateway_url}/loki/api/v1/push"
+
   ingress_whitelist = "${var.vpn_cidr},127.0.0.1/32,10.0.0.0/8"
 
   ingress_annotations = var.restrict_to_vpn ? {
@@ -118,11 +122,15 @@ resource "helm_release" "prometheus_operator" {
                 name      = "Loki"
                 type      = "loki"
                 uid       = "loki"
-                url       = "http://loki:3100"
+                url       = local.loki_gateway_url
                 access    = "proxy"
                 isDefault = false
                 jsonData = {
-                  maxLines = 1000
+                  maxLines        = 1000
+                  httpHeaderName1 = "X-Scope-OrgId"
+                }
+                secureJsonData = {
+                  httpHeaderValue1 = var.loki_tenant_id
                 }
               }
             ],
@@ -237,6 +245,7 @@ resource "helm_release" "loki" {
   chart      = "loki"
   version    = var.helm_chart_version_loki
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
+  timeout    = 600
 
   values = [
     yamlencode(merge(
@@ -345,21 +354,19 @@ resource "helm_release" "loki" {
         }
       } : {},
       var.loki_deployment_mode == "single-binary" ? {
+        deploymentMode = "SingleBinary"
         # Single binary mode: all-in-one deployment (suitable for local/dev)
         loki = {
           useTestSchema = true
+          commonConfig = {
+            replication_factor = 1
+          }
           storage = {
             type = "filesystem"
-            bucketNames = {
-              chunks = ""
-              ruler  = ""
-            }
-            s3    = {}
-            gcs   = {}
-            azure = {}
-            filesystem = {
-              chunksDirectory = "/loki/chunks"
-              rulesDirectory  = "/loki/rules"
+          }
+          rulerConfig = {
+            storage = {
+              type = "local"
             }
           }
         }
@@ -376,10 +383,35 @@ resource "helm_release" "loki" {
         write = {
           replicas = 0
         }
+        ingester = {
+          replicas = 0
+        }
+        querier = {
+          replicas = 0
+        }
+        queryFrontend = {
+          replicas = 0
+        }
+        queryScheduler = {
+          replicas = 0
+        }
+        distributor = {
+          replicas = 0
+        }
+        compactor = {
+          replicas = 0
+        }
+        indexGateway = {
+          replicas = 0
+        }
         } : {
+        deploymentMode = "SimpleScalable"
         # Scalable mode: separate components for production (requires object storage)
         loki = {
           useTestSchema = var.loki_deployment_mode != "scalable"
+          commonConfig = {
+            replication_factor = 2
+          }
           storage = var.loki_object_storage != null ? merge(
             {
               type = var.loki_object_storage.type
@@ -394,24 +426,13 @@ resource "helm_release" "loki" {
               ) : {}
               gcs   = var.loki_object_storage.type == "gcs" ? {} : {}
               azure = var.loki_object_storage.type == "azure" ? {} : {}
-              filesystem = {
-                chunksDirectory = ""
-                rulesDirectory  = ""
-              }
             }
             ) : {
-            # Fallback to filesystem if object storage not configured
             type = "filesystem"
-            bucketNames = {
-              chunks = ""
-              ruler  = ""
-            }
-            s3    = {}
-            gcs   = {}
-            azure = {}
-            filesystem = {
-              chunksDirectory = "/loki/chunks"
-              rulesDirectory  = "/loki/rules"
+          }
+          rulerConfig = {
+            storage = {
+              type = "local"
             }
           }
         }
@@ -428,6 +449,27 @@ resource "helm_release" "loki" {
         }
         write = {
           replicas = 2
+        }
+        ingester = {
+          replicas = 0
+        }
+        querier = {
+          replicas = 0
+        }
+        queryFrontend = {
+          replicas = 0
+        }
+        queryScheduler = {
+          replicas = 0
+        }
+        distributor = {
+          replicas = 0
+        }
+        compactor = {
+          replicas = 0
+        }
+        indexGateway = {
+          replicas = 0
         }
       }
     ))
@@ -452,7 +494,8 @@ resource "helm_release" "promtail" {
     yamlencode({
       config = {
         clients = [{
-          url = "http://loki:3100/loki/api/v1/push"
+          url        = local.loki_push_url
+          tenant_id  = var.loki_tenant_id
         }]
       }
     })
@@ -577,7 +620,10 @@ resource "helm_release" "opentelemetry_collector" {
             }
             # Loki exporter for logs - required for unified observability
             loki = {
-              endpoint = "http://loki:3100/loki/api/v1/push"
+              endpoint = local.loki_push_url
+              headers = {
+                "X-Scope-OrgId" = var.loki_tenant_id
+              }
               labels = {
                 resource = {
                   attributes = {

@@ -23,7 +23,7 @@ variable "namespace" {
 # - Promtail (log collection)
 
 variable "enable_promtail" {
-  description = "Deploy Promtail DaemonSet for log shipping to Loki. Disable on kind/local (too many open files)."
+  description = "Deploy Promtail DaemonSet for log shipping to Loki. Requires adequate fs.inotify limits on kind nodes."
   type        = bool
   default     = true
 }
@@ -32,6 +32,12 @@ variable "storage_class" {
   description = "StorageClass for Prometheus and Grafana PVCs (e.g. rook-ceph-block). Empty uses cluster default."
   type        = string
   default     = ""
+}
+
+variable "loki_tenant_id" {
+  description = "Loki multi-tenant org ID sent as X-Scope-OrgId by Promtail, Grafana, and OTel."
+  type        = string
+  default     = "default"
 }
 
 variable "prometheus_storage_size" {
