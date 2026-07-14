@@ -158,6 +158,7 @@ locals {
   })
 
   gitlab_helm_chart_values = {
+    installCertmanager = false
     certmanager-issuer = {
       install = false
       email   = "admin@local.invalid"
