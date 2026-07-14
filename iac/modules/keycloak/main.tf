@@ -83,6 +83,7 @@ resource "helm_release" "keycloak" {
   namespace  = kubernetes_namespace.keycloak.metadata[0].name
 
   timeout = 1800
+  wait    = false
 
   values = [
     yamlencode(merge({
@@ -132,6 +133,10 @@ resource "helm_release" "keycloak" {
 
       keycloakConfigCli = {
         enabled = true
+        image = {
+          registry   = "docker.io"
+          repository = "bitnamilegacy/keycloak-config-cli"
+        }
         configuration = {
           "maze-realm.yaml" = local.realm_config
         }
