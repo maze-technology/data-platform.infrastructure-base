@@ -125,9 +125,15 @@ resource "random_password" "gitlab_postgresql" {
   special = false
 }
 
+resource "random_password" "gitlab_redis" {
+  length  = 32
+  special = false
+}
+
 locals {
   postgresql_password = var.postgresql_password != "" ? var.postgresql_password : random_password.gitlab_postgresql[0].result
   postgresql_host     = var.use_external_postgresql ? var.postgresql_host : "gitlab-postgresql.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
+  redis_host          = "gitlab-redis-master.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
 
   gitlab_global = merge(local.global_base, {
     psql = {
@@ -138,6 +144,15 @@ locals {
       password = {
         secret = kubernetes_secret.gitlab_postgresql.metadata[0].name
         key    = "password"
+      }
+    }
+    redis = {
+      host = local.redis_host
+      port = 6379
+      auth = {
+        enabled = true
+        secret  = kubernetes_secret.gitlab_redis.metadata[0].name
+        key     = "redis-password"
       }
     }
   })
@@ -155,16 +170,6 @@ locals {
     }
     gitlab-runner = {
       install = false
-    }
-    redis = {
-      install = true
-      master = {
-        persistence = {
-          enabled      = true
-          size         = var.redis_storage_size
-          storageClass = var.storage_class != "" ? var.storage_class : null
-        }
-      }
     }
     gitlab = {
       webservice = {
@@ -323,6 +328,51 @@ resource "helm_release" "gitlab_postgresql" {
   depends_on = [kubernetes_namespace.gitlab]
 }
 
+resource "kubernetes_secret" "gitlab_redis" {
+  metadata {
+    name      = "gitlab-redis-password"
+    namespace = kubernetes_namespace.gitlab.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    "redis-password" = random_password.gitlab_redis.result
+  }
+
+  type = "Opaque"
+}
+
+resource "helm_release" "gitlab_redis" {
+  name       = "gitlab-redis"
+  repository = "oci://registry-1.docker.io/bitnamicharts"
+  chart      = "redis"
+  namespace  = kubernetes_namespace.gitlab.metadata[0].name
+
+  values = [
+    yamlencode({
+      auth = {
+        password = random_password.gitlab_redis.result
+      }
+      master = {
+        persistence = {
+          enabled      = true
+          size         = var.redis_storage_size
+          storageClass = var.storage_class != "" ? var.storage_class : null
+        }
+      }
+      image = {
+        registry   = "docker.io"
+        repository = "bitnamilegacy/redis"
+      }
+    })
+  ]
+
+  depends_on = [kubernetes_namespace.gitlab]
+}
+
 resource "kubernetes_secret" "gitlab_oidc" {
   count = var.oidc != null ? 1 : 0
 
@@ -385,5 +435,7 @@ resource "helm_release" "gitlab" {
     kubernetes_secret.gitlab_backup_storage,
     kubernetes_secret.gitlab_postgresql,
     helm_release.gitlab_postgresql,
+    kubernetes_secret.gitlab_redis,
+    helm_release.gitlab_redis,
   ]
 }
