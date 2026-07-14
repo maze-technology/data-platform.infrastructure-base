@@ -270,12 +270,13 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 		exit 1; \
 	fi
 	@echo "Applying S3 buckets and remaining infrastructure..."
-	@cd iac/envs/$(ENV) && tofu apply \
-		-exclude='module.rook_ceph' \
-		-exclude='module.vault' \
-		-exclude='module.rgw_bootstrap' \
-		-exclude='data.vault_kv_secret_v2.rgw_credentials' \
-		-auto-approve
+	@kubectl port-forward -n vault svc/vault 8200:8200 >/dev/null 2>&1 & VPF=$$!; \
+	kubectl port-forward -n rook-ceph svc/rook-ceph-rgw-rgw-store 9000:80 >/dev/null 2>&1 & RPF=$$!; \
+	trap 'kill $$VPF $$RPF 2>/dev/null || true' EXIT; \
+	sleep 2; \
+	cd iac/envs/$(ENV) && tofu import aws_s3_bucket.loki_logs loki-logs-local 2>/dev/null || true; \
+	tofu import aws_s3_bucket.gitlab_storage gitlab-storage-local 2>/dev/null || true; \
+	tofu apply -auto-approve
 	@echo ""
 	@echo "✓ Services layer complete!"
 

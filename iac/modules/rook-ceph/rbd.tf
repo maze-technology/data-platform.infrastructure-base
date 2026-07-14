@@ -98,10 +98,7 @@ resource "kubernetes_storage_class" "rbd" {
     "csi.storage.k8s.io/controller-expand-secret-name"      = "rook-csi-rbd-provisioner"
     "csi.storage.k8s.io/controller-expand-secret-namespace" = kubernetes_namespace.rook_ceph.metadata[0].name
 
-    # Filesystem type
-    fsType = "ext4"
-
-    # Volume naming
+    # Filesystem type (use CSI key only — duplicate fsType breaks Rook provisioner)
     "csi.storage.k8s.io/fstype" = "ext4"
   }
 

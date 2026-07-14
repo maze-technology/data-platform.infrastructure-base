@@ -20,6 +20,18 @@ variable "helm_chart_version" {
   default     = "25.2.0"
 }
 
+variable "keycloak_image_tag" {
+  description = "Bitnami Legacy Keycloak image tag (bitnami/* images moved to bitnamilegacy/*)"
+  type        = string
+  default     = "26.2.0-debian-12-r0"
+}
+
+variable "production_mode" {
+  description = "Run Keycloak in production mode (requires TLS or proxyHeaders)"
+  type        = bool
+  default     = true
+}
+
 variable "realm" {
   description = "Keycloak realm name"
   type        = string

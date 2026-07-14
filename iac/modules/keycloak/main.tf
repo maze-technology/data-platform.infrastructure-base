@@ -76,17 +76,23 @@ resource "helm_release" "keycloak" {
   version    = var.helm_chart_version
   namespace  = kubernetes_namespace.keycloak.metadata[0].name
 
-  timeout = 900
+  timeout = 1800
 
   values = [
-    yamlencode({
+    yamlencode(merge({
       auth = {
         adminUser     = var.admin_username
         adminPassword = var.admin_password
       }
 
-      production = true
-      proxy      = "edge"
+      image = {
+        registry   = "docker.io"
+        repository = "bitnamilegacy/keycloak"
+        tag        = var.keycloak_image_tag
+      }
+
+      production   = var.production_mode
+      proxyHeaders = var.production_mode ? "xforwarded" : ""
 
       replicaCount = var.replica_count
 
@@ -100,6 +106,10 @@ resource "helm_release" "keycloak" {
 
       postgresql = {
         enabled = !var.use_external_database
+        image = {
+          registry   = "docker.io"
+          repository = "bitnamilegacy/postgresql"
+        }
         primary = {
           persistence = {
             enabled      = true
@@ -109,20 +119,17 @@ resource "helm_release" "keycloak" {
         }
       }
 
-      externalDatabase = var.use_external_database ? {
-        host     = var.postgresql_host
-        port     = var.postgresql_port
-        user     = var.postgresql_username
-        password = var.postgresql_password
-        database = var.postgresql_database
-      } : null
-
       keycloakConfigCli = {
         enabled = true
         configuration = {
           "maze-realm.yaml" = local.realm_config
         }
       }
+
+      extraEnvVars = var.use_external_database ? [] : [
+        { name = "POSTGRESQL_HOST", value = "keycloak-postgresql" },
+        { name = "POSTGRESQL_PORT_NUMBER", value = "5432" },
+      ]
 
       resources = {
         requests = {
@@ -134,7 +141,15 @@ resource "helm_release" "keycloak" {
           memory = "1Gi"
         }
       }
-    })
+    }, var.use_external_database ? {
+      externalDatabase = {
+        host     = var.postgresql_host
+        port     = var.postgresql_port
+        user     = var.postgresql_username
+        password = var.postgresql_password
+        database = var.postgresql_database
+      }
+    } : {}))
   ]
 
   depends_on = [kubernetes_namespace.keycloak]

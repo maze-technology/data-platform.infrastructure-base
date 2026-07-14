@@ -21,7 +21,7 @@ resource "helm_release" "cert_manager" {
       installCRDs  = true
       replicaCount = var.replica_count
       webhook = {
-        enabled = var.enable_webhook
+        replicaCount = var.enable_webhook ? 1 : 0
         resources = {
           requests = var.resource_requests.webhook
           limits   = var.resource_limits.webhook

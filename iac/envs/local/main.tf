@@ -87,6 +87,9 @@ locals {
 
   wireguard_peers = var.wireguard_peers != "" ? var.wireguard_peers : var.bootstrap_admin.username
 
+  # Host-reachable RGW for OpenTofu S3 bucket management (requires port-forward during apply)
+  rgw_apply_endpoint = "http://127.0.0.1:9000"
+
   # Safely extract credentials from Vault, with fallbacks for plan phase
   # This is defined early so providers can use it
   # Use try() to handle cases where data source doesn't exist or fails
@@ -116,9 +119,9 @@ provider "vault" {
 provider "aws" {
   alias = "rgw"
 
-  # RGW endpoint (ClusterIP service - accessible from within cluster)
+  # RGW endpoint for host-side OpenTofu (port-forward rook-ceph/rgw-service 9000:80 during apply)
   endpoints {
-    s3 = local.rgw_credentials.endpoint
+    s3 = local.rgw_apply_endpoint
   }
 
   # Credentials from environment variables (set after bootstrap)
@@ -283,8 +286,9 @@ module "keycloak" {
   admin_username          = var.keycloak_admin_username
   admin_password          = var.keycloak_admin_password
   bootstrap_users         = local.keycloak_bootstrap_users
-  storage_class           = module.rook_ceph.storage_class_name
+  storage_class           = "standard" # local-path; rook-ceph-block SC has immutable duplicate fstype param
   postgresql_storage_size = "2Gi"
+  production_mode         = false # local uses HTTP ingress on :30080
 
   oidc_clients = {
     gitlab_redirect_uri  = "http://${local.hosts.scm}${local.ingress_port}/users/auth/openid_connect/callback"
@@ -315,7 +319,7 @@ module "observability" {
   grafana_storage_size    = "1Gi"
   loki_storage_size       = "1Gi"
   tempo_storage_size      = "2Gi"
-  storage_class           = module.rook_ceph.storage_class_name
+  storage_class           = "standard" # local-path; RBD mount fails on kind (sysfs/udev)
   loki_deployment_mode    = "scalable" # Use scalable mode with Rook-Ceph RGW S3
   loki_object_storage = {
     type             = "s3"
@@ -428,7 +432,7 @@ module "gitlab" {
     force_path_style = true
   }
 
-  storage_class           = module.rook_ceph.storage_class_name
+  storage_class           = "standard" # local-path; RBD mount fails on kind (sysfs/udev)
   gitaly_storage_size     = "4Gi"
   postgresql_storage_size = "3Gi"
   redis_storage_size      = "1Gi"
