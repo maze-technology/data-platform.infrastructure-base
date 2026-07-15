@@ -270,7 +270,7 @@ apply-foundation: ensure-rook-crds ## Apply foundation layer (Rook-Ceph, Vault, 
 	@echo "2. Apply services layer:"
 	@echo "   make apply-services"
 
-apply-services: ## Apply services layer (S3 buckets, observability, applications - requires credentials in env vars)
+apply-services: ## Apply services layer (S3 buckets, observability, applications)
 	@echo "=========================================="
 	@echo "Services Layer: S3 Buckets + Applications"
 	@echo "=========================================="
@@ -299,8 +299,10 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 	echo "Applying S3 buckets and remaining infrastructure..."; \
 	cd iac/envs/$(ENV) && \
 	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
 	tofu import aws_s3_bucket.loki_logs loki-logs-local 2>/dev/null || true; \
 	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
 	tofu import aws_s3_bucket.gitlab_storage gitlab-storage-local 2>/dev/null || true; \
 	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
 	tofu import module.keycloak.helm_release.keycloak keycloak/keycloak 2>/dev/null || true; \
@@ -311,18 +313,12 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 	@echo "✓ Services layer complete!"
 
 apply: ensure-rook-crds ## Apply all infrastructure (runs foundation + services sequentially)
-	@$(MAKE) apply-foundation
+	@$(MAKE) apply-foundation ENV=$(ENV)
 	@echo ""
 	@echo "Waiting 10 seconds for Vault to be ready..."
 	@sleep 10
 	@echo ""
-	@echo "Exporting credentials..."
-	@eval $$(vault kv get -format=json secret/rgw/credentials 2>/dev/null | jq -r '.data.data | "export AWS_ACCESS_KEY_ID=\(.access_key)\nexport AWS_SECRET_ACCESS_KEY=\(.secret_key)"') || { \
-		echo "Warning: Could not export credentials from Vault. Please export manually:"; \
-		echo "  vault kv get -format=json secret/rgw/credentials | jq -r '.data.data | \"export AWS_ACCESS_KEY_ID=\(.access_key)\nexport AWS_SECRET_ACCESS_KEY=\(.secret_key)\"'"; \
-		exit 1; \
-	}
-	@$(MAKE) apply-services
+	@$(MAKE) apply-services ENV=$(ENV)
 
 destroy: ## Destroy Terraform infrastructure
 	@cd iac/envs/$(ENV) && tofu destroy
@@ -384,31 +380,54 @@ local-setup: ## Set up complete local development environment (Kind cluster)
 	@echo "Note: S3-compatible storage is provided by Rook-Ceph RGW (no LocalStack needed)"
 	@echo ""
 	@echo "Next steps:"
-	@echo "  1. cd iac/envs/local"
-	@echo "  2. make init"
-	@echo "  3. make plan"
-	@echo "  4. make apply"
+	@echo "  make init ENV=$(ENV)"
+	@echo "  make apply ENV=$(ENV)"
 
 local-teardown: ## Tear down local development environment
 	@echo "Tearing down local development environment..."
 	@if kind get clusters 2>/dev/null | grep -q "^$(CLUSTER_NAME)$$"; then \
 		echo "Destroying Terraform-managed resources while cluster is still up..."; \
 		$(MAKE) ensure-rook-crds ENV=$(ENV); \
-		cd iac/envs/$(ENV) && tofu destroy -auto-approve || { \
-			echo "Warning: tofu destroy failed; continuing with cluster deletion."; \
+		if [ -z "$$TF_VAR_rgw_s3_endpoint" ]; then \
+			kubectl port-forward -n $(RGW_PF_NAMESPACE) $(RGW_PF_SERVICE) $(RGW_PF_LOCAL_PORT):$(RGW_PF_REMOTE_PORT) >/dev/null 2>&1 & RPF=$$!; \
+			RGW_ENDPOINT="http://127.0.0.1:$(RGW_PF_LOCAL_PORT)"; \
+		else \
+			RPF=""; RGW_ENDPOINT="$$TF_VAR_rgw_s3_endpoint"; \
+		fi; \
+		if [ -z "$$TF_VAR_vault_address" ]; then \
+			kubectl port-forward -n $(VAULT_PF_NAMESPACE) $(VAULT_PF_SERVICE) $(VAULT_PF_LOCAL_PORT):8200 >/dev/null 2>&1 & VPF=$$!; \
+			VAULT_ADDR="http://127.0.0.1:$(VAULT_PF_LOCAL_PORT)"; \
+		else \
+			VPF=""; VAULT_ADDR="$$TF_VAR_vault_address"; \
+		fi; \
+		trap 'kill $$VPF $$RPF 2>/dev/null || true' EXIT; \
+		sleep 4; \
+		export VAULT_ADDR="$$VAULT_ADDR" VAULT_TOKEN=$${VAULT_TOKEN:-root}; \
+		eval $$(vault kv get -format=json secret/rgw/credentials 2>/dev/null | jq -r '.data.data | "export AWS_ACCESS_KEY_ID=\(.access_key)\nexport AWS_SECRET_ACCESS_KEY=\(.secret_key)"') 2>/dev/null || true; \
+		cd iac/envs/$(ENV) && \
+		TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+		AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
+		tofu destroy -auto-approve || { \
+			echo "Warning: tofu destroy failed; clearing local OpenTofu state so next apply starts clean."; \
+			rm -f terraform.tfstate terraform.tfstate.backup; \
 		}; \
+		kill $$VPF $$RPF 2>/dev/null || true; \
+		trap - EXIT; \
 	fi
 	@$(MAKE) teardown-loop-devices || true
 	@$(MAKE) kind-down
 	@echo "✓ Local development environment torn down"
 
+# Kind local OSD loop mapping (must match iac/envs/local/main.tf storage_nodes):
+#   local-worker  → loop10
+#   local-worker2 → loop11
+#   local-worker3 → loop12
 setup-loop-devices: ## Re-attach OSD loop devices after a reboot (normally handled by tofu apply)
 	@echo "Re-attaching OSD loop devices on kind worker nodes..."
 	@echo "Note: This is only needed after a host reboot or cluster restart."
 	@echo "      Under normal circumstances, 'tofu apply' handles this automatically."
-	@for NODE in local-worker local-worker2 local-worker3; do \
-		LOOP_NUM=$$((10 + $$(echo $$NODE | sed 's/local-worker//' | sed 's/^$$/0/'))); \
-		DEVICE="/dev/loop$$LOOP_NUM"; \
+	@for PAIR in "local-worker:loop10" "local-worker2:loop11" "local-worker3:loop12"; do \
+		NODE=$${PAIR%%:*}; DEVICE="/dev/$${PAIR##*:}"; \
 		IMG_PATH="/var/lib/rook/$$NODE-osd.img"; \
 		if ! docker ps --format '{{.Names}}' | grep -qxF "$$NODE" 2>/dev/null; then \
 			echo "  $$NODE not running, skipping"; \
@@ -431,12 +450,11 @@ setup-loop-devices: ## Re-attach OSD loop devices after a reboot (normally handl
 teardown-loop-devices: ## Detach OSD loop devices from kind worker nodes
 	@echo "Detaching OSD loop devices..."
 	@sudo dmsetup remove rookosd--localworker-data rookosd--localworker2-data rookosd--localworker3-data 2>/dev/null || true
-	@for d in /dev/loop10 /dev/loop11 /dev/loop12 /dev/loop13; do \
+	@for d in /dev/loop10 /dev/loop11 /dev/loop12; do \
 		sudo losetup -d $$d 2>/dev/null || true; \
 	done
-	@for NODE in local-worker local-worker2 local-worker3; do \
-		LOOP_NUM=$$((10 + $$(echo $$NODE | sed 's/local-worker//' | sed 's/^$$/0/'))); \
-		DEVICE="/dev/loop$$LOOP_NUM"; \
+	@for PAIR in "local-worker:loop10" "local-worker2:loop11" "local-worker3:loop12"; do \
+		NODE=$${PAIR%%:*}; DEVICE="/dev/$${PAIR##*:}"; \
 		if ! docker ps --format '{{.Names}}' | grep -qxF "$$NODE" 2>/dev/null; then \
 			echo "  $$NODE not running, skipping"; \
 			continue; \

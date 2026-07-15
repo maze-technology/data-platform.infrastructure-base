@@ -170,6 +170,7 @@ Local PostgreSQL/Redis: GitLab Helm bundled subcharts
 
 - OpenTofu >= 1.5.0
 - kubectl, kind, docker
+- **vault** CLI and **jq** (used by `make apply` to read RGW credentials from Vault)
 - helm provider dependencies resolved via `tofu init`
 - ~16 GB RAM recommended (GitLab is resource-heavy)
 
@@ -182,21 +183,34 @@ make local-setup
 This creates a 4-node cluster (1 control-plane + 3 workers) with:
 
 - Ingress NodePorts: `30080` (HTTP), `30443` (HTTPS)
+- GitLab (Envoy Gateway) NodePort: `32458` (HTTP) — mapped in `config/kind-config.yaml`
 - WireGuard NodePort: `31820` (UDP)
-- Host mount `/var/lib/rook` for Rook-Ceph data and loop-device images
+- Host mount `/var/lib/rook` for Rook-Ceph loop-device images and data
+- Raised **inotify limits** on every node (required for Promtail log shipping on kind)
 
-### 2. Deploy infrastructure
+### 2. Deploy infrastructure (no manual steps)
+
+From the **repository root**:
 
 ```bash
-cd iac/envs/local
-make init
-make apply
+make init ENV=local    # once, or: cd iac/envs/local && make init
+make apply ENV=local
 ```
 
-The Makefile runs a **two-stage apply**:
+The Makefile runs a **two-stage apply** automatically:
 
-1. **Foundation** — Rook-Ceph, Vault, RGW credential bootstrap
-2. **Services** — S3 buckets, ingress, observability, WireGuard, GitLab, Argo CD
+1. **Foundation** (~15–25 min) — Rook-Ceph (OSDs, RGW), Vault, RGW credential bootstrap into Vault
+2. **Services** (~5–15 min) — S3 buckets, ingress, observability, WireGuard, Keycloak, GitLab, Argo CD
+
+`make apply-services` fetches RGW credentials from Vault via port-forward — you do **not** need to export `AWS_ACCESS_KEY_ID` manually.
+
+**Do not** run `make apply-services` alone after a failed apply unless foundation is already healthy; prefer `make apply ENV=local` for a clean end-to-end run.
+
+After deploy, print service URLs:
+
+```bash
+cd iac/envs/local && tofu output service_urls
+```
 
 Alternatively, deploy incrementally by commenting/uncommenting modules in `iac/envs/local/main.tf`.
 
@@ -217,26 +231,37 @@ tofu output wireguard_peer_config_command
 
 # Connect VPN, then access services (auth is VPN-restricted — same as production)
 open http://auth.maze.local:30080/admin
-open http://scm.maze.local:30080
+open http://scm.maze.local:32458
 ```
 
 **Default credentials:** GitLab root password is set by the Helm chart on first install (check `gitlab-gitlab-initial-root-password` secret).
 
 ### 4. Access observability
 
-| Service   | URL (via VPN + /etc/hosts)     |
-|-----------|--------------------------------|
-| Grafana   | http://grafana.local:30080     |
-| Argo CD   | http://argocd.local:30080      |
-| Vault     | http://vault.local:30080       |
+| Service   | URL (via VPN + `/etc/hosts`)   | Notes |
+|-----------|--------------------------------|-------|
+| Grafana   | http://grafana.maze.local:30080 | Loki datasource pre-configured |
+| Argo CD   | http://argocd.maze.local:30080 | |
+| Vault     | http://vault.maze.local:30080  | Dev mode, root token `root` |
+| GitLab    | http://scm.maze.local:32458    | Envoy Gateway NodePort (not `:30080`) |
 
 Grafana default login: `admin` / `admin` (override in production).
 
-### Teardown
+**Logs (production parity):** Promtail ships container logs to Loki via `loki-gateway`. In Grafana → Explore → Loki, query e.g. `{namespace="gitlab"}`. Do not rely on `kubectl logs` for parity testing.
+
+**Traces/metrics:** Tempo and Prometheus are wired; OpenTelemetry Collector receives OTLP (metrics + traces). Application log shipping via OTLP is not configured — use Promtail for container logs.
+
+### Teardown and recreate
 
 ```bash
-make local-teardown
+make local-teardown ENV=local   # tofu destroy + detach host loop/DM devices + delete kind cluster
+make local-setup ENV=local
+make apply ENV=local
 ```
+
+`local-teardown` destroys Terraform-managed resources **while the cluster is still up** (with Vault/RGW port-forwards), then removes stale Ceph loop/DM state on the host so the next `apply` does not hit ghost OSD devices. If destroy cannot finish (e.g. RGW already broken), local OpenTofu state is cleared so the next apply is a clean create.
+
+**Host-only steps (not part of the cluster):** add `/etc/hosts` entries and connect WireGuard — same as production bootstrap.
 
 ## Rook-Ceph storage safety
 
@@ -248,28 +273,29 @@ make local-teardown
 |---------|-------|--------|
 | `useAllDevices` | **always `false`** | No automatic disk discovery |
 | `deviceFilter` | **always `""`** | No regex-based device matching |
-| Local (`kind`) | Loop image + LVM (`rookosd/data`) per worker | Ceph v20 needs LVM/dm devices; loop-only lacks udev in kind |
+| Local (`kind`) | Per-worker **loop image + LVM** (`dm-*`) | Sparse 10 GB images under `/var/lib/rook/*-osd.img`; `ROOK_CEPH_ALLOW_LOOP_DEVICES=true` |
 | Production | Explicit `storage_nodes` per bare-metal server | Only dedicated disks (e.g. `/dev/sdb`) — **never the OS disk** |
 
 Local loop device config in `iac/envs/local/main.tf`:
 
 ```hcl
-use_all_nodes             = false
-create_loop_devices       = false   # loop devices are not used — Rook skips them in discovery
-replication_size          = 1       # local dev only — ~27 GB usable under /var/lib/rook
+use_all_nodes       = false
+create_loop_devices = true
+allow_loop_devices  = true
 storage_nodes = [
-  { name = "local-worker",  directories = ["/var/lib/rook/osd0"] },
-  { name = "local-worker2", directories = ["/var/lib/rook/osd1"] },
-  { name = "local-worker3", directories = ["/var/lib/rook/osd2"] },
+  { name = "local-worker",  devices = ["dm-1"], loop_device = "loop10" },
+  { name = "local-worker2", devices = ["dm-2"], loop_device = "loop11" },
+  { name = "local-worker3", devices = ["dm-0"], loop_device = "loop12" },
 ]
+replication_size = 1   # local dev only
 ```
 
-Directory OSDs live under the kind `extraMount` at `/var/lib/rook` — safe for VPS dev, no loop files required.
+Loop images and LVM state live on the **host** under `/var/lib/rook` (bind-mounted into kind nodes). `make local-teardown` detaches loops, removes Ceph DM devices, and deletes `*-osd.img` so the next bootstrap starts clean.
 
-After a host reboot, re-attach loop devices:
+After a **host reboot** (cluster still running), re-attach loop devices:
 
 ```bash
-make setup-loop-devices
+make setup-loop-devices ENV=local
 ```
 
 ## Modules
@@ -293,7 +319,7 @@ make setup-loop-devices
 
 | Environment | Directory | Where it runs | What you do |
 |-------------|-----------|---------------|-------------|
-| **local** | `iac/envs/local/` | Your VPS via **kind** (simulated K8s cluster) | `make local-setup && cd iac/envs/local && make apply` |
+| **local** | `iac/envs/local/` | Your VPS via **kind** (simulated K8s cluster) | `make local-setup && make apply ENV=local` |
 | **production** | `iac/envs/production/` | **OVH bare metal** (3 servers with real Kubernetes) | Bootstrap K8s on bare metal first, then `cd iac/envs/production && tofu apply` |
 
 Both environments deploy the **same stack** inside Kubernetes: Rook-Ceph, WireGuard, GitLab, observability, Argo CD. The only differences are sizing, TLS, and where GitLab's database lives:
@@ -338,16 +364,18 @@ There used to be a third directory called `gitlab/` that installed GitLab **dire
 ## Makefile commands
 
 ```bash
-make help              # All targets
-make local-setup       # Create kind cluster
-make apply             # Full two-stage deploy
-make apply-foundation  # Rook-Ceph + Vault + RGW bootstrap only
-make apply-services    # Everything else (needs AWS creds exported)
-make local-teardown    # Destroy kind cluster
-make setup-loop-devices # Re-attach Rook loop devices after reboot
-make prepull-ceph-image # Pre-pull Ceph image (large download)
-make validate          # tofu validate (ENV=local|production)
+make help                 # All targets
+make local-setup          # Create kind cluster (from repo root)
+make apply ENV=local      # Full two-stage deploy (foundation + services)
+make apply-foundation     # Rook-Ceph + Vault + RGW bootstrap only
+make apply-services       # Everything else (auto-fetches Vault/RGW creds)
+make local-teardown       # tofu destroy + loop cleanup + delete kind cluster
+make setup-loop-devices   # Re-attach Rook loop devices after host reboot
+make prepull-ceph-image   # Pre-pull Ceph image (large download)
+make validate             # tofu validate (ENV=local|production)
 ```
+
+All `make apply*` targets accept `ENV=local` (default) or `ENV=production`.
 
 ## Configuration
 

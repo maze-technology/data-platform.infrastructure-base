@@ -202,6 +202,16 @@ resource "null_resource" "setup_osd_loop_devices" {
         echo "✓ Created sparse OSD image $IMG_PATH on $NODE"
       fi
 
+      # Kind shares the host loop table via /dev — clear host-side ghosts before attach.
+      # (docker exec losetup -d alone often leaves "Device or resource busy" on deleted backs.)
+      VG_HOST="rookosd-$(echo "$NODE" | tr -cd '[:alnum:]')"
+      MAPPER_HOST="rookosd--$(echo "$NODE" | sed 's/-//g')-data"
+      sudo dmsetup remove "$MAPPER_HOST" 2>/dev/null || true
+      sudo vgchange -an "$VG_HOST" 2>/dev/null || true
+      sudo vgremove -f "$VG_HOST" 2>/dev/null || true
+      sudo losetup -d "$DEVICE" 2>/dev/null || true
+      sleep 1
+
       # Detach ghost loops and wrong-path attachments for this node's device only.
       docker exec "$NODE" bash -c '
         set -euo pipefail
