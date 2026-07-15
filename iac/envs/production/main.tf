@@ -87,9 +87,10 @@ locals {
     }
   )
 
+  # Prefer the explicit apply-time endpoint. Avoid Vault for provider config so
+  # deferred credential reads cannot make the aws.rgw provider unknown.
   rgw_s3_apply_endpoint = coalesce(
     var.rgw_s3_endpoint != "" ? var.rgw_s3_endpoint : null,
-    try(local.rgw_credentials.endpoint, null),
     local.rgw_in_cluster_endpoint,
   )
 }
@@ -108,7 +109,9 @@ provider "aws" {
     s3 = local.rgw_s3_apply_endpoint
   }
 
-  region                      = local.rgw_credentials.region
+  # Static region: required by AWS provider, ignored by RGW. Must not come from
+  # Vault or provider config becomes unknown when credential datasources defer.
+  region                      = "us-east-1"
   s3_use_path_style           = true
   skip_credentials_validation = true
   skip_metadata_api_check     = true
@@ -390,10 +393,7 @@ resource "aws_s3_bucket" "loki_logs" {
     Purpose     = "loki-logs"
   }
 
-  depends_on = [
-    module.rgw_bootstrap,
-    data.vault_kv_secret_v2.rgw_credentials,
-  ]
+  depends_on = [module.rgw_bootstrap]
 }
 
 resource "aws_s3_bucket" "gitlab_storage" {
@@ -407,8 +407,5 @@ resource "aws_s3_bucket" "gitlab_storage" {
     Purpose     = "gitlab-object-storage"
   }
 
-  depends_on = [
-    module.rgw_bootstrap,
-    data.vault_kv_secret_v2.rgw_credentials,
-  ]
+  depends_on = [module.rgw_bootstrap]
 }

@@ -99,9 +99,12 @@ locals {
     }
   )
 
+  # Prefer the explicit apply-time endpoint (port-forward / env override).
+  # Do not read endpoint from Vault here: Vault secrets can be deferred when
+  # foundation resources drift, which would make the aws.rgw provider unknown
+  # and force every S3 bucket to plan as "create" (BucketAlreadyExists).
   rgw_s3_apply_endpoint = coalesce(
     var.rgw_s3_endpoint != "" ? var.rgw_s3_endpoint : null,
-    try(local.rgw_credentials.endpoint, null),
     local.rgw_in_cluster_endpoint,
   )
 
@@ -130,8 +133,9 @@ provider "aws" {
   # During Stage 1, these won't be set - that's OK, S3 buckets are excluded
   # During Stage 2, these must be set before running apply
 
-  # Region (required by AWS provider but ignored by RGW)
-  region = local.rgw_credentials.region
+  # Region is required by the AWS provider but ignored by RGW. Keep it static so
+  # provider config cannot become unknown when Vault credential datasources defer.
+  region = "us-east-1"
 
   # S3-compatible API settings for RGW
   s3_use_path_style           = true
@@ -542,10 +546,7 @@ resource "aws_s3_bucket" "loki_logs" {
     Purpose     = "loki-logs"
   }
 
-  depends_on = [
-    module.rgw_bootstrap,
-    data.vault_kv_secret_v2.rgw_credentials
-  ]
+  depends_on = [module.rgw_bootstrap]
 }
 
 resource "aws_s3_bucket" "gitlab_storage" {
@@ -559,10 +560,7 @@ resource "aws_s3_bucket" "gitlab_storage" {
     Purpose     = "gitlab-object-storage"
   }
 
-  depends_on = [
-    module.rgw_bootstrap,
-    data.vault_kv_secret_v2.rgw_credentials
-  ]
+  depends_on = [module.rgw_bootstrap]
 }
 
 # Add more buckets as needed:

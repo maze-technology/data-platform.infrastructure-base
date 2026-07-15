@@ -274,41 +274,55 @@ apply-services: ## Apply services layer (S3 buckets, observability, applications
 	@echo "=========================================="
 	@echo "Services Layer: S3 Buckets + Applications"
 	@echo "=========================================="
-	@if [ -z "$$TF_VAR_rgw_s3_endpoint" ]; then \
-		kubectl port-forward -n $(RGW_PF_NAMESPACE) $(RGW_PF_SERVICE) $(RGW_PF_LOCAL_PORT):$(RGW_PF_REMOTE_PORT) >/dev/null 2>&1 & RPF=$$!; \
-		RGW_ENDPOINT="http://127.0.0.1:$(RGW_PF_LOCAL_PORT)"; \
-	else \
-		RPF=""; RGW_ENDPOINT="$$TF_VAR_rgw_s3_endpoint"; \
-	fi; \
-	if [ -z "$$TF_VAR_vault_address" ]; then \
-		kubectl port-forward -n $(VAULT_PF_NAMESPACE) $(VAULT_PF_SERVICE) $(VAULT_PF_LOCAL_PORT):8200 >/dev/null 2>&1 & VPF=$$!; \
-		VAULT_ADDR="http://127.0.0.1:$(VAULT_PF_LOCAL_PORT)"; \
-	else \
-		VPF=""; VAULT_ADDR="$$TF_VAR_vault_address"; \
-	fi; \
-	trap 'kill $$VPF $$RPF 2>/dev/null || true' EXIT; \
-	sleep 4; \
-	if [ -z "$$AWS_ACCESS_KEY_ID" ] || [ -z "$$AWS_SECRET_ACCESS_KEY" ]; then \
-		echo "Exporting RGW credentials from Vault..."; \
-		export VAULT_ADDR="$$VAULT_ADDR" VAULT_TOKEN=$${VAULT_TOKEN:-root}; \
-		eval $$(vault kv get -format=json secret/rgw/credentials | jq -r '.data.data | "export AWS_ACCESS_KEY_ID=\(.access_key)\nexport AWS_SECRET_ACCESS_KEY=\(.secret_key)"') || { \
-			echo "Error: Could not export credentials from Vault at $$VAULT_ADDR"; \
-			exit 1; \
-		}; \
-	fi; \
-	echo "Applying S3 buckets and remaining infrastructure..."; \
-	cd iac/envs/$(ENV) && \
-	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
-	AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
-	tofu import aws_s3_bucket.loki_logs loki-logs-local 2>/dev/null || true; \
-	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
-	AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
-	tofu import aws_s3_bucket.gitlab_storage gitlab-storage-local 2>/dev/null || true; \
-	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
-	tofu import module.keycloak.helm_release.keycloak keycloak/keycloak 2>/dev/null || true; \
-	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
-	AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
-	tofu apply -auto-approve
+	@bash -c 'set -euo pipefail; \
+	  if [ -z "$${TF_VAR_rgw_s3_endpoint:-}" ]; then \
+	    kubectl port-forward -n "$(RGW_PF_NAMESPACE)" "$(RGW_PF_SERVICE)" "$(RGW_PF_LOCAL_PORT):$(RGW_PF_REMOTE_PORT)" >/dev/null 2>&1 & RPF=$$!; \
+	    RGW_ENDPOINT="http://127.0.0.1:$(RGW_PF_LOCAL_PORT)"; \
+	  else \
+	    RPF=""; RGW_ENDPOINT="$$TF_VAR_rgw_s3_endpoint"; \
+	  fi; \
+	  if [ -z "$${TF_VAR_vault_address:-}" ]; then \
+	    kubectl port-forward -n "$(VAULT_PF_NAMESPACE)" "$(VAULT_PF_SERVICE)" "$(VAULT_PF_LOCAL_PORT):8200" >/dev/null 2>&1 & VPF=$$!; \
+	    VAULT_ADDR="http://127.0.0.1:$(VAULT_PF_LOCAL_PORT)"; \
+	  else \
+	    VPF=""; VAULT_ADDR="$$TF_VAR_vault_address"; \
+	  fi; \
+	  trap "kill $$VPF $$RPF 2>/dev/null || true" EXIT; \
+	  sleep 4; \
+	  echo "Exporting RGW credentials from Vault..."; \
+	  export VAULT_ADDR VAULT_TOKEN="$${VAULT_TOKEN:-root}"; \
+	  eval $$(vault kv get -format=json secret/rgw/credentials | jq -r ".data.data | \"export AWS_ACCESS_KEY_ID=\(.access_key); export AWS_SECRET_ACCESS_KEY=\(.secret_key)\""); \
+	  echo "Applying S3 buckets and remaining infrastructure..."; \
+	  TF_DIR="iac/envs/$(ENV)"; \
+	  TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	    AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
+	    tofu -chdir="$$TF_DIR" import -input=false aws_s3_bucket.loki_logs loki-logs-local >/dev/null 2>&1 || true; \
+	  TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	    AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
+	    tofu -chdir="$$TF_DIR" import -input=false aws_s3_bucket.gitlab_storage gitlab-storage-local >/dev/null 2>&1 || true; \
+	  TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	    tofu -chdir="$$TF_DIR" import -input=false module.keycloak.helm_release.keycloak keycloak/keycloak >/dev/null 2>&1 || true; \
+	  APPLY_OK=0; \
+	  for attempt in 1 2 3 4 5; do \
+	    echo "tofu apply (attempt $$attempt/5)..."; \
+	    if TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	         AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
+	         tofu -chdir="$$TF_DIR" apply -auto-approve; then \
+	      APPLY_OK=1; break; \
+	    fi; \
+	    echo "tofu apply failed (attempt $$attempt); waiting 30s before retry..."; \
+	    TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	      AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
+	      tofu -chdir="$$TF_DIR" import -input=false aws_s3_bucket.loki_logs loki-logs-local >/dev/null 2>&1 || true; \
+	    TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
+	      AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \
+	      tofu -chdir="$$TF_DIR" import -input=false aws_s3_bucket.gitlab_storage gitlab-storage-local >/dev/null 2>&1 || true; \
+	    sleep 30; \
+	  done; \
+	  if [ "$$APPLY_OK" -ne 1 ]; then \
+	    echo "Error: tofu apply failed after 5 attempts"; \
+	    exit 1; \
+	  fi'
 	@echo ""
 	@echo "✓ Services layer complete!"
 
@@ -403,7 +417,7 @@ local-teardown: ## Tear down local development environment
 		trap 'kill $$VPF $$RPF 2>/dev/null || true' EXIT; \
 		sleep 4; \
 		export VAULT_ADDR="$$VAULT_ADDR" VAULT_TOKEN=$${VAULT_TOKEN:-root}; \
-		eval $$(vault kv get -format=json secret/rgw/credentials 2>/dev/null | jq -r '.data.data | "export AWS_ACCESS_KEY_ID=\(.access_key)\nexport AWS_SECRET_ACCESS_KEY=\(.secret_key)"') 2>/dev/null || true; \
+		eval $$(vault kv get -format=json secret/rgw/credentials 2>/dev/null | jq -r '.data.data | "export AWS_ACCESS_KEY_ID=\(.access_key); export AWS_SECRET_ACCESS_KEY=\(.secret_key)"') 2>/dev/null || true; \
 		cd iac/envs/$(ENV) && \
 		TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_rgw_s3_endpoint="$$RGW_ENDPOINT" \
 		AWS_ACCESS_KEY_ID="$$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$$AWS_SECRET_ACCESS_KEY" \

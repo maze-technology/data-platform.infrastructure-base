@@ -25,7 +25,6 @@ resource "kubernetes_manifest" "ceph_block_pool" {
         # requireSafeReplicaSize must be false when size=1 (Ceph requirement)
         # When size > 1, set to true to prevent unsafe replica size reduction
         requireSafeReplicaSize = var.replication_size > 1
-        targetSizeRatio        = null # Let Ceph manage pool size
       }
       # Failure domain: host (ensures replicas on different nodes)
       # This ensures HEALTH_OK with 1 node down
@@ -48,6 +47,10 @@ resource "kubernetes_manifest" "ceph_block_pool" {
       }
     }
   }
+
+  # Rook/Ceph may populate computed pool fields after apply; ignore them so
+  # foundation drift does not cascade into deferred RGW/Vault re-reads.
+  computed_fields = ["spec.replicated.targetSizeRatio"]
 
   depends_on = [
     kubernetes_namespace.rook_ceph,
