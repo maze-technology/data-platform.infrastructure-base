@@ -96,7 +96,9 @@ resource "helm_release" "prometheus_operator" {
             hosts            = var.grafana_ingress_enabled ? [var.grafana_ingress_host] : []
             annotations = merge(
               var.grafana_enable_tls ? {
-                "cert-manager.io/cluster-issuer" = "letsencrypt-prod"
+                "cert-manager.io/cluster-issuer"                 = var.tls_cluster_issuer
+                "nginx.ingress.kubernetes.io/force-ssl-redirect" = "true"
+                "nginx.ingress.kubernetes.io/ssl-redirect"       = "true"
               } : {},
               local.ingress_annotations
             )

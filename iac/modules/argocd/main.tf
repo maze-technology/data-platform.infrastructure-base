@@ -1,9 +1,19 @@
 locals {
   ingress_whitelist = "${var.vpn_cidr},127.0.0.1/32,10.0.0.0/8"
 
-  ingress_annotations = var.restrict_to_vpn ? {
-    "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
-  } : {}
+  ingress_annotations = merge(
+    var.restrict_to_vpn ? {
+      "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
+    } : {},
+    var.enable_tls ? {
+      "cert-manager.io/cluster-issuer"                 = var.tls_cluster_issuer
+      "nginx.ingress.kubernetes.io/force-ssl-redirect" = "true"
+      "nginx.ingress.kubernetes.io/ssl-redirect"       = "true"
+      "nginx.ingress.kubernetes.io/backend-protocol"   = "HTTP"
+    } : {
+      "nginx.ingress.kubernetes.io/backend-protocol" = "HTTP"
+    },
+  )
 }
 
 resource "kubernetes_namespace" "argocd" {
@@ -51,10 +61,8 @@ resource "helm_release" "argocd" {
           enabled          = var.ingress_enabled
           ingressClassName = var.ingress_class
           hostname         = var.ingress_host
-          annotations = merge(local.ingress_annotations, var.enable_tls ? {} : {
-            "nginx.ingress.kubernetes.io/backend-protocol" = "HTTP"
-          })
-          tls = var.enable_tls && var.ingress_enabled
+          annotations      = local.ingress_annotations
+          tls              = var.enable_tls && var.ingress_enabled
         }
       }
       repoServer = {
@@ -78,6 +86,13 @@ resource "helm_release" "argocd" {
         enabled = true
       }
       configs = merge(
+        {
+          # TLS terminates at ingress; Argo CD serves cleartext behind nginx.
+          # Without this, enable_tls causes an HTTPS redirect loop.
+          params = {
+            "server.insecure" = "true"
+          }
+        },
         var.oidc != null ? {
           cm = {
             url           = var.enable_tls ? "https://${var.ingress_host}" : "http://${var.ingress_host}"
@@ -104,11 +119,6 @@ resource "helm_release" "argocd" {
             "scopes"     = "[groups]"
           }
         } : {},
-        var.enable_tls ? {} : {
-          params = {
-            "server.insecure" = true
-          }
-        }
       )
     }))
   ]

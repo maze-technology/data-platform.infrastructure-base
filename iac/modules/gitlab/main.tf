@@ -18,6 +18,14 @@ locals {
   # VPN-only access: restrict ingress to WireGuard subnet (+ localhost for port-forward debugging)
   ingress_whitelist = "${var.vpn_cidr},127.0.0.1/32,10.0.0.0/8"
 
+  kas_hostname = "kas.${local.base_domain}"
+
+  gitlab_tls_certs = var.enable_tls ? {
+    "gitlab-tls"   = [var.gitlab_domain]
+    "registry-tls" = [local.registry_domain]
+    "kas-tls"      = [local.kas_hostname]
+  } : {}
+
   object_storage_connection = yamlencode({
     provider              = "AWS"
     region                = var.object_storage.region
@@ -125,6 +133,32 @@ resource "random_password" "gitlab_postgresql" {
   special = false
 }
 
+resource "kubernetes_manifest" "tls_certificates" {
+  for_each = local.gitlab_tls_certs
+
+  manifest = {
+    apiVersion = "cert-manager.io/v1"
+    kind       = "Certificate"
+    metadata = {
+      name      = each.key
+      namespace = kubernetes_namespace.gitlab.metadata[0].name
+      labels = {
+        environment = var.environment
+        managed-by  = "opentofu"
+      }
+    }
+    spec = {
+      secretName = each.key
+      dnsNames   = each.value
+      issuerRef = {
+        name  = var.tls_cluster_issuer
+        kind  = "ClusterIssuer"
+        group = "cert-manager.io"
+      }
+    }
+  }
+}
+
 resource "random_password" "gitlab_valkey" {
   length  = 32
   special = false
@@ -155,78 +189,106 @@ locals {
         key     = "redis-password"
       }
     }
+    gatewayApi = {
+      enabled              = true
+      installEnvoy         = true
+      # Prefer Certificates created below (maze-ca / letsencrypt) over ACME HTTP-01.
+      configureCertmanager = false
+      httpToHttpsRedirect  = var.enable_tls
+    }
   })
 
-  gitlab_helm_chart_values = {
-    installCertmanager = false
-    certmanager-issuer = {
-      install = false
-      email   = "admin@local.invalid"
-    }
-    nginx-ingress = {
-      enabled = false
-    }
-    prometheus = {
-      install = false
-    }
-    gitlab-runner = {
-      install = false
-    }
-    gitlab = {
-      webservice = {
-        minReplicas = var.webservice_min_replicas
-        maxReplicas = var.webservice_max_replicas
-        resources = {
-          requests = {
-            cpu    = "250m"
-            memory = "1Gi"
-          }
-          limits = {
-            cpu    = "1"
-            memory = "2Gi"
+  gitlab_helm_chart_values = merge(
+    {
+      installCertmanager = false
+      certmanager-issuer = {
+        install = false
+        email   = "admin@local.invalid"
+      }
+      nginx-ingress = {
+        enabled = false
+      }
+      prometheus = {
+        install = false
+      }
+      gitlab-runner = {
+        install = false
+      }
+      gitlab = {
+        webservice = {
+          minReplicas = var.webservice_min_replicas
+          maxReplicas = var.webservice_max_replicas
+          resources = {
+            requests = {
+              cpu    = "250m"
+              memory = "1Gi"
+            }
+            limits = {
+              cpu    = "1"
+              memory = "2Gi"
+            }
           }
         }
-      }
-      sidekiq = {
-        minReplicas = 1
-        maxReplicas = 1
-        resources = {
-          requests = {
-            cpu    = "100m"
-            memory = "512Mi"
-          }
-          limits = {
-            cpu    = "500m"
-            memory = "1Gi"
+        sidekiq = {
+          minReplicas = 1
+          maxReplicas = 1
+          resources = {
+            requests = {
+              cpu    = "100m"
+              memory = "512Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "1Gi"
+            }
           }
         }
-      }
-      gitaly = {
-        persistence = {
-          enabled = true
-          size    = var.gitaly_storage_size
-          storage = var.storage_class != "" ? var.storage_class : null
+        gitaly = {
+          persistence = {
+            enabled = true
+            size    = var.gitaly_storage_size
+            storage = var.storage_class != "" ? var.storage_class : null
+          }
         }
-      }
-      toolbox = {
-        backups = {
-          objectStorage = {
-            config = {
-              secret = kubernetes_secret.gitlab_backup_storage.metadata[0].name
-              key    = "config"
+        toolbox = {
+          backups = {
+            objectStorage = {
+              config = {
+                secret = kubernetes_secret.gitlab_backup_storage.metadata[0].name
+                key    = "config"
+              }
             }
           }
         }
       }
-    }
-    registry = {
-      enabled = true
-      storage = {
-        secret = kubernetes_secret.gitlab_registry_storage.metadata[0].name
-        key    = "config"
+      registry = {
+        enabled = true
+        storage = {
+          secret = kubernetes_secret.gitlab_registry_storage.metadata[0].name
+          key    = "config"
+        }
       }
-    }
-  }
+      gatewayApiResources = {
+        gateway = {
+          protocol = var.enable_tls ? "HTTPS" : "HTTP"
+        }
+      }
+    },
+    var.enable_tls ? {} : {
+      gatewayApiResources = {
+        gateway = {
+          protocol = "HTTP"
+        }
+        envoy = {
+          clientTrafficPolicySpec = {
+            path = {
+              escapedSlashesAction = "KeepUnchanged"
+            }
+          }
+        }
+      }
+    },
+  )
 }
 
 resource "kubernetes_secret" "gitlab_object_storage" {
@@ -449,5 +511,6 @@ resource "helm_release" "gitlab" {
     helm_release.gitlab_postgresql,
     kubernetes_secret.gitlab_redis_password,
     helm_release.gitlab_valkey,
+    kubernetes_manifest.tls_certificates,
   ]
 }

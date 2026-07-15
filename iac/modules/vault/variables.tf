@@ -45,9 +45,21 @@ variable "ingress_host" {
 }
 
 variable "enable_tls" {
-  description = "Enable TLS for Vault ingress (requires cert-manager)"
+  description = "Enable TLS for Vault ingress (requires cert-manager). Terminates at ingress; Vault listener stays HTTP unless enable_server_tls is set."
   type        = bool
   default     = true
+}
+
+variable "enable_server_tls" {
+  description = "Enable TLS on the Vault listener itself (usually false when ingress terminates TLS)"
+  type        = bool
+  default     = false
+}
+
+variable "tls_cluster_issuer" {
+  description = "cert-manager ClusterIssuer name (maze-ca locally, letsencrypt-prod in production)"
+  type        = string
+  default     = "letsencrypt-prod"
 }
 
 variable "tls_secret_name" {

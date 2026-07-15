@@ -55,6 +55,18 @@ variable "enable_tls" {
   default     = false
 }
 
+variable "tls_cluster_issuer" {
+  description = "cert-manager ClusterIssuer name (maze-ca locally, letsencrypt-prod in production)"
+  type        = string
+  default     = "letsencrypt-prod"
+}
+
+variable "tls_secret_name" {
+  description = "TLS secret name for Keycloak ingress (issued by cert-manager)"
+  type        = string
+  default     = "keycloak-tls"
+}
+
 variable "ingress_port_suffix" {
   description = "Port suffix for local HTTP access (e.g. ':30080' for kind NodePort). Empty for standard 443."
   type        = string

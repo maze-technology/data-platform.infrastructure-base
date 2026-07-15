@@ -46,10 +46,11 @@ provider "helm" {
 }
 
 locals {
-  environment      = "local"
-  cluster_name     = "local"
-  ingress_port     = ":30080"
-  gitlab_http_port = ":32458" # GitLab chart v8+ Envoy Gateway NodePort (see kind-config extraPortMappings)
+  environment  = "local"
+  cluster_name = "local"
+  # HTTPS on standard 443 via VPN → ClusterIP (no NodePort suffix in URLs)
+  ingress_port     = ""
+  gitlab_http_port = ""
 
   cluster_domain = var.cluster_domain
 
@@ -64,7 +65,8 @@ locals {
     vpn      = "vpn.${var.cluster_domain}"
   }
 
-  service_base_url = "http://${var.cluster_domain}${local.ingress_port}"
+  service_scheme   = "https"
+  service_base_url = "${local.service_scheme}://${var.cluster_domain}"
 
   keycloak_bootstrap_users = concat(
     [{
@@ -258,8 +260,9 @@ module "cert_manager" {
 
   cluster_name       = local.cluster_name
   environment        = local.environment
-  letsencrypt_email  = "" # Not configured for local
+  letsencrypt_email  = "" # maze.local cannot use public ACME
   letsencrypt_server = "https://acme-staging-v02.api.letsencrypt.org/directory"
+  create_maze_ca     = true # same ClusterIssuer pattern as prod, internal Maze CA
   replica_count      = 1
 }
 
@@ -275,6 +278,8 @@ module "ingress" {
   replica_count                  = 1
   enable_metrics                 = true
   prometheus_operator_dependency = null # Avoid circular dep with observability/keycloak; enable after stack is up
+
+  depends_on = [module.cert_manager]
 }
 
 # Keycloak — central identity provider (users, groups, SSO)
@@ -286,7 +291,8 @@ module "keycloak" {
 
   keycloak_host           = local.hosts.auth
   ingress_port_suffix     = local.ingress_port
-  enable_tls              = false
+  enable_tls              = true
+  tls_cluster_issuer      = module.cert_manager.cluster_issuer_name
   vpn_cidr                = "10.8.0.0/24"
   restrict_to_vpn         = true
   admin_username          = var.keycloak_admin_username
@@ -294,15 +300,15 @@ module "keycloak" {
   bootstrap_users         = local.keycloak_bootstrap_users
   storage_class           = "standard" # local-path; rook-ceph-block SC has immutable duplicate fstype param
   postgresql_storage_size = "2Gi"
-  production_mode         = false # local uses HTTP ingress on :30080
+  production_mode         = true # HTTPS + x-forwarded headers behind ingress
 
   oidc_clients = {
-    gitlab_redirect_uri  = "http://${local.hosts.scm}${local.ingress_port}/users/auth/openid_connect/callback"
-    argocd_redirect_uri  = "http://${local.hosts.argocd}${local.ingress_port}/auth/callback"
-    grafana_redirect_uri = "http://${local.hosts.grafana}${local.ingress_port}/login/generic_oauth"
+    gitlab_redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
+    argocd_redirect_uri  = "https://${local.hosts.argocd}/auth/callback"
+    grafana_redirect_uri = "https://${local.hosts.grafana}/login/generic_oauth"
   }
 
-  depends_on = [module.ingress] # Ingress controller must exist before Keycloak ingress resource
+  depends_on = [module.ingress, module.cert_manager]
 }
 
 # ============================================================================
@@ -319,7 +325,8 @@ module "observability" {
   environment             = local.environment
   grafana_ingress_enabled = true
   grafana_ingress_host    = local.hosts.grafana
-  grafana_enable_tls      = false # TLS not needed for local
+  grafana_enable_tls      = true
+  tls_cluster_issuer      = module.cert_manager.cluster_issuer_name
   enable_promtail         = true # inotify limits raised in config/kind-config.yaml
   prometheus_storage_size = "3Gi"
   prometheus_retention    = "7d"
@@ -364,13 +371,14 @@ module "argocd" {
   enable_ha       = false
   ingress_enabled = true
   ingress_host    = local.hosts.argocd
-  enable_tls      = false # TLS not needed for local
+  enable_tls      = true
+  tls_cluster_issuer = module.cert_manager.cluster_issuer_name
 
   oidc = {
     issuer_url    = module.keycloak.issuer_url
     client_id     = module.keycloak.client_ids.argocd
     client_secret = module.keycloak.client_secrets.argocd
-    redirect_url  = "http://${local.hosts.argocd}${local.ingress_port}/auth/callback"
+    redirect_url  = "https://${local.hosts.argocd}/auth/callback"
   }
 
   vpn_cidr        = module.wireguard.vpn_subnet
@@ -424,8 +432,9 @@ module "gitlab" {
   environment     = local.environment
   gitlab_domain   = local.hosts.scm
   registry_domain = local.hosts.registry
-  enable_tls      = false
-  vpn_cidr        = module.wireguard.vpn_subnet
+  enable_tls         = true
+  tls_cluster_issuer = module.cert_manager.cluster_issuer_name
+  vpn_cidr           = module.wireguard.vpn_subnet
 
   # Local dev: bundled PostgreSQL + in-cluster Redis (production uses OVH PostgreSQL + in-cluster Redis)
   use_external_postgresql = false
@@ -448,7 +457,7 @@ module "gitlab" {
     issuer_url    = module.keycloak.issuer_url
     client_id     = module.keycloak.client_ids.gitlab
     client_secret = module.keycloak.client_secrets.gitlab
-    redirect_uri  = "http://${local.hosts.scm}${local.ingress_port}/users/auth/openid_connect/callback"
+    redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
   }
 
   depends_on = [
@@ -456,6 +465,7 @@ module "gitlab" {
     module.ingress,
     module.wireguard,
     module.keycloak,
+    module.cert_manager,
   ]
 }
 
@@ -467,9 +477,11 @@ module "vault" {
   environment     = local.environment
   replica_count   = 1
   enable_ha       = false
-  ingress_enabled = true
-  ingress_host    = local.hosts.vault
-  enable_tls      = false # TLS not needed for local
+  ingress_enabled    = true
+  ingress_host       = local.hosts.vault
+  enable_tls         = true
+  tls_cluster_issuer = module.cert_manager.cluster_issuer_name
+  enable_server_tls  = false # TLS terminates at ingress
 
   # Storage backend - use Kubernetes secrets for dev (ephemeral)
   # For production, use persistent storage with Rook-Ceph RBD
@@ -482,7 +494,7 @@ module "vault" {
   vpn_cidr        = module.wireguard.vpn_subnet
   restrict_to_vpn = true
 
-  depends_on = [module.wireguard]
+  depends_on = [module.wireguard, module.cert_manager]
 }
 
 # ============================================================================

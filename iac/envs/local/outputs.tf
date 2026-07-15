@@ -4,17 +4,22 @@ output "cluster_domain" {
 }
 
 output "service_urls" {
-  description = "Service URLs (add cluster_domain hosts to /etc/hosts first)"
+  description = "Service URLs (VPN + /etc/hosts → ClusterIPs; trust Maze CA or accept browser warning)"
   value = {
     auth_admin   = "${module.keycloak.admin_console_url}/admin"
     auth_realm   = module.keycloak.issuer_url
-    scm          = "http://${local.hosts.scm}${local.gitlab_http_port}"
-    registry     = "http://${local.hosts.registry}${local.gitlab_http_port}"
-    grafana      = "http://${local.hosts.grafana}${local.ingress_port}"
-    argocd       = "http://${local.hosts.argocd}${local.ingress_port}"
-    vault        = "http://${local.hosts.vault}${local.ingress_port}"
+    scm          = "https://${local.hosts.scm}"
+    registry     = "https://${local.hosts.registry}"
+    grafana      = "https://${local.hosts.grafana}"
+    argocd       = "https://${local.hosts.argocd}"
+    vault        = "https://${local.hosts.vault}"
     vpn_endpoint = "${local.hosts.vpn}:31820/udp"
   }
+}
+
+output "maze_ca_install_hint" {
+  description = "How to export the Maze CA for trusting local HTTPS (optional)"
+  value       = "kubectl get secret maze-ca -n cert-manager -o jsonpath='{.data.ca\\.crt}' | base64 -d > maze-ca.crt"
 }
 
 output "etc_hosts" {

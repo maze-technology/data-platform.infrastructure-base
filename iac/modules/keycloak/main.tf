@@ -37,9 +37,16 @@ locals {
 
   ingress_whitelist = "${var.vpn_cidr},127.0.0.1/32,10.0.0.0/8"
 
-  ingress_annotations = var.restrict_to_vpn ? {
-    "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
-  } : {}
+  ingress_annotations = merge(
+    var.restrict_to_vpn ? {
+      "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
+    } : {},
+    var.enable_tls ? {
+      "cert-manager.io/cluster-issuer"                    = var.tls_cluster_issuer
+      "nginx.ingress.kubernetes.io/force-ssl-redirect"    = "true"
+      "nginx.ingress.kubernetes.io/ssl-redirect"          = "true"
+    } : {},
+  )
 
   vpn_peer_usernames = [
     for user in var.bootstrap_users : user.username
@@ -109,6 +116,10 @@ resource "helm_release" "keycloak" {
         hostname         = var.keycloak_host
         tls              = var.enable_tls
         annotations      = local.ingress_annotations
+        extraTls = var.enable_tls ? [{
+          hosts      = [var.keycloak_host]
+          secretName = var.tls_secret_name
+        }] : []
       }
 
       postgresql = {

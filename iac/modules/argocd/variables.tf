@@ -50,6 +50,12 @@ variable "enable_tls" {
   default     = true
 }
 
+variable "tls_cluster_issuer" {
+  description = "cert-manager ClusterIssuer name (maze-ca locally, letsencrypt-prod in production)"
+  type        = string
+  default     = "letsencrypt-prod"
+}
+
 variable "tls_secret_name" {
   description = "Name of the TLS secret (managed by cert-manager)"
   type        = string

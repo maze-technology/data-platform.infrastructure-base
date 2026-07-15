@@ -118,6 +118,12 @@ variable "grafana_enable_tls" {
   default     = true
 }
 
+variable "tls_cluster_issuer" {
+  description = "cert-manager ClusterIssuer name (maze-ca locally, letsencrypt-prod in production)"
+  type        = string
+  default     = "letsencrypt-prod"
+}
+
 variable "resource_requests" {
   description = "Resource requests for observability components"
   type = object({

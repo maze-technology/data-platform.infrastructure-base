@@ -45,9 +45,15 @@ variable "ingress_class" {
 }
 
 variable "enable_tls" {
-  description = "Enable TLS on GitLab ingress (requires cert-manager in production)"
+  description = "Enable TLS on GitLab Gateway (requires cert-manager issuer)"
   type        = bool
   default     = false
+}
+
+variable "tls_cluster_issuer" {
+  description = "cert-manager ClusterIssuer name (maze-ca locally, letsencrypt-prod in production)"
+  type        = string
+  default     = "letsencrypt-prod"
 }
 
 variable "vpn_cidr" {

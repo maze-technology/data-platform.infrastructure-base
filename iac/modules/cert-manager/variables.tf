@@ -38,6 +38,12 @@ variable "letsencrypt_email" {
   default     = ""
 }
 
+variable "create_maze_ca" {
+  description = "Create an internal Maze CA ClusterIssuer (local/offline TLS). Production uses Let's Encrypt instead."
+  type        = bool
+  default     = false
+}
+
 variable "letsencrypt_server" {
   description = "Let's Encrypt server URL (staging or production)"
   type        = string
