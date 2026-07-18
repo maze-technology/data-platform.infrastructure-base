@@ -489,8 +489,8 @@ module "gitlab" {
   gitaly_storage_class          = "standard"
   storage_encryption_passphrase = module.rook_ceph.rbd_luks_passphrase
   gitaly_storage_size           = "4Gi"
-  postgresql_storage_size = "3Gi"
-  valkey_storage_size     = "1Gi"
+  postgresql_storage_size       = "3Gi"
+  valkey_storage_size           = "1Gi"
 
   install_gitlab_runner  = true
   gitlab_runner_replicas = 1
