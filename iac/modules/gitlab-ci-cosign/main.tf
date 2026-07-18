@@ -12,26 +12,26 @@ terraform {
 
 resource "null_resource" "gitlab_cosign_instance_vars" {
   triggers = {
-    org_group        = var.org_group_path
-    engineers_group  = var.engineers_gitlab_group
-    admin_group      = var.admin_gitlab_group
-    delete_groups    = join(",", var.delete_group_paths)
-    vault_path       = "${var.vault_kv_mount}/${var.vault_secret_path}"
-    generation       = "6"
+    org_group       = var.org_group_path
+    engineers_group = var.engineers_gitlab_group
+    admin_group     = var.admin_gitlab_group
+    delete_groups   = join(",", var.delete_group_paths)
+    vault_path      = "${var.vault_kv_mount}/${var.vault_secret_path}"
+    generation      = "7"
   }
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
     environment = {
-      GITLAB_NS             = var.gitlab_namespace
-      ORG_GROUP_PATH        = var.org_group_path
-      ORG_GROUP_NAME        = var.org_group_name
-      ENGINEERS_GROUP       = var.engineers_gitlab_group
-      ADMIN_GROUP           = var.admin_gitlab_group
-      DELETE_GROUP_PATHS    = join(",", var.delete_group_paths)
-      VAULT_KV_MOUNT        = var.vault_kv_mount
-      VAULT_SECRET_PATH     = var.vault_secret_path
-      API_TOKEN_SECRET      = var.api_token_secret_name
+      GITLAB_NS          = var.gitlab_namespace
+      ORG_GROUP_PATH     = var.org_group_path
+      ORG_GROUP_NAME     = var.org_group_name
+      ENGINEERS_GROUP    = var.engineers_gitlab_group
+      ADMIN_GROUP        = var.admin_gitlab_group
+      DELETE_GROUP_PATHS = join(",", var.delete_group_paths)
+      VAULT_KV_MOUNT     = var.vault_kv_mount
+      VAULT_SECRET_PATH  = var.vault_secret_path
+      API_TOKEN_SECRET   = var.api_token_secret_name
     }
     command = <<-EOT
       set -euo pipefail
@@ -168,20 +168,30 @@ def get_group(path):
     code, body = req("GET", f"/groups/{enc}")
     return body if code == 200 else None
 
-def ensure_group(path, name, parent_id=None, visibility="private"):
+def ensure_group(path, name, parent_id=None, visibility="private", acl_only=False):
+    """Create/update a group. acl_only=True → no project/subgroup creation (OIDC roster)."""
+    settings = {"visibility": visibility}
+    if acl_only:
+        settings.update(
+            {
+                "project_creation_level": "noone",
+                "subgroup_creation_level": "owner",
+                "request_access_enabled": False,
+                "description": "OIDC ACL roster only — do not create projects here; use group maze.",
+            }
+        )
     existing = get_group(path)
     if existing:
         print(f"group {path} exists id={existing['id']}")
-        if existing.get("visibility") != visibility:
-            req("PUT", f"/groups/{existing['id']}", {"visibility": visibility})
+        req("PUT", f"/groups/{existing['id']}", settings)
         return existing["id"]
-    payload = {"name": name, "path": path.split("/")[-1], "visibility": visibility}
+    payload = {"name": name, "path": path.split("/")[-1], **settings}
     if parent_id is not None:
         payload["parent_id"] = int(parent_id)
     code, body = req("POST", "/groups", payload)
     if code not in (200, 201):
         raise SystemExit(f"create group {path} failed: {code} {body}")
-    print(f"created group {path} id={body['id']}")
+    print(f"created group {path} id={body['id']} acl_only={acl_only}")
     return body["id"]
 
 def delete_group(path):
@@ -197,7 +207,9 @@ def delete_group(path):
 def share_group(group_id, shared_with_path, access_level):
     shared = get_group(shared_with_path)
     if not shared:
-        shared_id = ensure_group(shared_with_path, shared_with_path.split("/")[-1], None, "private")
+        shared_id = ensure_group(
+            shared_with_path, shared_with_path.split("/")[-1], None, "private", acl_only=True
+        )
     else:
         shared_id = shared["id"]
     req("DELETE", f"/groups/{group_id}/share/{shared_id}")
@@ -248,12 +260,12 @@ for path in sorted(delete_paths, key=lambda p: p.count("/"), reverse=True):
         continue
     delete_group(path)
 
-org_id = ensure_group(org_path, org_name, None, "private")
+org_id = ensure_group(org_path, org_name, None, "private", acl_only=False)
 if engineers:
-    ensure_group(engineers, engineers, None, "private")
+    ensure_group(engineers, engineers, None, "private", acl_only=True)
     share_group(org_id, engineers, ACCESS_MAINTAINER)
 if admins:
-    ensure_group(admins, admins, None, "private")
+    ensure_group(admins, admins, None, "private", acl_only=True)
     share_group(org_id, admins, ACCESS_OWNER)
 
 # PEM keys contain newlines/spaces — GitLab masked vars reject those.

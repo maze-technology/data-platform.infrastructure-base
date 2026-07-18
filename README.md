@@ -53,8 +53,8 @@ OpenLDAP can be added **later** as a backend user store federated into Keycloak 
 | Group | Purpose |
 |-------|---------|
 | `vpn-users` | Allowed to connect via WireGuard VPN (peer name = Keycloak username) |
-| `engineers` | GitLab (incl. shared group `maze`), Grafana (Editor), Argo CD (readonly) — must be in `admins` or `engineers` to sign in |
-| `admins` | Full platform admin on all services |
+| `engineers` | GitLab SSO + access to shared group `maze` (Keycloak/GitLab roster group — no repos here), Grafana (Editor), Argo CD (readonly) |
+| `admins` | Full platform admin; GitLab roster group shared onto `maze` as Owner — no repos here |
 
 ### How services connect
 
@@ -92,7 +92,7 @@ GitLab uses **Envoy Gateway** (not nginx), so VPN gating is an Envoy `SecurityPo
 - **Git auth:** account passwords disabled for git over HTTP(S). Use **SSH keys**, or a **personal access token** for HTTPS/CI
 - **Container images:** scan (fail on High+) + cosign sign/verify in CI; Kyverno enforces signatures on namespaces labeled `<cluster_domain>/require-signed-images=true` (e.g. `maze.local/...` locally) — see [docs/gitlab-container-security.md](docs/gitlab-container-security.md)
 - **Gitaly encryption (prod):** PVC LUKS via `rook-ceph-block-encrypted`; passphrase in Vault `secret/ceph/rbd-luks`. OHLCV stays on unencrypted `rook-ceph-block`. Local kind keeps Gitaly on `standard` (RBD map needs writable `/sys`).
-- **Cosign CI vars:** instance-level `COSIGN_*` from Vault (every project can sign). Org group `maze` is shared with all `engineers`.
+- **Cosign CI vars:** instance-level `COSIGN_*` from Vault (every project can sign). Org group `maze` is shared with all `engineers`. GitLab groups `engineers`/`admins` are OIDC ACL rosters only (project creation disabled); put repos under `maze` or personal namespaces.
 
 ### Default bootstrap users (local)
 
