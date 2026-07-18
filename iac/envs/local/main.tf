@@ -647,6 +647,39 @@ module "cosign_keys" {
   depends_on = [module.vault]
 }
 
+data "vault_kv_secret_v2" "cosign" {
+  mount = "secret"
+  name  = "cosign/gitlab"
+
+  depends_on = [module.cosign_keys]
+}
+
+# Admission: require cosign signatures in namespaces labeled maze.io/require-signed-images=true
+module "kyverno" {
+  source = "../../modules/kyverno"
+
+  environment       = local.environment
+  cosign_public_key = data.vault_kv_secret_v2.cosign.data["public_key"]
+  registry_hosts    = [local.hosts.registry]
+
+  depends_on = [module.cosign_keys]
+}
+
+# Auto-wire COSIGN_* CI variables onto GitLab group maze/algos (from Vault)
+module "gitlab_ci_cosign" {
+  source = "../../modules/gitlab-ci-cosign"
+
+  gitlab_namespace  = module.gitlab.namespace
+  group_full_path   = "maze/algos"
+  vault_kv_mount    = "secret"
+  vault_secret_path = "cosign/gitlab"
+
+  depends_on = [
+    module.gitlab,
+    module.cosign_keys,
+  ]
+}
+
 # Data source to read credentials from Vault (for AWS provider)
 # This reads the credentials stored by the bootstrap module
 # Note: This may not exist during plan phase, so we handle it gracefully in locals

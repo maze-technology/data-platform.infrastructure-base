@@ -90,8 +90,9 @@ GitLab uses **Envoy Gateway** (not nginx), so VPN gating is an Envoy `SecurityPo
 - UI / HTTPS git / registry: `https://scm.maze.local` and `https://registry.scm.maze.local` via VPN DNS → Envoy ClusterIP
 - SSH git: port 22 on the same Envoy proxy (TCPRoute), also CIDR-gated
 - **Git auth:** account passwords disabled for git over HTTP(S). Use **SSH keys**, or a **personal access token** for HTTPS/CI
-- **Container images:** scan (fail on High+) + cosign — see [docs/gitlab-container-security.md](docs/gitlab-container-security.md)
-- **Gitaly encryption (prod):** PVC LUKS via `rook-ceph-block-encrypted`; passphrase in Vault `secret/ceph/rbd-luks`. OHLCV stays on unencrypted `rook-ceph-block`.
+- **Container images:** scan (fail on High+) + cosign sign/verify in CI; Kyverno enforces signatures on namespaces labeled `maze.io/require-signed-images=true` — see [docs/gitlab-container-security.md](docs/gitlab-container-security.md)
+- **Gitaly encryption (prod):** PVC LUKS via `rook-ceph-block-encrypted`; passphrase in Vault `secret/ceph/rbd-luks`. OHLCV stays on unencrypted `rook-ceph-block`. Local kind keeps Gitaly on `standard` (RBD map needs writable `/sys`).
+- **Cosign CI vars:** auto-wired on GitLab group `maze/algos` (put algo projects under that group)
 
 ### Default bootstrap users (local)
 

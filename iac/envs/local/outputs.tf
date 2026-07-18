@@ -43,6 +43,16 @@ output "cosign_vault_path" {
   value       = module.cosign_keys.vault_path
 }
 
+output "cosign_gitlab_group" {
+  description = "GitLab group that inherits COSIGN_* CI variables"
+  value       = module.gitlab_ci_cosign.group_full_path
+}
+
+output "kyverno_signed_images_label" {
+  description = "Label algo namespaces with this to require cosign-verified images from the Maze registry"
+  value       = module.kyverno.namespace_opt_in_label
+}
+
 output "bootstrap_credentials" {
   description = "Initial credentials — day-to-day login is Keycloak SSO; Keycloak master + Vault token are break-glass only"
   sensitive   = true

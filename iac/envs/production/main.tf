@@ -203,6 +203,13 @@ module "cosign_keys" {
   depends_on = [module.vault]
 }
 
+data "vault_kv_secret_v2" "cosign" {
+  mount = "secret"
+  name  = "cosign/gitlab"
+
+  depends_on = [module.cosign_keys]
+}
+
 resource "vault_kv_secret_v2" "rbd_luks" {
   mount = "secret"
   name  = module.rook_ceph.encryption_vault_secret_name
@@ -405,6 +412,30 @@ module "gitlab" {
     module.ingress,
     module.wireguard,
     module.keycloak,
+  ]
+}
+
+module "kyverno" {
+  source = "../../modules/kyverno"
+
+  environment       = local.environment
+  cosign_public_key = data.vault_kv_secret_v2.cosign.data["public_key"]
+  registry_hosts    = [local.hosts.registry]
+
+  depends_on = [module.cosign_keys]
+}
+
+module "gitlab_ci_cosign" {
+  source = "../../modules/gitlab-ci-cosign"
+
+  gitlab_namespace  = module.gitlab.namespace
+  group_full_path   = "maze/algos"
+  vault_kv_mount    = "secret"
+  vault_secret_path = "cosign/gitlab"
+
+  depends_on = [
+    module.gitlab,
+    module.cosign_keys,
   ]
 }
 
