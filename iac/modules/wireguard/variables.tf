@@ -21,9 +21,15 @@ variable "vpn_subnet" {
 }
 
 variable "allowed_ips" {
-  description = "Comma-separated AllowedIPs pushed to peers (must include VPN subnet plus ClusterIP/pod ranges so clients can reach platform services through the tunnel)"
+  description = "Comma-separated AllowedIPs pushed to peers (VPN subnet + cluster service/pod CIDRs). Empty uses kind-friendly defaults."
   type        = string
   default     = ""
+}
+
+variable "peer_dns" {
+  description = "DNS pushed to peers (CoreDNS ClusterIP). Empty disables PEERDNS override (image default)."
+  type        = string
+  default     = "10.96.0.10"
 }
 
 variable "server_port" {

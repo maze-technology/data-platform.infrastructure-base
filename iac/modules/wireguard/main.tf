@@ -1,3 +1,10 @@
+locals {
+  # kind defaults: services 10.96.0.0/12, pods 10.244.0.0/16 — avoid full 10.0.0.0/8
+  allowed_ips = var.allowed_ips != "" ? var.allowed_ips : "${var.vpn_subnet},10.96.0.0/12,10.244.0.0/16"
+  # Client Endpoint must use NodePort when service_type=NodePort (container still listens on server_port).
+  peer_endpoint_port = var.service_type == "NodePort" ? var.node_port : var.server_port
+}
+
 resource "kubernetes_namespace" "wireguard" {
   metadata {
     name = var.namespace
@@ -90,16 +97,15 @@ resource "kubernetes_deployment" "wireguard" {
           }
           env {
             name  = "PEERDNS"
-            value = "auto"
+            value = var.peer_dns != "" ? var.peer_dns : "auto"
           }
           env {
             name  = "INTERNAL_SUBNET"
             value = var.vpn_subnet
           }
           env {
-            name = "ALLOWEDIPS"
-            # VPN subnet + RFC1918 10/8 (cluster service/pod CIDRs) so PEERDNS ClusterIPs work via tunnel.
-            value = var.allowed_ips != "" ? var.allowed_ips : "${var.vpn_subnet},10.0.0.0/8"
+            name  = "ALLOWEDIPS"
+            value = local.allowed_ips
           }
           env {
             name  = "LOG_CONFS"
@@ -159,6 +165,59 @@ resource "kubernetes_deployment" "wireguard" {
   }
 
   depends_on = [kubernetes_namespace.wireguard]
+}
+
+# linuxserver writes Endpoint with SERVERPORT (container listen port). On kind NodePort,
+# clients must dial node_port instead — patch generated peer confs once the deploy is ready.
+resource "null_resource" "patch_peer_endpoint_port" {
+  count = var.service_type == "NodePort" ? 1 : 0
+
+  triggers = {
+    deploy   = kubernetes_deployment.wireguard.id
+    peers    = var.peers
+    nodeport = tostring(var.node_port)
+    listen   = tostring(var.server_port)
+    dns      = var.peer_dns
+    allowed  = local.allowed_ips
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    environment = {
+      WG_NS       = var.namespace
+      WG_LISTEN   = tostring(var.server_port)
+      WG_NODEPORT = tostring(var.node_port)
+      WG_DNS      = var.peer_dns
+      WG_ALLOWED  = local.allowed_ips
+    }
+    command = <<-EOT
+      set -euo pipefail
+      kubectl -n "$${WG_NS}" rollout status deploy/wireguard --timeout=300s
+      for i in $(seq 1 60); do
+        if kubectl -n "$${WG_NS}" exec deploy/wireguard -- sh -c 'ls /config/peer_*/*.conf >/dev/null 2>&1'; then
+          break
+        fi
+        sleep 2
+      done
+      # Expand WG_* locally; pass \$f to the container shell.
+      kubectl -n "$${WG_NS}" exec deploy/wireguard -- /bin/sh -c "
+        set -e
+        for f in /config/peer_*/*.conf; do
+          [ -f \"\$f\" ] || continue
+          sed -i \"s/^Endpoint = \\(.*\\):$${WG_LISTEN}\$/Endpoint = \\1:$${WG_NODEPORT}/\" \"\$f\"
+          if [ -n \"$${WG_DNS}\" ]; then
+            sed -i \"s/^DNS = .*/DNS = $${WG_DNS}/\" \"\$f\"
+          fi
+          sed -i \"s|^AllowedIPs = .*|AllowedIPs = $${WG_ALLOWED}|\" \"\$f\"
+          sed -i '/^ListenPort = /d' \"\$f\"
+          echo patched \"\$f\"
+          grep -E '^(DNS|Endpoint|AllowedIPs)' \"\$f\" || true
+        done
+      "
+    EOT
+  }
+
+  depends_on = [kubernetes_deployment.wireguard, kubernetes_service.wireguard]
 }
 
 resource "kubernetes_service" "wireguard" {

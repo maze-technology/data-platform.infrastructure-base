@@ -241,22 +241,31 @@ Alternatively, deploy incrementally by commenting/uncommenting modules in `iac/e
 ### 3. Connect via VPN and access services
 
 ```bash
-# Retrieve a WireGuard peer config (replace 'admin' with your peer name)
-kubectl exec -n wireguard deploy/wireguard -- cat /config/peer_admin/peer_admin.conf
+# /etc/hosts — only need the VPN endpoint host (public VPS IP):
+#   91.134.255.36  vpn.maze.local
+# Other *.maze.local names come from CoreDNS (10.96.0.10) over the tunnel.
 
-# Connect (save config to a file first)
-sudo wg-quick up ./wg-admin.conf
+# Fetch a fresh peer config (keys rotate when the WireGuard pod is recreated)
+kubectl -n wireguard exec deploy/wireguard -- cat /config/peer_admin/peer_admin.conf | sudo tee /etc/wireguard/wg0.conf
+sudo chmod 600 /etc/wireguard/wg0.conf
 
-# Add to /etc/hosts (see: cd iac/envs/local && tofu output etc_hosts)
-# VPS_IP  vpn.maze.local auth.maze.local scm.maze.local ...
+sudo wg-quick down wg0 2>/dev/null || true
+sudo wg-quick up wg0
 
-# Or generate lines automatically:
-tofu output wireguard_peer_config_command
-
-# Connect VPN, then access services (auth is VPN-restricted — same as production)
-open https://auth.maze.local/admin
-open https://scm.maze.local
+# Expect: handshake present, DNS + HTTPS working
+sudo wg show
+ping -c1 1.1.1.1 && ping -c1 google.com && ping -c1 scm.maze.local
+curl -Ik https://scm.maze.local
 ```
+
+Generated local peer confs use `Endpoint …:31820` (kind NodePort), `DNS = 10.96.0.10` (CoreDNS), and `AllowedIPs = 10.8.0.0/24,10.96.0.0/12,10.244.0.0/16`. Do **not** use port `51820` from outside the cluster, and do **not** reuse an old conf after a cluster re-up (server keys change).
+
+```bash
+# Or print the kubectl one-liner:
+cd iac/envs/local && tofu output wireguard_peer_config_command
+```
+
+After VPN is up: https://auth.maze.local/admin · https://scm.maze.local
 
 **Default credentials:** Platform SSO via Keycloak (see bootstrap admin). GitLab local password sign-in is disabled.
 

@@ -288,11 +288,14 @@ module "ingress" {
 
 # Make *.maze.local resolvable inside the cluster (pods don't have client /etc/hosts).
 # Required for server-side OIDC (GitLab/Grafana/Argo → Keycloak at auth.maze.local).
-# scm/registry are repointed to GitLab Envoy after module.gitlab (see coredns_gitlab_envoy).
+# scm + registry are owned by null_resource.coredns_gitlab_envoy (Envoy ClusterIP), not nginx.
 module "cluster_dns" {
   source = "../../modules/cluster-dns"
 
-  hosts = values(local.hosts)
+  hosts = [
+    for h in values(local.hosts) : h
+    if h != local.hosts.scm && h != local.hosts.registry
+  ]
 
   depends_on = [module.ingress]
 }
@@ -526,13 +529,13 @@ module "gitlab" {
   ]
 }
 
-# GitLab uses Envoy Gateway, not nginx. Point VPN/in-cluster DNS for scm + registry at Envoy.
+# GitLab uses Envoy Gateway, not nginx. Own scm + registry DNS → Envoy ClusterIP.
 resource "null_resource" "coredns_gitlab_envoy" {
   triggers = {
     gateway_ip = module.gitlab.gateway_cluster_ip
     scm        = local.hosts.scm
     registry   = local.hosts.registry
-    ingress_ip = module.cluster_dns.ingress_ip
+    generation = "2"
   }
 
   provisioner "local-exec" {
@@ -545,20 +548,31 @@ resource "null_resource" "coredns_gitlab_envoy" {
       python3 - <<'PY'
 import re, subprocess, json, os
 gw, scm, reg = os.environ["GW"], os.environ["SCM"], os.environ["REG"]
+if not gw or gw == "None":
+    raise SystemExit("coredns_gitlab_envoy: empty gateway IP")
 cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
 corefile = cm["data"]["Corefile"]
-for host in (scm, reg):
-    corefile = re.sub(
-        rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$",
-        rf"\g<1>{gw} {host}",
+
+def upsert(corefile: str, host: str, ip: str) -> str:
+    pattern = rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$"
+    if re.search(pattern, corefile):
+        return re.sub(pattern, rf"\g<1>{ip} {host}", corefile)
+    # Insert before "fallthrough" inside hosts { }
+    return re.sub(
+        r"(?m)^(\s*)fallthrough\s*$",
+        rf"\g<1>{ip} {host}\n\g<1>fallthrough",
         corefile,
+        count=1,
     )
+
+for host in (scm, reg):
+    corefile = upsert(corefile, host, gw)
 cm["data"]["Corefile"] = corefile
 meta = cm.setdefault("metadata", {})
 for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "generation"):
     meta.pop(k, None)
 subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
-print(f"coredns_gitlab_envoy: patched {scm}, {reg} -> {gw}")
+print(f"coredns_gitlab_envoy: {scm}, {reg} -> {gw}")
 PY
       kubectl -n kube-system rollout restart deploy/coredns
       kubectl -n kube-system rollout status deploy/coredns --timeout=120s
