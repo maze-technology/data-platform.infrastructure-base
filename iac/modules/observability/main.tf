@@ -33,19 +33,19 @@ locals {
     }
     "auth.generic_oauth" = merge(
       {
-        enabled                      = true
-        name                         = "Keycloak"
-        allow_sign_up                = true
-        auto_login                   = true
-        client_id                    = var.oidc.client_id
-        client_secret                = var.oidc.client_secret
-        scopes                       = "openid profile email groups"
-        auth_url                     = "${var.oidc.issuer_url}/protocol/openid-connect/auth"
-        token_url                    = "${var.oidc.issuer_url}/protocol/openid-connect/token"
-        api_url                      = "${var.oidc.issuer_url}/protocol/openid-connect/userinfo"
-        role_attribute_path          = "contains(groups[*], 'admins') && 'Admin' || contains(groups[*], 'engineers') && 'Editor' || ''"
-        role_attribute_strict        = true
-        allow_assign_grafana_admin   = true
+        enabled                    = true
+        name                       = "Keycloak"
+        allow_sign_up              = true
+        auto_login                 = true
+        client_id                  = var.oidc.client_id
+        client_secret              = var.oidc.client_secret
+        scopes                     = "openid profile email groups"
+        auth_url                   = "${var.oidc.issuer_url}/protocol/openid-connect/auth"
+        token_url                  = "${var.oidc.issuer_url}/protocol/openid-connect/token"
+        api_url                    = "${var.oidc.issuer_url}/protocol/openid-connect/userinfo"
+        role_attribute_path        = "contains(groups[*], 'admins') && 'Admin' || contains(groups[*], 'engineers') && 'Editor' || ''"
+        role_attribute_strict      = true
+        allow_assign_grafana_admin = true
       },
       var.custom_ca_pem != "" ? {
         tls_client_ca = "/etc/ssl/certs/maze-ca.crt"
@@ -114,11 +114,11 @@ resource "helm_release" "prometheus_operator" {
           adminPassword         = "admin" # unused when OIDC SSO-only (basic auth disabled)
           assertNoLeakedSecrets = false   # OIDC client_secret is set via values from Vault/TF state
           extraSecretMounts = var.custom_ca_pem != "" ? [{
-            name      = "maze-ca"
+            name       = "maze-ca"
             secretName = kubernetes_secret.grafana_maze_ca[0].metadata[0].name
-            mountPath = "/etc/ssl/certs/maze-ca.crt"
-            subPath   = "maze-ca.crt"
-            readOnly  = true
+            mountPath  = "/etc/ssl/certs/maze-ca.crt"
+            subPath    = "maze-ca.crt"
+            readOnly   = true
           }] : []
           persistence = {
             enabled          = true
@@ -541,8 +541,8 @@ resource "helm_release" "promtail" {
     yamlencode({
       config = {
         clients = [{
-          url        = local.loki_push_url
-          tenant_id  = var.loki_tenant_id
+          url       = local.loki_push_url
+          tenant_id = var.loki_tenant_id
         }]
       }
     })

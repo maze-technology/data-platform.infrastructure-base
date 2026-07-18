@@ -10,7 +10,7 @@ locals {
       "nginx.ingress.kubernetes.io/force-ssl-redirect" = "true"
       "nginx.ingress.kubernetes.io/ssl-redirect"       = "true"
       "nginx.ingress.kubernetes.io/backend-protocol"   = "HTTP"
-    } : {
+      } : {
       "nginx.ingress.kubernetes.io/backend-protocol" = "HTTP"
     },
   )
@@ -98,7 +98,7 @@ resource "helm_release" "argocd" {
             {
               url             = var.enable_tls ? "https://${var.ingress_host}" : "http://${var.ingress_host}"
               "admin.enabled" = "false"
-              "oidc.config" = <<-EOT
+              "oidc.config"   = <<-EOT
             name: Keycloak
             issuer: ${var.oidc.issuer_url}
             clientID: ${var.oidc.client_id}

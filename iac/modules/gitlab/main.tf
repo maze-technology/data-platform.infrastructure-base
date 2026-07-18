@@ -121,13 +121,13 @@ locals {
       }
       }, var.oidc != null ? {
       omniauth = {
-        enabled               = true
-        autoSignInWithProvider = "openid_connect"
-        allowSingleSignOn     = ["openid_connect"]
-        autoLinkUser          = ["openid_connect"]
+        enabled                 = true
+        autoSignInWithProvider  = "openid_connect"
+        allowSingleSignOn       = ["openid_connect"]
+        autoLinkUser            = ["openid_connect"]
         syncProfileFromProvider = ["openid_connect"]
-        syncProfileAttributes = ["email", "name"]
-        blockAutoCreatedUsers = false
+        syncProfileAttributes   = ["email", "name"]
+        blockAutoCreatedUsers   = false
         providers = [{
           secret = kubernetes_secret.gitlab_oidc[0].metadata[0].name
           key    = "provider"
@@ -200,8 +200,8 @@ locals {
       }
     }
     gatewayApi = {
-      enabled              = true
-      installEnvoy         = true
+      enabled      = true
+      installEnvoy = true
       # Prefer Certificates created below (maze-ca / letsencrypt) over ACME HTTP-01.
       configureCertmanager = false
       httpToHttpsRedirect  = var.enable_tls
@@ -541,11 +541,11 @@ resource "null_resource" "gitlab_sso_only" {
   count = var.oidc != null ? 1 : 0
 
   triggers = {
-    namespace    = kubernetes_namespace.gitlab.metadata[0].name
+    namespace   = kubernetes_namespace.gitlab.metadata[0].name
     admin_user  = var.sso_admin_username
     admin_email = var.sso_admin_email
     oidc_issuer = var.oidc.issuer_url
-    harden_v1  = "signup-off-webide-fallback-off"
+    harden_v1   = "signup-off-webide-fallback-off"
   }
 
   provisioner "local-exec" {

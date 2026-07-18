@@ -11,7 +11,7 @@ data "kubernetes_service" "ingress" {
 
 locals {
   ingress_ip = data.kubernetes_service.ingress.spec[0].cluster_ip
-  corefile = <<-EOT
+  corefile   = <<-EOT
 .:53 {
     errors
     health {

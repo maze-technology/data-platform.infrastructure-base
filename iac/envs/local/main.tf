@@ -397,13 +397,13 @@ module "observability" {
 module "argocd" {
   source = "../../modules/argocd"
 
-  cluster_name    = local.cluster_name
-  environment     = local.environment
-  replica_count   = 1
-  enable_ha       = false
-  ingress_enabled = true
-  ingress_host    = local.hosts.argocd
-  enable_tls      = true
+  cluster_name       = local.cluster_name
+  environment        = local.environment
+  replica_count      = 1
+  enable_ha          = false
+  ingress_enabled    = true
+  ingress_host       = local.hosts.argocd
+  enable_tls         = true
   tls_cluster_issuer = module.cert_manager.cluster_issuer_name
 
   oidc = {
@@ -461,10 +461,10 @@ module "wireguard" {
 module "gitlab" {
   source = "../../modules/gitlab"
 
-  cluster_name    = local.cluster_name
-  environment     = local.environment
-  gitlab_domain   = local.hosts.scm
-  registry_domain = local.hosts.registry
+  cluster_name       = local.cluster_name
+  environment        = local.environment
+  gitlab_domain      = local.hosts.scm
+  registry_domain    = local.hosts.registry
   enable_tls         = true
   tls_cluster_issuer = module.cert_manager.cluster_issuer_name
   vpn_cidr           = module.wireguard.vpn_subnet
@@ -521,10 +521,10 @@ module "gitlab" {
 module "vault" {
   source = "../../modules/vault"
 
-  cluster_name    = local.cluster_name
-  environment     = local.environment
-  replica_count   = 1
-  enable_ha       = false
+  cluster_name       = local.cluster_name
+  environment        = local.environment
+  replica_count      = 1
+  enable_ha          = false
   ingress_enabled    = true
   ingress_host       = local.hosts.vault
   enable_tls         = true
