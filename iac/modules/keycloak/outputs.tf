@@ -64,8 +64,8 @@ output "vpn_peers_csv" {
 output "groups" {
   description = "Keycloak groups used for access control"
   value = {
-    vpn        = "vpn-users"
-    developers = "developers"
-    admins     = "admins"
+    vpn       = "vpn-users"
+    engineers = "engineers"
+    admins    = "admins"
   }
 }

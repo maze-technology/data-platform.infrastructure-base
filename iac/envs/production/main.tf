@@ -22,6 +22,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 }
 
@@ -58,7 +62,7 @@ locals {
       username           = var.bootstrap_admin.username
       email              = var.bootstrap_admin.email
       password           = var.bootstrap_admin.password
-      groups             = ["admins", "vpn-users", "developers"]
+      groups             = ["admins", "vpn-users"]
       password_temporary = false
     }],
     [
@@ -369,6 +373,8 @@ module "gitlab" {
     client_secret = module.keycloak.client_secrets.gitlab
     redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
   }
+  sso_admin_username = var.bootstrap_admin.username
+  sso_admin_email    = var.bootstrap_admin.email
 
   depends_on = [
     module.rook_ceph,

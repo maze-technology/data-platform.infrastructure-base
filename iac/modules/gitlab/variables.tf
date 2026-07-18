@@ -148,6 +148,48 @@ variable "webservice_max_replicas" {
   default     = 1
 }
 
+variable "webservice_worker_processes" {
+  description = "Puma WORKER_PROCESSES inside each webservice pod (chart default 2)"
+  type        = number
+  default     = 2
+}
+
+variable "shell_min_replicas" {
+  description = "Minimum gitlab-shell replicas"
+  type        = number
+  default     = 2
+}
+
+variable "shell_max_replicas" {
+  description = "Maximum gitlab-shell replicas"
+  type        = number
+  default     = 2
+}
+
+variable "kas_min_replicas" {
+  description = "Minimum GitLab KAS replicas"
+  type        = number
+  default     = 2
+}
+
+variable "kas_max_replicas" {
+  description = "Maximum GitLab KAS replicas"
+  type        = number
+  default     = 2
+}
+
+variable "registry_min_replicas" {
+  description = "Minimum registry replicas"
+  type        = number
+  default     = 2
+}
+
+variable "registry_max_replicas" {
+  description = "Maximum registry replicas"
+  type        = number
+  default     = 2
+}
+
 variable "oidc" {
   description = "Keycloak OIDC SSO configuration. When set, GitLab login uses Keycloak."
   type = object({
@@ -160,3 +202,29 @@ variable "oidc" {
   default   = null
   sensitive = true
 }
+
+variable "sso_admin_username" {
+  description = "Platform SSO username to promote as GitLab administrator when OIDC is enabled"
+  type        = string
+  default     = "admin"
+}
+
+variable "sso_admin_email" {
+  description = "Email for the SSO admin GitLab user (used for OmniAuth auto-link to root)"
+  type        = string
+  default     = "admin@maze.tech"
+}
+
+variable "custom_ca_pem" {
+  description = "Optional PEM-encoded CA to trust (e.g. Maze CA for local HTTPS OIDC to Keycloak)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "custom_ca_secret_keys" {
+  description = "Keys written into the custom CA secret (must end in .crt for GitLab update-ca-certificates)"
+  type        = list(string)
+  default     = ["maze-ca.crt"]
+}
+

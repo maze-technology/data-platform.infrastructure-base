@@ -80,6 +80,18 @@ variable "loki_deployment_mode" {
   }
 }
 
+variable "loki_chunks_cache_memory_mb" {
+  description = "Memcached allocatedMemory (MB) for Loki chunks-cache. Chart default is 8192."
+  type        = number
+  default     = 8192
+}
+
+variable "loki_results_cache_memory_mb" {
+  description = "Memcached allocatedMemory (MB) for Loki results-cache. Chart default is 1024."
+  type        = number
+  default     = 1024
+}
+
 variable "loki_object_storage" {
   description = "Object storage configuration for Loki (required when deployment_mode is 'scalable')"
   type = object({
@@ -259,6 +271,13 @@ variable "oidc" {
   })
   default   = null
   sensitive = true
+}
+
+variable "custom_ca_pem" {
+  description = "Optional PEM-encoded CA for Grafana to trust Keycloak HTTPS (Maze CA on local)"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "vpn_cidr" {

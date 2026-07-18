@@ -39,17 +39,22 @@ output "wireguard_peer_config_command" {
 }
 
 output "bootstrap_credentials" {
-  description = "Initial credentials configured via terraform.tfvars"
+  description = "Initial credentials — day-to-day login is Keycloak SSO; Keycloak master + Vault token are break-glass only"
   sensitive   = true
   value = {
+    sso = {
+      username = var.bootstrap_admin.username
+      password = var.bootstrap_admin.password
+      realm    = module.keycloak.realm
+      note     = "Use Keycloak SSO on GitLab, Grafana, and Argo CD (local passwords disabled)"
+    }
     keycloak_master = {
       username = var.keycloak_admin_username
       url      = "${module.keycloak.admin_console_url}/admin"
+      note     = "Break-glass IdP admin only"
     }
-    platform_admin = {
-      username = var.bootstrap_admin.username
-      realm    = module.keycloak.realm
-      note     = "Use SSO login on services, or Keycloak admin console to manage users"
+    vault = {
+      note = "Local dev token is root — ops break-glass only (no SSO yet)"
     }
   }
 }

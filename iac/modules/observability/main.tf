@@ -25,21 +25,52 @@ locals {
 
   grafana_oauth_ini = var.oidc != null ? {
     auth = {
-      disable_login_form = false
+      disable_login_form = true
+      oauth_auto_login   = true
     }
-    "auth.generic_oauth" = {
-      enabled             = true
-      name                = "Keycloak"
-      allow_sign_up       = true
-      client_id           = var.oidc.client_id
-      client_secret       = var.oidc.client_secret
-      scopes              = "openid profile email groups"
-      auth_url            = "${var.oidc.issuer_url}/protocol/openid-connect/auth"
-      token_url           = "${var.oidc.issuer_url}/protocol/openid-connect/token"
-      api_url             = "${var.oidc.issuer_url}/protocol/openid-connect/userinfo"
-      role_attribute_path = "contains(groups[*], 'admins') && 'Admin' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'"
+    "auth.basic" = {
+      enabled = false
     }
+    "auth.generic_oauth" = merge(
+      {
+        enabled                      = true
+        name                         = "Keycloak"
+        allow_sign_up                = true
+        auto_login                   = true
+        client_id                    = var.oidc.client_id
+        client_secret                = var.oidc.client_secret
+        scopes                       = "openid profile email groups"
+        auth_url                     = "${var.oidc.issuer_url}/protocol/openid-connect/auth"
+        token_url                    = "${var.oidc.issuer_url}/protocol/openid-connect/token"
+        api_url                      = "${var.oidc.issuer_url}/protocol/openid-connect/userinfo"
+        role_attribute_path          = "contains(groups[*], 'admins') && 'Admin' || contains(groups[*], 'engineers') && 'Editor' || ''"
+        role_attribute_strict        = true
+        allow_assign_grafana_admin   = true
+      },
+      var.custom_ca_pem != "" ? {
+        tls_client_ca = "/etc/ssl/certs/maze-ca.crt"
+      } : {},
+    )
   } : {}
+}
+
+resource "kubernetes_secret" "grafana_maze_ca" {
+  count = var.custom_ca_pem != "" ? 1 : 0
+
+  metadata {
+    name      = "maze-ca"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    "maze-ca.crt" = var.custom_ca_pem
+  }
+
+  type = "Opaque"
 }
 
 # Prometheus Operator (includes Prometheus, Alertmanager, and ServiceMonitor CRDs)
@@ -79,8 +110,16 @@ resource "helm_release" "prometheus_operator" {
       }
       grafana = merge(
         {
-          enabled       = true    # Always enabled for unified observability visualization
-          adminPassword = "admin" # Should be overridden via secrets in production
+          enabled               = true
+          adminPassword         = "admin" # unused when OIDC SSO-only (basic auth disabled)
+          assertNoLeakedSecrets = false   # OIDC client_secret is set via values from Vault/TF state
+          extraSecretMounts = var.custom_ca_pem != "" ? [{
+            name      = "maze-ca"
+            secretName = kubernetes_secret.grafana_maze_ca[0].metadata[0].name
+            mountPath = "/etc/ssl/certs/maze-ca.crt"
+            subPath   = "maze-ca.crt"
+            readOnly  = true
+          }] : []
           persistence = {
             enabled          = true
             size             = var.grafana_storage_size
@@ -108,7 +147,7 @@ resource "helm_release" "prometheus_operator" {
             }] : []
           }
           # Enable correlation between metrics, logs, and traces
-          ini = merge(
+          "grafana.ini" = merge(
             {
               feature_toggles = {
                 enable = "correlations"
@@ -262,6 +301,12 @@ resource "helm_release" "loki" {
             enabled = true
             size    = var.loki_storage_size
           }
+        }
+        chunksCache = {
+          allocatedMemory = var.loki_chunks_cache_memory_mb
+        }
+        resultsCache = {
+          allocatedMemory = var.loki_results_cache_memory_mb
         }
       },
       # Add S3 credentials from secret if provided

@@ -94,9 +94,11 @@ resource "helm_release" "argocd" {
           }
         },
         var.oidc != null ? {
-          cm = {
-            url           = var.enable_tls ? "https://${var.ingress_host}" : "http://${var.ingress_host}"
-            "oidc.config" = <<-EOT
+          cm = merge(
+            {
+              url             = var.enable_tls ? "https://${var.ingress_host}" : "http://${var.ingress_host}"
+              "admin.enabled" = "false"
+              "oidc.config" = <<-EOT
             name: Keycloak
             issuer: ${var.oidc.issuer_url}
             clientID: ${var.oidc.client_id}
@@ -109,12 +111,17 @@ resource "helm_release" "argocd" {
             requestedIDTokenClaims:
               groups:
                 essential: true
+            %{if var.oidc.root_ca_pem != ""~}
+            rootCA: |
+              ${indent(2, chomp(var.oidc.root_ca_pem))}
+            %{endif~}
           EOT
-          }
+            },
+          )
           rbac = {
             "policy.csv" = <<-EOT
             g, admins, role:admin
-            g, developers, role:readonly
+            g, engineers, role:readonly
           EOT
             "scopes"     = "[groups]"
           }

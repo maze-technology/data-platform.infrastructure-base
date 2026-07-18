@@ -71,6 +71,12 @@ locals {
         name = local.registry_domain
       }
     }
+    certificates = length(var.custom_ca_secret_keys) > 0 ? {
+      customCAs = [{
+        secret = kubernetes_secret.custom_ca[0].metadata[0].name
+        keys   = var.custom_ca_secret_keys
+      }]
+    } : {}
     ingress = {
       configureCertmanager = false
       class                = var.ingress_class
@@ -116,7 +122,11 @@ locals {
       }, var.oidc != null ? {
       omniauth = {
         enabled               = true
+        autoSignInWithProvider = "openid_connect"
         allowSingleSignOn     = ["openid_connect"]
+        autoLinkUser          = ["openid_connect"]
+        syncProfileFromProvider = ["openid_connect"]
+        syncProfileAttributes = ["email", "name"]
         blockAutoCreatedUsers = false
         providers = [{
           secret = kubernetes_secret.gitlab_oidc[0].metadata[0].name
@@ -216,8 +226,9 @@ locals {
       }
       gitlab = {
         webservice = {
-          minReplicas = var.webservice_min_replicas
-          maxReplicas = var.webservice_max_replicas
+          minReplicas     = var.webservice_min_replicas
+          maxReplicas     = var.webservice_max_replicas
+          workerProcesses = var.webservice_worker_processes
           resources = {
             requests = {
               cpu    = "250m"
@@ -243,6 +254,14 @@ locals {
             }
           }
         }
+        "gitlab-shell" = {
+          minReplicas = var.shell_min_replicas
+          maxReplicas = var.shell_max_replicas
+        }
+        kas = {
+          minReplicas = var.kas_min_replicas
+          maxReplicas = var.kas_max_replicas
+        }
         gitaly = {
           persistence = {
             enabled = true
@@ -263,6 +282,10 @@ locals {
       }
       registry = {
         enabled = true
+        hpa = {
+          minReplicas = var.registry_min_replicas
+          maxReplicas = var.registry_max_replicas
+        }
         storage = {
           secret = kubernetes_secret.gitlab_registry_storage.metadata[0].name
           key    = "config"
@@ -447,6 +470,25 @@ resource "helm_release" "gitlab_valkey" {
   depends_on = [kubernetes_namespace.gitlab]
 }
 
+resource "kubernetes_secret" "custom_ca" {
+  count = var.custom_ca_pem != "" ? 1 : 0
+
+  metadata {
+    name      = "maze-ca"
+    namespace = kubernetes_namespace.gitlab.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    for key in var.custom_ca_secret_keys : key => var.custom_ca_pem
+  }
+
+  type = "Opaque"
+}
+
 resource "kubernetes_secret" "gitlab_oidc" {
   count = var.oidc != null ? 1 : 0
 
@@ -469,6 +511,7 @@ resource "kubernetes_secret" "gitlab_oidc" {
           - openid
           - profile
           - email
+          - groups
         response_type: code
         issuer: ${var.oidc.issuer_url}
         discovery: true
@@ -479,10 +522,76 @@ resource "kubernetes_secret" "gitlab_oidc" {
           identifier: ${var.oidc.client_id}
           secret: ${var.oidc.client_secret}
           redirect_uri: ${var.oidc.redirect_uri}
+          gitlab:
+            groups_attribute: groups
+            required_groups:
+              - admins
+              - engineers
+            admin_groups:
+              - admins
     EOT
   }
 
   type = "Opaque"
+}
+
+# Enforce SSO-only web login and ensure the platform admin is a GitLab administrator.
+# ApplicationSetting lives in the DB (not helm values), so this runs via toolbox.
+resource "null_resource" "gitlab_sso_only" {
+  count = var.oidc != null ? 1 : 0
+
+  triggers = {
+    namespace    = kubernetes_namespace.gitlab.metadata[0].name
+    admin_user  = var.sso_admin_username
+    admin_email = var.sso_admin_email
+    oidc_issuer = var.oidc.issuer_url
+    harden_v1  = "signup-off-webide-fallback-off"
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -uo pipefail
+      NS='${kubernetes_namespace.gitlab.metadata[0].name}'
+      kubectl -n "$NS" wait --for=condition=available deploy/gitlab-webservice-default --timeout=900s
+      kubectl -n "$NS" wait --for=condition=ready pod -l app=toolbox --timeout=300s
+      for i in $(seq 1 30); do
+        POD="$(kubectl -n "$NS" get pod -l app=toolbox --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+        if [ -z "$POD" ]; then
+          echo "gitlab_sso_only: no running toolbox pod yet (attempt $i/30)"
+          sleep 20
+          continue
+        fi
+        if kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "$(cat <<'RUBY'
+# SSO-only + instance hardening (ApplicationSetting is DB-backed, not helm).
+# Keycloak username "admin" is reserved in GitLab — link SSO via root email.
+ApplicationSetting.current.update!(
+  password_authentication_enabled_for_web: false,
+  signup_enabled: false,
+  vscode_extension_marketplace_single_origin_fallback_enabled: false
+)
+admin_email = '${var.sso_admin_email}'
+root = User.find_by_username('root')
+raise 'root user missing' if root.nil?
+root.skip_reconfirmation! if root.respond_to?(:skip_reconfirmation!)
+root.email = admin_email
+root.confirmed_at ||= Time.current
+root.save!
+s = ApplicationSetting.current
+puts "root email=#{root.email} admin=#{root.admin?} password_auth_web=#{s.password_authentication_enabled_for_web} signup=#{s.signup_enabled} webide_fallback=#{s.vscode_extension_marketplace_single_origin_fallback_enabled}"
+RUBY
+)"; then
+          exit 0
+        fi
+        echo "gitlab_sso_only: attempt $i/30 failed on pod $POD, retrying in 20s..."
+        sleep 20
+      done
+      echo "gitlab_sso_only: failed after retries" >&2
+      exit 1
+    EOT
+  }
+
+  depends_on = [helm_release.gitlab]
 }
 
 resource "helm_release" "gitlab" {
@@ -508,6 +617,7 @@ resource "helm_release" "gitlab" {
     kubernetes_secret.gitlab_registry_storage,
     kubernetes_secret.gitlab_backup_storage,
     kubernetes_secret.gitlab_postgresql,
+    kubernetes_secret.custom_ca,
     helm_release.gitlab_postgresql,
     kubernetes_secret.gitlab_redis_password,
     helm_release.gitlab_valkey,

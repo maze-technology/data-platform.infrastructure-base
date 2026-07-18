@@ -145,6 +145,7 @@ variable "oidc" {
     client_id     = string
     client_secret = string
     redirect_url  = string
+    root_ca_pem   = optional(string, "")
   })
   default   = null
   sensitive = true

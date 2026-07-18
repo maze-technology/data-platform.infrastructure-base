@@ -30,6 +30,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 }
 
@@ -73,7 +77,7 @@ locals {
       username           = var.bootstrap_admin.username
       email              = var.bootstrap_admin.email
       password           = var.bootstrap_admin.password
-      groups             = ["admins", "vpn-users", "developers"]
+      groups             = ["admins", "vpn-users"]
       password_temporary = false
     }],
     [
@@ -282,6 +286,30 @@ module "ingress" {
   depends_on = [module.cert_manager]
 }
 
+# Make *.maze.local resolvable inside the cluster (pods don't have client /etc/hosts).
+# Required for server-side OIDC (GitLab/Grafana/Argo → Keycloak at auth.maze.local).
+module "cluster_dns" {
+  source = "../../modules/cluster-dns"
+
+  hosts = values(local.hosts)
+
+  depends_on = [module.ingress]
+}
+
+data "kubernetes_secret" "maze_ca" {
+  metadata {
+    name      = module.cert_manager.maze_ca_secret_name
+    namespace = module.cert_manager.namespace
+  }
+
+  depends_on = [module.cert_manager]
+}
+
+locals {
+  # kubernetes provider returns secret data already base64-decoded in .data
+  maze_ca_pem = try(data.kubernetes_secret.maze_ca.data["ca.crt"], "")
+}
+
 # Keycloak — central identity provider (users, groups, SSO)
 module "keycloak" {
   source = "../../modules/keycloak"
@@ -335,6 +363,9 @@ module "observability" {
   tempo_storage_size      = "2Gi"
   storage_class           = "standard"      # local-path; RBD mount fails on kind (sysfs/udev)
   loki_deployment_mode    = "single-binary" # filesystem on kind; scalable/S3 needs schema_config
+  # Chart defaults are 8192 / 1024 — /8 for this VPS
+  loki_chunks_cache_memory_mb  = 1024
+  loki_results_cache_memory_mb = 128
   loki_object_storage = {
     type             = "s3"
     bucket           = "loki-logs-local"
@@ -350,11 +381,12 @@ module "observability" {
     client_id     = module.keycloak.client_ids.grafana
     client_secret = module.keycloak.client_secrets.grafana
   }
+  custom_ca_pem = local.maze_ca_pem
 
   vpn_cidr        = module.wireguard.vpn_subnet
   restrict_to_vpn = true
 
-  depends_on = [module.rook_ceph, module.keycloak, module.wireguard]
+  depends_on = [module.rook_ceph, module.keycloak, module.wireguard, module.cluster_dns]
 }
 
 # ============================================================================
@@ -379,12 +411,13 @@ module "argocd" {
     client_id     = module.keycloak.client_ids.argocd
     client_secret = module.keycloak.client_secrets.argocd
     redirect_url  = "https://${local.hosts.argocd}/auth/callback"
+    root_ca_pem   = local.maze_ca_pem
   }
 
   vpn_cidr        = module.wireguard.vpn_subnet
   restrict_to_vpn = true
 
-  depends_on = [module.keycloak, module.wireguard]
+  depends_on = [module.keycloak, module.wireguard, module.cluster_dns]
 }
 
 # Temporal — disabled for first release (workflow orchestration comes later)
@@ -453,12 +486,26 @@ module "gitlab" {
   postgresql_storage_size = "3Gi"
   valkey_storage_size     = "1Gi"
 
+  # Light local profile — reclaim RAM on a small VPS
+  webservice_min_replicas     = 1
+  webservice_max_replicas     = 1
+  webservice_worker_processes = 1
+  shell_min_replicas          = 1
+  shell_max_replicas          = 1
+  kas_min_replicas            = 1
+  kas_max_replicas            = 1
+  registry_min_replicas       = 1
+  registry_max_replicas       = 1
+
   oidc = {
     issuer_url    = module.keycloak.issuer_url
     client_id     = module.keycloak.client_ids.gitlab
     client_secret = module.keycloak.client_secrets.gitlab
     redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
   }
+  sso_admin_username = var.bootstrap_admin.username
+  sso_admin_email    = var.bootstrap_admin.email
+  custom_ca_pem      = local.maze_ca_pem
 
   depends_on = [
     module.rook_ceph,
@@ -466,6 +513,7 @@ module "gitlab" {
     module.wireguard,
     module.keycloak,
     module.cert_manager,
+    module.cluster_dns,
   ]
 }
 

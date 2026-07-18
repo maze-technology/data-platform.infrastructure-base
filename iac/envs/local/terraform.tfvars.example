@@ -33,6 +33,6 @@ cluster_public_ip = "203.0.113.10"  # Your VPS public IP (generates /etc/hosts v
 #     username = "developer"
 #     password = "DevPassword123!"
 #     email    = "dev@maze.tech"
-#     groups   = ["developers", "vpn-users"]
+#     groups   = ["engineers", "vpn-users"]
 #   }
 # ]

@@ -42,10 +42,18 @@ locals {
       "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
     } : {},
     var.enable_tls ? {
-      "cert-manager.io/cluster-issuer"                    = var.tls_cluster_issuer
-      "nginx.ingress.kubernetes.io/force-ssl-redirect"    = "true"
-      "nginx.ingress.kubernetes.io/ssl-redirect"          = "true"
+      "cert-manager.io/cluster-issuer"                 = var.tls_cluster_issuer
+      "nginx.ingress.kubernetes.io/force-ssl-redirect" = "true"
+      "nginx.ingress.kubernetes.io/ssl-redirect"       = "true"
     } : {},
+    {
+      # Rate-limit VPN clients; exempt in-cluster OIDC (GitLab/Grafana/Argo → Keycloak).
+      "nginx.ingress.kubernetes.io/limit-rps"              = "5"
+      "nginx.ingress.kubernetes.io/limit-rpm"              = "60"
+      "nginx.ingress.kubernetes.io/limit-burst-multiplier" = "3"
+      "nginx.ingress.kubernetes.io/limit-connections"      = "20"
+      "nginx.ingress.kubernetes.io/limit-whitelist"        = "10.0.0.0/8,127.0.0.1/32"
+    },
   )
 
   vpn_peer_usernames = [
@@ -65,6 +73,8 @@ locals {
       - type: password
         value: ${user.password}
         temporary: ${try(user.password_temporary, false)}
+    requiredActions:
+      - CONFIGURE_TOTP
     groups:
 ${join("\n", [for g in user.groups : "      - ${g}"])}
     USER

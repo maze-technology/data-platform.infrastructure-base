@@ -53,7 +53,7 @@ OpenLDAP can be added **later** as a backend user store federated into Keycloak 
 | Group | Purpose |
 |-------|---------|
 | `vpn-users` | Allowed to connect via WireGuard VPN (peer name = Keycloak username) |
-| `developers` | GitLab, Grafana (Editor), Argo CD (readonly) |
+| `engineers` | GitLab, Grafana (Editor), Argo CD (readonly) — must be in `admins` or `engineers` to sign in |
 | `admins` | Full platform admin on all services |
 
 ### How services connect
@@ -69,6 +69,19 @@ auth.maze.local (Keycloak — identity & SSO)
 **VPN access flow:** A user must be in the `vpn-users` group in Keycloak. Their Keycloak **username** becomes their WireGuard peer name. Adding a user to `vpn-users` and re-applying updates WireGuard peer configs.
 
 **Note:** WireGuard does not support OIDC login natively — identity is enforced by (1) VPN membership in Keycloak and (2) SSO on services behind the VPN.
+
+### Keycloak security (maze realm)
+
+Keycloak stays VPN-only, with extra controls against abuse from inside the tunnel:
+
+| Control | Behavior |
+|---------|----------|
+| **MFA (TOTP)** | Required for every maze-realm login. First login forces authenticator enrollment (Authy / Google Authenticator / etc.). |
+| **Brute-force** | Temporary lockout after 5 failed password/OTP attempts; wait escalates up to 15 minutes. |
+| **Password policy** | Min 12 chars, upper + lower + digit + special, not equal to username. |
+| **Rate limits** | nginx limits on `auth.maze.local` (~5 rps / 60 rpm per client IP). In-cluster OIDC callers (`10.0.0.0/8`) are exempt. |
+
+If a user is locked out: wait for the lockout to expire, or unlock via Keycloak **master** admin (break-glass). Master-realm admin itself is not MFA-gated.
 
 ### Default bootstrap users (local)
 
