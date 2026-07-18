@@ -418,9 +418,10 @@ module "gitlab" {
 module "kyverno" {
   source = "../../modules/kyverno"
 
-  environment       = local.environment
-  cosign_public_key = data.vault_kv_secret_v2.cosign.data["public_key"]
-  registry_hosts    = [local.hosts.registry]
+  environment         = local.environment
+  cosign_public_key   = data.vault_kv_secret_v2.cosign.data["public_key"]
+  registry_hosts      = [local.hosts.registry]
+  namespace_label_key = "${local.cluster_domain}/require-signed-images"
 
   depends_on = [module.cosign_keys]
 }
@@ -429,7 +430,7 @@ module "gitlab_ci_cosign" {
   source = "../../modules/gitlab-ci-cosign"
 
   gitlab_namespace  = module.gitlab.namespace
-  group_full_path   = "maze/algos"
+  org_group_path    = "maze"
   vault_kv_mount    = "secret"
   vault_secret_path = "cosign/gitlab"
 

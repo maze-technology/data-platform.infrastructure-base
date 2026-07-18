@@ -28,9 +28,9 @@ A **worker** that executes CI jobs (build, Trivy, cosign). GitLab itself only *s
 
 We install **one** in-cluster GitLab Runner (`install_gitlab_runner = true`, Kubernetes executor, privileged for Docker builds). Token registration uses the modern `glrt-` auth-token workflow (created via Rails after GitLab is up).
 
-### Cosign keys (Vault → GitLab group `maze/algos`)
+### Cosign keys (Vault → GitLab **instance** CI variables)
 
-OpenTofu module `gitlab-ci-cosign` auto-wires group CI/CD variables from Vault `secret/cosign/gitlab`:
+OpenTofu module `gitlab-ci-cosign` auto-wires **instance-level** CI/CD variables from Vault `secret/cosign/gitlab` so every Maze GitLab project can sign images:
 
 | Variable | Content |
 |----------|---------|
@@ -38,7 +38,9 @@ OpenTofu module `gitlab-ci-cosign` auto-wires group CI/CD variables from Vault `
 | `COSIGN_PASSWORD` | key password, masked + protected |
 | `COSIGN_PUBLIC_KEY` | base64(cosign.pub), masked + protected |
 
-Put algo repos **under group `maze/algos`** so pipelines inherit these variables. Keys are base64 so GitLab masking works (PEM newlines are rejected).
+Keys are base64 so GitLab masking works (PEM newlines are rejected). Include the secure CI template in projects that build images.
+
+Org group **`maze`** is kept for shared work and is shared with Keycloak/GitLab **`engineers`** (Maintainer) and **`admins`** (Owner). Private algos can live in personal namespaces with invites.
 
 Manual debug (optional):
 
@@ -55,7 +57,7 @@ Template: [`ci/templates/container-secure.gitlab-ci.yml`](../ci/templates/contai
 - `cosign_sign` — default branch, offline (`--tlog-upload=false`)
 - `cosign_verify` — default branch, `--insecure-ignore-tlog`
 
-Example algo `.gitlab-ci.yml`:
+Example `.gitlab-ci.yml`:
 
 ```yaml
 stages: [build, secure]
@@ -81,15 +83,18 @@ variables:
 
 Module `kyverno` installs Kyverno and a `ClusterPolicy` that **enforces** cosign verify for Pods that:
 
-1. Run in a namespace labeled `maze.io/require-signed-images=true`
+1. Run in a namespace labeled `<cluster_domain>/require-signed-images=true` (local: `maze.local/...`, prod: `maze.tech/...`)
 2. Pull images from `registry.scm.*` (configured registry host)
 
 Platform namespaces (gitlab, keycloak, …) are **not** labeled → unsigned images keep working.
 
-Enable for an algo namespace:
+Enable for a workload namespace:
 
 ```bash
-kubectl label namespace my-algo maze.io/require-signed-images=true
+# local
+kubectl label namespace my-workload maze.local/require-signed-images=true
+# production
+kubectl label namespace my-workload maze.tech/require-signed-images=true
 ```
 
 Public key is synced to Secret `cosign-public-key` in namespace `kyverno`.

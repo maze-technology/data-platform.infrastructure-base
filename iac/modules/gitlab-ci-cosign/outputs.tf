@@ -1,4 +1,9 @@
-output "group_full_path" {
-  description = "GitLab group that owns COSIGN_* CI variables"
-  value       = var.group_full_path
+output "org_group_path" {
+  description = "GitLab org group shared with engineers"
+  value       = var.org_group_path
+}
+
+output "cosign_scope" {
+  description = "Where COSIGN_* CI variables are stored"
+  value       = "instance"
 }

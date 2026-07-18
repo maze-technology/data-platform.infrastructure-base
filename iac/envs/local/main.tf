@@ -535,7 +535,9 @@ resource "null_resource" "coredns_gitlab_envoy" {
     gateway_ip = module.gitlab.gateway_cluster_ip
     scm        = local.hosts.scm
     registry   = local.hosts.registry
-    generation = "2"
+    # Re-patch whenever cluster_dns rewrites Corefile (it omits scm/registry → nginx).
+    corefile   = module.cluster_dns.corefile
+    generation = "3"
   }
 
   provisioner "local-exec" {
@@ -668,23 +670,24 @@ data "vault_kv_secret_v2" "cosign" {
   depends_on = [module.cosign_keys]
 }
 
-# Admission: require cosign signatures in namespaces labeled maze.io/require-signed-images=true
+# Admission: require cosign signatures in namespaces labeled <domain>/require-signed-images=true
 module "kyverno" {
   source = "../../modules/kyverno"
 
-  environment       = local.environment
-  cosign_public_key = data.vault_kv_secret_v2.cosign.data["public_key"]
-  registry_hosts    = [local.hosts.registry]
+  environment         = local.environment
+  cosign_public_key   = data.vault_kv_secret_v2.cosign.data["public_key"]
+  registry_hosts      = [local.hosts.registry]
+  namespace_label_key = "${local.cluster_domain}/require-signed-images"
 
   depends_on = [module.cosign_keys]
 }
 
-# Auto-wire COSIGN_* CI variables onto GitLab group maze/algos (from Vault)
+# Instance-level COSIGN_* CI variables (Vault) + ensure maze group shared with engineers.
 module "gitlab_ci_cosign" {
   source = "../../modules/gitlab-ci-cosign"
 
   gitlab_namespace  = module.gitlab.namespace
-  group_full_path   = "maze/algos"
+  org_group_path    = "maze"
   vault_kv_mount    = "secret"
   vault_secret_path = "cosign/gitlab"
 

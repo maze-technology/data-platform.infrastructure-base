@@ -1,5 +1,5 @@
-# Ensure GitLab group maze/algos exists and wire COSIGN_* group CI/CD variables
-# from Vault secret/cosign/gitlab. Uses toolbox + webservice port-forward.
+# Wire COSIGN_* as GitLab instance CI variables (from Vault) and ensure org group
+# maze is shared with engineers (+ admins Owner). Cleans up obsolete algo groups.
 # Requires VAULT_ADDR + VAULT_TOKEN in the apply environment.
 
 terraform {
@@ -10,23 +10,28 @@ terraform {
   }
 }
 
-resource "null_resource" "gitlab_cosign_group_vars" {
+resource "null_resource" "gitlab_cosign_instance_vars" {
   triggers = {
-    group_path = var.group_full_path
-    vault_path = "${var.vault_kv_mount}/${var.vault_secret_path}"
-    generation = "4"
+    org_group        = var.org_group_path
+    engineers_group  = var.engineers_gitlab_group
+    admin_group      = var.admin_gitlab_group
+    delete_groups    = join(",", var.delete_group_paths)
+    vault_path       = "${var.vault_kv_mount}/${var.vault_secret_path}"
+    generation       = "6"
   }
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
     environment = {
-      GITLAB_NS         = var.gitlab_namespace
-      GROUP_FULL_PATH   = var.group_full_path
-      PARENT_GROUP_NAME = var.parent_group_name
-      LEAF_GROUP_NAME   = var.group_name
-      VAULT_KV_MOUNT    = var.vault_kv_mount
-      VAULT_SECRET_PATH = var.vault_secret_path
-      API_TOKEN_SECRET  = var.api_token_secret_name
+      GITLAB_NS             = var.gitlab_namespace
+      ORG_GROUP_PATH        = var.org_group_path
+      ORG_GROUP_NAME        = var.org_group_name
+      ENGINEERS_GROUP       = var.engineers_gitlab_group
+      ADMIN_GROUP           = var.admin_gitlab_group
+      DELETE_GROUP_PATHS    = join(",", var.delete_group_paths)
+      VAULT_KV_MOUNT        = var.vault_kv_mount
+      VAULT_SECRET_PATH     = var.vault_secret_path
+      API_TOKEN_SECRET      = var.api_token_secret_name
     }
     command = <<-EOT
       set -euo pipefail
@@ -126,10 +131,14 @@ import json, os, urllib.parse, urllib.request
 
 api = os.environ["GITLAB_API"].rstrip("/")
 token = os.environ["GITLAB_TOKEN"]
-group_full = os.environ["GROUP_FULL_PATH"]
-parent_name = os.environ["PARENT_GROUP_NAME"]
-leaf_name = os.environ["LEAF_GROUP_NAME"]
-parent_path, leaf_path = group_full.split("/", 1)
+org_path = os.environ["ORG_GROUP_PATH"].strip()
+org_name = os.environ["ORG_GROUP_NAME"].strip() or org_path
+engineers = os.environ.get("ENGINEERS_GROUP", "").strip()
+admins = os.environ.get("ADMIN_GROUP", "").strip()
+delete_paths = [p.strip() for p in os.environ.get("DELETE_GROUP_PATHS", "").split(",") if p.strip()]
+
+ACCESS_MAINTAINER = 40
+ACCESS_OWNER = 50
 
 def req(method, path, body=None):
     data = None if body is None else json.dumps(body).encode()
@@ -159,12 +168,14 @@ def get_group(path):
     code, body = req("GET", f"/groups/{enc}")
     return body if code == 200 else None
 
-def ensure_group(path, name, parent_id=None):
+def ensure_group(path, name, parent_id=None, visibility="private"):
     existing = get_group(path)
     if existing:
         print(f"group {path} exists id={existing['id']}")
+        if existing.get("visibility") != visibility:
+            req("PUT", f"/groups/{existing['id']}", {"visibility": visibility})
         return existing["id"]
-    payload = {"name": name, "path": path.split("/")[-1], "visibility": "private"}
+    payload = {"name": name, "path": path.split("/")[-1], "visibility": visibility}
     if parent_id is not None:
         payload["parent_id"] = int(parent_id)
     code, body = req("POST", "/groups", payload)
@@ -173,12 +184,51 @@ def ensure_group(path, name, parent_id=None):
     print(f"created group {path} id={body['id']}")
     return body["id"]
 
-def put_variable(group_id, key, value, masked):
-    enc = urllib.parse.quote(key, safe="")
-    req("DELETE", f"/groups/{group_id}/variables/{enc}")
+def delete_group(path):
+    g = get_group(path)
+    if not g:
+        print(f"delete skip missing group {path}")
+        return
+    code, body = req("DELETE", f"/groups/{g['id']}")
+    if code not in (200, 202, 204):
+        raise SystemExit(f"delete group {path} failed: {code} {body}")
+    print(f"deleted group {path} id={g['id']}")
+
+def share_group(group_id, shared_with_path, access_level):
+    shared = get_group(shared_with_path)
+    if not shared:
+        shared_id = ensure_group(shared_with_path, shared_with_path.split("/")[-1], None, "private")
+    else:
+        shared_id = shared["id"]
+    req("DELETE", f"/groups/{group_id}/share/{shared_id}")
     code, body = req(
         "POST",
-        f"/groups/{group_id}/variables",
+        f"/groups/{group_id}/share",
+        {"group_id": shared_id, "group_access": access_level},
+    )
+    if code not in (200, 201):
+        raise SystemExit(f"share {group_id} with {shared_with_path} failed: {code} {body}")
+    print(f"shared group {group_id} with {shared_with_path} access={access_level}")
+
+def put_instance_variable(key, value, masked=True):
+    enc = urllib.parse.quote(key, safe="")
+    # Prefer update; create if missing
+    code, body = req(
+        "PUT",
+        f"/admin/ci/variables/{enc}",
+        {
+            "value": value,
+            "masked": masked,
+            "protected": True,
+            "variable_type": "env_var",
+        },
+    )
+    if code in (200, 201):
+        print(f"updated instance variable {key}")
+        return
+    code, body = req(
+        "POST",
+        "/admin/ci/variables",
         {
             "key": key,
             "value": value,
@@ -188,21 +238,32 @@ def put_variable(group_id, key, value, masked):
         },
     )
     if code not in (200, 201):
-        raise SystemExit(f"set variable {key} failed: {code} {body}")
-    print(f"set group variable {key}")
+        raise SystemExit(f"set instance variable {key} failed: {code} {body}")
+    print(f"created instance variable {key}")
 
-parent_id = ensure_group(parent_path, parent_name)
-group_id = ensure_group(group_full, leaf_name, parent_id)
+# Delete obsolete groups (deepest paths first)
+for path in sorted(delete_paths, key=lambda p: p.count("/"), reverse=True):
+    if path == org_path:
+        print(f"refusing to delete org group {path}")
+        continue
+    delete_group(path)
+
+org_id = ensure_group(org_path, org_name, None, "private")
+if engineers:
+    ensure_group(engineers, engineers, None, "private")
+    share_group(org_id, engineers, ACCESS_MAINTAINER)
+if admins:
+    ensure_group(admins, admins, None, "private")
+    share_group(org_id, admins, ACCESS_OWNER)
 
 # PEM keys contain newlines/spaces — GitLab masked vars reject those.
-# Store base64; CI template decodes before cosign.
 priv_b64 = base64.b64encode(os.environ["PRIVATE_KEY"].encode()).decode()
 pub_b64 = base64.b64encode(os.environ["PUBLIC_KEY"].encode()).decode()
 
-put_variable(group_id, "COSIGN_PRIVATE_KEY", priv_b64, True)
-put_variable(group_id, "COSIGN_PASSWORD", os.environ["COSIGN_PASSWORD_VALUE"], True)
-put_variable(group_id, "COSIGN_PUBLIC_KEY", pub_b64, True)
-print(f"gitlab-ci-cosign: COSIGN_* (base64 keys) wired on group {group_full}")
+put_instance_variable("COSIGN_PRIVATE_KEY", priv_b64, True)
+put_instance_variable("COSIGN_PASSWORD", os.environ["COSIGN_PASSWORD_VALUE"], True)
+put_instance_variable("COSIGN_PUBLIC_KEY", pub_b64, True)
+print(f"gitlab-ci-cosign: instance COSIGN_* wired; org={org_path} engineers={engineers} admins={admins}")
 PY
     EOT
   }

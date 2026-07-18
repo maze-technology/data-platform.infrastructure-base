@@ -43,13 +43,18 @@ output "cosign_vault_path" {
   value       = module.cosign_keys.vault_path
 }
 
-output "cosign_gitlab_group" {
-  description = "GitLab group that inherits COSIGN_* CI variables"
-  value       = module.gitlab_ci_cosign.group_full_path
+output "cosign_ci_scope" {
+  description = "COSIGN_* CI variables are instance-level (available to all projects)"
+  value       = module.gitlab_ci_cosign.cosign_scope
+}
+
+output "gitlab_org_group" {
+  description = "GitLab org group shared with engineers"
+  value       = module.gitlab_ci_cosign.org_group_path
 }
 
 output "kyverno_signed_images_label" {
-  description = "Label algo namespaces with this to require cosign-verified images from the Maze registry"
+  description = "Label namespaces with this to require cosign-verified images from the Maze registry"
   value       = module.kyverno.namespace_opt_in_label
 }
 

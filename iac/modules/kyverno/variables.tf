@@ -27,9 +27,8 @@ variable "registry_hosts" {
 }
 
 variable "namespace_label_key" {
-  description = "Namespace label key that opts a namespace into signature enforcement"
+  description = "Namespace label key that opts a namespace into signature enforcement (e.g. maze.local/require-signed-images)"
   type        = string
-  default     = "maze.io/require-signed-images"
 }
 
 variable "namespace_label_value" {

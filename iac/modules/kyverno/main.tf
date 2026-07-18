@@ -1,5 +1,6 @@
-# Kyverno admission: enforce cosign signatures on algo namespaces only.
-# Opt-in: label the namespace with maze.io/require-signed-images=true.
+# Kyverno admission: enforce cosign signatures on opted-in namespaces.
+# Opt-in: label the namespace with <cluster_domain>/require-signed-images=true
+# (e.g. maze.local/... locally, maze.tech/... in production).
 # Platform namespaces (gitlab, keycloak, …) stay unsigned and unaffected.
 
 terraform {
