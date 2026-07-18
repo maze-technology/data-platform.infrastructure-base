@@ -194,6 +194,28 @@ module "rgw_bootstrap" {
   ]
 }
 
+module "cosign_keys" {
+  source = "../../modules/cosign-keys"
+
+  vault_kv_mount    = "secret"
+  vault_secret_path = "cosign/gitlab"
+
+  depends_on = [module.vault]
+}
+
+resource "vault_kv_secret_v2" "rbd_luks" {
+  mount = "secret"
+  name  = module.rook_ceph.encryption_vault_secret_name
+
+  data_json = jsonencode({
+    encryptionPassphrase = module.rook_ceph.rbd_luks_passphrase
+    kms_id               = module.rook_ceph.encryption_kms_id
+    note                 = "Master passphrase for Ceph-CSI metadata KMS (PVC LUKS)"
+  })
+
+  depends_on = [module.vault, module.rook_ceph]
+}
+
 data "vault_kv_secret_v2" "rgw_credentials" {
   mount = "secret"
   name  = "rgw/credentials"
@@ -361,8 +383,10 @@ module "gitlab" {
     force_path_style = true
   }
 
-  storage_class           = module.rook_ceph.storage_class_name
-  gitaly_storage_size     = "100Gi"
+  storage_class                  = module.rook_ceph.storage_class_name
+  gitaly_storage_class           = module.rook_ceph.encrypted_storage_class_name
+  storage_encryption_passphrase  = module.rook_ceph.rbd_luks_passphrase
+  gitaly_storage_size            = "100Gi"
   valkey_storage_size     = "8Gi"
   webservice_min_replicas = 2
   webservice_max_replicas = 4

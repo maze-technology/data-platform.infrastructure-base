@@ -9,6 +9,27 @@ resource "kubernetes_namespace" "gitlab" {
   }
 }
 
+# Required in the PVC namespace for rook-ceph-block-encrypted (CSI metadata KMS).
+resource "kubernetes_secret" "storage_encryption" {
+  count = var.storage_encryption_passphrase != "" ? 1 : 0
+
+  metadata {
+    name      = var.storage_encryption_secret_name
+    namespace = kubernetes_namespace.gitlab.metadata[0].name
+    labels = {
+      managed-by  = "opentofu"
+      purpose     = "rbd-luks"
+      environment = var.environment
+    }
+  }
+
+  data = {
+    encryptionPassphrase = var.storage_encryption_passphrase
+  }
+
+  type = "Opaque"
+}
+
 locals {
   # gitlab.local → base domain "local"; gitlab.prod.maze.tech → "prod.maze.tech"
   domain_parts    = split(".", var.gitlab_domain)
@@ -222,7 +243,43 @@ locals {
         install = false
       }
       gitlab-runner = {
-        install = false
+        install  = var.install_gitlab_runner
+        replicas = var.gitlab_runner_replicas
+        # Trust Maze CA when verifying https://scm… (self-signed ClusterIssuer).
+        certsSecretName = var.custom_ca_pem != "" ? kubernetes_secret.custom_ca[0].metadata[0].name : null
+        rbac = {
+          create = true
+        }
+        runners = {
+          # Required for authentication-token (glrt-) registration workflow.
+          locked     = null
+          privileged = true
+          secret     = "gitlab-gitlab-runner-secret"
+          config     = <<-EOT
+            [[runners]]
+              tls-ca-file = "/home/gitlab-runner/.gitlab-runner/certs/maze-ca.crt"
+              [runners.kubernetes]
+                namespace = "${kubernetes_namespace.gitlab.metadata[0].name}"
+                image = "alpine:3.20"
+                privileged = true
+                poll_timeout = 180
+                cpu_request = "100m"
+                memory_request = "128Mi"
+                memory_limit = "1536Mi"
+                service_cpu_request = "50m"
+                service_memory_request = "64Mi"
+          EOT
+        }
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "128Mi"
+          }
+          limits = {
+            cpu    = "500m"
+            memory = "512Mi"
+          }
+        }
       }
       gitlab = {
         webservice = {
@@ -266,7 +323,10 @@ locals {
           persistence = {
             enabled = true
             size    = var.gitaly_storage_size
-            storage = var.storage_class != "" ? var.storage_class : null
+            storage = (
+              var.gitaly_storage_class != "" ? var.gitaly_storage_class :
+              var.storage_class != "" ? var.storage_class : null
+            )
           }
         }
         toolbox = {
@@ -295,20 +355,32 @@ locals {
         gateway = {
           protocol = var.enable_tls ? "HTTPS" : "HTTP"
         }
-      }
-    },
-    var.enable_tls ? {} : {
-      gatewayApiResources = {
-        gateway = {
-          protocol = "HTTP"
-        }
-        envoy = {
-          clientTrafficPolicySpec = {
-            path = {
-              escapedSlashesAction = "KeepUnchanged"
+        envoy = merge(
+          # VPN-gate GitLab (Envoy ignores nginx whitelist annotations).
+          {
+            securityPolicySpec = {
+              authorization = {
+                defaultAction = "Deny"
+                rules = [
+                  {
+                    action = "Allow"
+                    principal = {
+                      clientCIDRs = split(",", local.ingress_whitelist)
+                    }
+                  },
+                ]
+              }
             }
-          }
-        }
+          },
+          # HTTP-only listeners need KeepUnchanged for %2F project paths.
+          var.enable_tls ? {} : {
+            clientTrafficPolicySpec = {
+              path = {
+                escapedSlashesAction = "KeepUnchanged"
+              }
+            }
+          },
+        )
       }
     },
   )
@@ -545,7 +617,7 @@ resource "null_resource" "gitlab_sso_only" {
     admin_user  = var.sso_admin_username
     admin_email = var.sso_admin_email
     oidc_issuer = var.oidc.issuer_url
-    harden_v1   = "signup-off-webide-fallback-off"
+    harden_v2   = "signup-off-webide-fallback-off-git-password-off"
   }
 
   provisioner "local-exec" {
@@ -565,8 +637,10 @@ resource "null_resource" "gitlab_sso_only" {
         if kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "$(cat <<'RUBY'
 # SSO-only + instance hardening (ApplicationSetting is DB-backed, not helm).
 # Keycloak username "admin" is reserved in GitLab — link SSO via root email.
+# Git over HTTP(S): no account passwords (SSH keys or personal access tokens).
 ApplicationSetting.current.update!(
   password_authentication_enabled_for_web: false,
+  password_authentication_enabled_for_git: false,
   signup_enabled: false,
   vscode_extension_marketplace_single_origin_fallback_enabled: false
 )
@@ -578,7 +652,7 @@ root.email = admin_email
 root.confirmed_at ||= Time.current
 root.save!
 s = ApplicationSetting.current
-puts "root email=#{root.email} admin=#{root.admin?} password_auth_web=#{s.password_authentication_enabled_for_web} signup=#{s.signup_enabled} webide_fallback=#{s.vscode_extension_marketplace_single_origin_fallback_enabled}"
+puts "root email=#{root.email} admin=#{root.admin?} password_auth_web=#{s.password_authentication_enabled_for_web} password_auth_git=#{s.password_authentication_enabled_for_git} signup=#{s.signup_enabled} webide_fallback=#{s.vscode_extension_marketplace_single_origin_fallback_enabled}"
 RUBY
 )"; then
           exit 0
@@ -618,9 +692,149 @@ resource "helm_release" "gitlab" {
     kubernetes_secret.gitlab_backup_storage,
     kubernetes_secret.gitlab_postgresql,
     kubernetes_secret.custom_ca,
+    kubernetes_secret.gitlab_runner_token,
     helm_release.gitlab_postgresql,
     kubernetes_secret.gitlab_redis_password,
     helm_release.gitlab_valkey,
     kubernetes_manifest.tls_certificates,
+  ]
+}
+
+# Wait for the chart-managed Envoy proxy Service (needed for VPN DNS → ClusterIP).
+resource "null_resource" "gitlab_gateway_ready" {
+  triggers = {
+    release = helm_release.gitlab.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      NS='${kubernetes_namespace.gitlab.metadata[0].name}'
+      for i in $(seq 1 60); do
+        IP="$(kubectl -n "$NS" get svc -l gateway.envoyproxy.io/owning-gateway-name=gitlab-gw -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null || true)"
+        if [ -n "$IP" ]; then
+          echo "gitlab gateway ClusterIP=$IP"
+          exit 0
+        fi
+        echo "gitlab_gateway_ready: waiting for envoy service (attempt $i/60)"
+        sleep 5
+      done
+      echo "gitlab_gateway_ready: envoy service not found" >&2
+      exit 1
+    EOT
+  }
+
+  depends_on = [helm_release.gitlab]
+}
+
+data "external" "gitlab_gateway_ip" {
+  program = [
+    "bash",
+    "-c",
+    <<-EOT
+      set -euo pipefail
+      IP="$(kubectl -n '${kubernetes_namespace.gitlab.metadata[0].name}' get svc -l gateway.envoyproxy.io/owning-gateway-name=gitlab-gw -o jsonpath='{.items[0].spec.clusterIP}')"
+      printf '{"ip":"%s"}\n' "$IP"
+    EOT
+  ]
+
+  depends_on = [null_resource.gitlab_gateway_ready]
+}
+
+# Placeholder until rails creates a real glrt- token (auth-token workflow).
+resource "kubernetes_secret" "gitlab_runner_token" {
+  count = var.install_gitlab_runner ? 1 : 0
+
+  metadata {
+    name      = "gitlab-gitlab-runner-secret"
+    namespace = kubernetes_namespace.gitlab.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    "runner-registration-token" = ""
+    "runner-token"              = "pending-replace-me"
+  }
+
+  type = "Opaque"
+
+  lifecycle {
+    ignore_changes = [data]
+  }
+}
+
+# Create an instance runner (glrt-) and write the token into the runner secret.
+resource "null_resource" "gitlab_runner_register" {
+  count = var.install_gitlab_runner ? 1 : 0
+
+  triggers = {
+    release = helm_release.gitlab.id
+    secret  = try(kubernetes_secret.gitlab_runner_token[0].metadata[0].name, "")
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      NS='${kubernetes_namespace.gitlab.metadata[0].name}'
+      kubectl -n "$NS" wait --for=condition=available deploy/gitlab-webservice-default --timeout=900s
+      kubectl -n "$NS" wait --for=condition=ready pod -l app=toolbox --timeout=300s
+      for i in $(seq 1 30); do
+        POD="$(kubectl -n "$NS" get pod -l app=toolbox --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+        if [ -z "$POD" ]; then
+          echo "gitlab_runner_register: no toolbox yet (attempt $i/30)"
+          sleep 20
+          continue
+        fi
+        TOKEN="$(kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "$(cat <<'RUBY'
+user = User.find_by_username('root')
+raise 'root missing' if user.nil?
+existing = Ci::Runner.find_by(description: 'maze-k8s')
+if existing
+  # Token is only shown once at create — recreate if we cannot register.
+  existing.destroy!
+end
+result = Ci::Runners::CreateRunnerService.new(
+  user: user,
+  params: {
+    runner_type: 'instance_type',
+    description: 'maze-k8s',
+    run_untagged: true,
+    tag_list: %w[kubernetes docker maze],
+  }
+).execute
+raise result.message unless result.success?
+runner = result.payload[:runner] || result.payload[:ci_runner]
+puts runner.token
+RUBY
+)" 2>/dev/null | tail -n 1 | tr -d '\r')"
+        if [[ "$TOKEN" == glrt-* ]] || [[ "$${#TOKEN}" -gt 20 ]]; then
+          kubectl -n "$NS" create secret generic gitlab-gitlab-runner-secret \
+            --from-literal=runner-registration-token="" \
+            --from-literal=runner-token="$TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n "$NS" delete pod -l app=gitlab-gitlab-runner --wait=false 2>/dev/null || \
+            kubectl -n "$NS" delete pod -l app.kubernetes.io/name=gitlab-gitlab-runner --wait=false 2>/dev/null || true
+          kubectl -n "$NS" rollout restart deploy/gitlab-gitlab-runner 2>/dev/null || \
+            kubectl -n "$NS" rollout restart deployment -l app=gitlab-gitlab-runner 2>/dev/null || true
+          echo "gitlab_runner_register: token installed"
+          exit 0
+        fi
+        echo "gitlab_runner_register: attempt $i/30 got unexpected token output: $TOKEN"
+        sleep 20
+      done
+      echo "gitlab_runner_register: failed" >&2
+      exit 1
+    EOT
+  }
+
+  depends_on = [
+    helm_release.gitlab,
+    kubernetes_secret.gitlab_runner_token,
+    null_resource.gitlab_sso_only,
   ]
 }

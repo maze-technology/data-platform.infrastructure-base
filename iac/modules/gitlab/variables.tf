@@ -125,9 +125,28 @@ variable "object_storage" {
 }
 
 variable "storage_class" {
-  description = "StorageClass for GitLab PVCs (Gitaly, etc.). Empty uses cluster default."
+  description = "StorageClass for GitLab PVCs (Postgres/Valkey/etc.). Empty uses cluster default."
   type        = string
   default     = ""
+}
+
+variable "gitaly_storage_class" {
+  description = "StorageClass for Gitaly only (use encrypted RBD for algo source). Empty falls back to storage_class."
+  type        = string
+  default     = ""
+}
+
+variable "storage_encryption_passphrase" {
+  description = "Passphrase for Ceph-CSI metadata KMS Secret (required when gitaly uses encrypted RBD). Empty skips Secret."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "storage_encryption_secret_name" {
+  description = "Kubernetes Secret name expected by rook-ceph-block-encrypted CSI metadata KMS"
+  type        = string
+  default     = "storage-encryption-secret"
 }
 
 variable "gitaly_storage_size" {
@@ -226,5 +245,17 @@ variable "custom_ca_secret_keys" {
   description = "Keys written into the custom CA secret (must end in .crt for GitLab update-ca-certificates)"
   type        = list(string)
   default     = ["maze-ca.crt"]
+}
+
+variable "install_gitlab_runner" {
+  description = "Install one in-cluster GitLab Runner (Kubernetes executor) for CI"
+  type        = bool
+  default     = true
+}
+
+variable "gitlab_runner_replicas" {
+  description = "Number of GitLab Runner pods"
+  type        = number
+  default     = 1
 }
 

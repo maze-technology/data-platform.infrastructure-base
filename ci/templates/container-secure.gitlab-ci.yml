@@ -1,0 +1,94 @@
+# Shared secure-image jobs for Maze algo/container repos (GitLab CE).
+#
+# Include from an application .gitlab-ci.yml after you build+push an image:
+#
+#   include:
+#     - local: 'ci/templates/container-secure.gitlab-ci.yml'   # if vendored
+#     # or: project/file / remote — see docs/gitlab-container-security.md
+#
+#   variables:
+#     SECURE_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+#
+# Required CI/CD variables (from Vault secret/cosign/gitlab):
+#   COSIGN_PRIVATE_KEY  — cosign.key (File or multi-line Variable, masked)
+#   COSIGN_PASSWORD     — key password (masked)
+#
+# Build job must push SECURE_IMAGE to the GitLab registry before `secure` runs.
+# Fail policy: High and Critical (fixed vulns only via --ignore-unfixed).
+
+spec:
+  inputs:
+    image:
+      description: Image reference to scan and sign (tag or digest)
+      default: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    severity:
+      description: Minimum severity that fails the pipeline (also always fails Critical)
+      default: HIGH
+    sign:
+      description: Cosign-sign after a clean scan (default branch only)
+      default: "true"
+
+---
+
+stages:
+  - secure
+
+variables:
+  SECURE_IMAGE: $[[ inputs.image ]]
+  TRIVY_FAIL_SEVERITY: $[[ inputs.severity ]],CRITICAL
+  COSIGN_SIGN_ENABLED: $[[ inputs.sign ]]
+
+trivy:
+  stage: secure
+  image:
+    name: aquasec/trivy:0.58.1
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: $CI_REGISTRY_USER
+    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+  script:
+    - |
+      set -euo pipefail
+      echo "Scanning ${SECURE_IMAGE} (fail on ${TRIVY_FAIL_SEVERITY})"
+      trivy image \
+        --exit-code 1 \
+        --severity "${TRIVY_FAIL_SEVERITY}" \
+        --ignore-unfixed \
+        --no-progress \
+        --format table \
+        "${SECURE_IMAGE}"
+  allow_failure: false
+  rules:
+    - if: $SECURE_IMAGE
+
+cosign_sign:
+  stage: secure
+  image:
+    name: gcr.io/projectsigstore/cosign:v2.4.3
+    entrypoint: [""]
+  needs:
+    - job: trivy
+      artifacts: false
+  variables:
+    COSIGN_YES: "true"
+  script:
+    - |
+      set -euo pipefail
+      if [ "${COSIGN_SIGN_ENABLED}" != "true" ]; then
+        echo "Signing disabled (inputs.sign!=true)"
+        exit 0
+      fi
+      test -n "${COSIGN_PRIVATE_KEY:-}" || { echo "COSIGN_PRIVATE_KEY CI variable missing (see Vault secret/cosign/gitlab)"; exit 1; }
+      test -n "${COSIGN_PASSWORD:-}" || { echo "COSIGN_PASSWORD CI variable missing"; exit 1; }
+      umask 077
+      KEY="$(mktemp)"
+      printf '%s\n' "$COSIGN_PRIVATE_KEY" > "$KEY"
+      cosign login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+      cosign sign --key "$KEY" "${SECURE_IMAGE}"
+      rm -f "$KEY"
+      echo "Signed ${SECURE_IMAGE}"
+  allow_failure: false
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $SECURE_IMAGE && $COSIGN_SIGN_ENABLED == "true"
+      when: on_success
+    - when: never

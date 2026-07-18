@@ -38,6 +38,11 @@ output "wireguard_peer_config_command" {
   value       = "kubectl exec -n wireguard deploy/wireguard -- cat /config/peer_${nonsensitive(var.bootstrap_admin.username)}/peer_${nonsensitive(var.bootstrap_admin.username)}.conf"
 }
 
+output "cosign_vault_path" {
+  description = "Vault path for cosign signing keys (private_key, public_key, password)"
+  value       = module.cosign_keys.vault_path
+}
+
 output "bootstrap_credentials" {
   description = "Initial credentials — day-to-day login is Keycloak SSO; Keycloak master + Vault token are break-glass only"
   sensitive   = true

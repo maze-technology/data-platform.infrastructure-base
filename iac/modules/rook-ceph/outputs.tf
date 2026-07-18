@@ -18,8 +18,34 @@ output "rbd_pool_name" {
 }
 
 output "storage_class_name" {
-  description = "Name of the Kubernetes StorageClass for RBD volumes"
+  description = "Name of the Kubernetes StorageClass for RBD volumes (unencrypted — OHLCV / bulk)"
   value       = kubernetes_storage_class.rbd.metadata[0].name
+}
+
+output "encrypted_storage_class_name" {
+  description = "Encrypted RBD StorageClass for sensitive PVCs (Gitaly). Empty if encryption disabled."
+  value       = var.enable_rbd_encryption ? kubernetes_storage_class.rbd_encrypted[0].metadata[0].name : ""
+}
+
+output "encryption_vault_path" {
+  description = "Vault path of the RBD LUKS master passphrase"
+  value       = var.enable_rbd_encryption ? "secret/${var.encryption_vault_path}" : ""
+}
+
+output "encryption_vault_secret_name" {
+  description = "Vault KV name (under mount secret/) for the RBD LUKS passphrase"
+  value       = var.enable_rbd_encryption ? var.encryption_vault_path : ""
+}
+
+output "encryption_kms_id" {
+  description = "CSI metadata KMS id for encrypted RBD"
+  value       = var.enable_rbd_encryption ? var.encryption_kms_id : ""
+}
+
+output "rbd_luks_passphrase" {
+  description = "Master passphrase for Ceph-CSI metadata KMS (PVC LUKS)"
+  value       = var.enable_rbd_encryption ? random_password.rbd_luks[0].result : ""
+  sensitive   = true
 }
 
 # RGW (Object Storage) outputs

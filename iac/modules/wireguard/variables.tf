@@ -20,6 +20,12 @@ variable "vpn_subnet" {
   default     = "10.8.0.0/24"
 }
 
+variable "allowed_ips" {
+  description = "Comma-separated AllowedIPs pushed to peers (must include VPN subnet plus ClusterIP/pod ranges so clients can reach platform services through the tunnel)"
+  type        = string
+  default     = ""
+}
+
 variable "server_port" {
   description = "WireGuard UDP listen port"
   type        = number

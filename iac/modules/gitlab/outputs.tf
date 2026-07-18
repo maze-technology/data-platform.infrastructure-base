@@ -17,3 +17,8 @@ output "helm_release" {
   description = "GitLab Helm release metadata"
   value       = helm_release.gitlab
 }
+
+output "gateway_cluster_ip" {
+  description = "ClusterIP of the GitLab Envoy Gateway proxy (VPN DNS should point scm/registry here)"
+  value       = data.external.gitlab_gateway_ip.result.ip
+}

@@ -14,3 +14,9 @@ variable "hosts" {
   description = "Hostnames that must resolve inside the cluster (e.g. auth.maze.local)"
   type        = list(string)
 }
+
+variable "host_ips" {
+  description = "Optional hostname → IP overrides (e.g. scm.maze.local → GitLab Envoy ClusterIP). Unlisted hosts use the ingress ClusterIP."
+  type        = map(string)
+  default     = {}
+}

@@ -11,7 +11,11 @@ data "kubernetes_service" "ingress" {
 
 locals {
   ingress_ip = data.kubernetes_service.ingress.spec[0].cluster_ip
-  corefile   = <<-EOT
+  host_lines = [
+    for h in var.hosts :
+    "        ${lookup(var.host_ips, h, local.ingress_ip)} ${h}"
+  ]
+  corefile = <<-EOT
 .:53 {
     errors
     health {
@@ -19,7 +23,7 @@ locals {
     }
     ready
     hosts {
-${join("\n", [for h in var.hosts : "        ${local.ingress_ip} ${h}"])}
+${join("\n", local.host_lines)}
        fallthrough
     }
     kubernetes cluster.local in-addr.arpa ip6.arpa {

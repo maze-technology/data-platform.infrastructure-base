@@ -83,6 +83,16 @@ Keycloak stays VPN-only, with extra controls against abuse from inside the tunne
 
 If a user is locked out: wait for the lockout to expire, or unlock via Keycloak **master** admin (break-glass). Master-realm admin itself is not MFA-gated.
 
+### GitLab access (VPN + Envoy)
+
+GitLab uses **Envoy Gateway** (not nginx), so VPN gating is an Envoy `SecurityPolicy` CIDR allowlist (`vpn_cidr` + cluster ranges) — nginx `whitelist-source-range` does not apply.
+
+- UI / HTTPS git / registry: `https://scm.maze.local` and `https://registry.scm.maze.local` via VPN DNS → Envoy ClusterIP
+- SSH git: port 22 on the same Envoy proxy (TCPRoute), also CIDR-gated
+- **Git auth:** account passwords disabled for git over HTTP(S). Use **SSH keys**, or a **personal access token** for HTTPS/CI
+- **Container images:** scan (fail on High+) + cosign — see [docs/gitlab-container-security.md](docs/gitlab-container-security.md)
+- **Gitaly encryption (prod):** PVC LUKS via `rook-ceph-block-encrypted`; passphrase in Vault `secret/ceph/rbd-luks`. OHLCV stays on unencrypted `rook-ceph-block`.
+
 ### Default bootstrap users (local)
 
 Configure in `iac/envs/local/terraform.tfvars` **before first deploy**:
@@ -196,8 +206,8 @@ make local-setup
 This creates a 4-node cluster (1 control-plane + 3 workers) with:
 
 - Ingress NodePorts: `30080` (HTTP), `30443` (HTTPS)
-- GitLab (Envoy Gateway) NodePort: `32458` (HTTP) — mapped in `config/kind-config.yaml`
 - WireGuard NodePort: `31820` (UDP)
+- GitLab is reached via VPN → Envoy Gateway ClusterIP (not the nginx NodePorts)
 - Host mount `/var/lib/rook` for Rook-Ceph loop-device images and data
 - Raised **inotify limits** on every node (required for Promtail log shipping on kind)
 
@@ -243,20 +253,20 @@ sudo wg-quick up ./wg-admin.conf
 tofu output wireguard_peer_config_command
 
 # Connect VPN, then access services (auth is VPN-restricted — same as production)
-open http://auth.maze.local:30080/admin
-open http://scm.maze.local:32458
+open https://auth.maze.local/admin
+open https://scm.maze.local
 ```
 
-**Default credentials:** GitLab root password is set by the Helm chart on first install (check `gitlab-gitlab-initial-root-password` secret).
+**Default credentials:** Platform SSO via Keycloak (see bootstrap admin). GitLab local password sign-in is disabled.
 
 ### 4. Access observability
 
-| Service   | URL (via VPN + `/etc/hosts`)   | Notes |
+| Service   | URL (via VPN)                  | Notes |
 |-----------|--------------------------------|-------|
-| Grafana   | http://grafana.maze.local:30080 | Loki datasource pre-configured |
-| Argo CD   | http://argocd.maze.local:30080 | |
-| Vault     | http://vault.maze.local:30080  | Dev mode, root token `root` |
-| GitLab    | http://scm.maze.local:32458    | Envoy Gateway NodePort (not `:30080`) |
+| Grafana   | https://grafana.maze.local     | Loki datasource pre-configured |
+| Argo CD   | https://argocd.maze.local      | |
+| Vault     | https://vault.maze.local       | Dev mode, root token `root` |
+| GitLab    | https://scm.maze.local         | Envoy Gateway + SecurityPolicy (VPN CIDR) |
 
 Grafana default login: `admin` / `admin` (override in production).
 

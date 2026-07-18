@@ -49,6 +49,23 @@ apply-foundation: ensure-rook-crds ## Apply foundation layer (Rook-Ceph, Vault, 
 	@echo "=========================================="
 	@echo "Foundation Layer: Storage + Secrets"
 	@echo "=========================================="
+	@echo "Step 0: Installing cert-manager (CRDs must exist before ClusterIssuer/Vault TLS)..."
+	@cd iac/envs/$(ENV) && tofu apply \
+		-target='module.cert_manager.kubernetes_namespace.cert_manager' \
+		-target='module.cert_manager.helm_release.cert_manager' \
+		-auto-approve
+	@echo "Waiting for cert-manager CRDs and webhook..."
+	@for i in $$(seq 1 60); do \
+		if kubectl get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then \
+			echo "✓ clusterissuers.cert-manager.io present"; \
+			break; \
+		fi; \
+		sleep 2; \
+	done
+	@kubectl -n cert-manager wait --for=condition=available deploy/cert-manager --timeout=300s || true
+	@kubectl -n cert-manager wait --for=condition=available deploy/cert-manager-webhook --timeout=300s || true
+	@cd iac/envs/$(ENV) && tofu apply -target='module.cert_manager' -auto-approve
+	@echo ""
 	@echo "Step 1: Applying Rook-Ceph and Vault..."
 	@cd iac/envs/$(ENV) && tofu apply \
 		-target='module.rook_ceph' \
@@ -250,15 +267,17 @@ apply-foundation: ensure-rook-crds ## Apply foundation layer (Rook-Ceph, Vault, 
 		exit 1; \
 	fi
 	@echo ""
-	@echo "Step 7: Applying RGW Bootstrap (stores credentials in Vault)..."
+	@echo "Step 7: Applying RGW Bootstrap + RBD LUKS Vault secret..."
 	@kubectl port-forward -n $(VAULT_PF_NAMESPACE) $(VAULT_PF_SERVICE) $(VAULT_PF_LOCAL_PORT):8200 >/dev/null 2>&1 & PF_PID=$$!; \
 	trap 'kill $$PF_PID 2>/dev/null || true' EXIT; \
 	sleep 2; \
 	cd iac/envs/$(ENV) && \
-	TF_VAR_vault_address="http://127.0.0.1:$(VAULT_PF_LOCAL_PORT)" \
+	export VAULT_ADDR="http://127.0.0.1:$(VAULT_PF_LOCAL_PORT)" VAULT_TOKEN="$${VAULT_TOKEN:-root}"; \
+	TF_VAR_vault_address="$$VAULT_ADDR" TF_VAR_vault_token="$$VAULT_TOKEN" \
 	tofu apply \
 		-target='module.rgw_bootstrap' \
 		-target='data.vault_kv_secret_v2.rgw_credentials' \
+		-target='vault_kv_secret_v2.rbd_luks' \
 		-auto-approve
 	@echo ""
 	@echo "✓ Foundation layer complete!"

@@ -97,8 +97,9 @@ resource "kubernetes_deployment" "wireguard" {
             value = var.vpn_subnet
           }
           env {
-            name  = "ALLOWEDIPS"
-            value = var.vpn_subnet
+            name = "ALLOWEDIPS"
+            # VPN subnet + RFC1918 10/8 (cluster service/pod CIDRs) so PEERDNS ClusterIPs work via tunnel.
+            value = var.allowed_ips != "" ? var.allowed_ips : "${var.vpn_subnet},10.0.0.0/8"
           }
           env {
             name  = "LOG_CONFS"

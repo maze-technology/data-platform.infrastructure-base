@@ -288,6 +288,7 @@ module "ingress" {
 
 # Make *.maze.local resolvable inside the cluster (pods don't have client /etc/hosts).
 # Required for server-side OIDC (GitLab/Grafana/Argo → Keycloak at auth.maze.local).
+# scm/registry are repointed to GitLab Envoy after module.gitlab (see coredns_gitlab_envoy).
 module "cluster_dns" {
   source = "../../modules/cluster-dns"
 
@@ -457,7 +458,7 @@ module "wireguard" {
 # Local: bundled PostgreSQL + in-cluster Redis
 # Production: OVH managed PostgreSQL + in-cluster Redis on Rook-Ceph
 # Object storage: Rook-Ceph RGW (S3-compatible)
-# Access: VPN-only via ingress whitelist
+# Access: VPN-only via Envoy SecurityPolicy (CIDR allowlist)
 module "gitlab" {
   source = "../../modules/gitlab"
 
@@ -481,10 +482,18 @@ module "gitlab" {
     force_path_style = true
   }
 
-  storage_class           = "standard" # local-path; RBD mount fails on kind (sysfs/udev)
-  gitaly_storage_size     = "4Gi"
+  # kind nodes mount /sys read-only, so krbd RBD map fails ("Read-only file system").
+  # Use local-path for GitLab PVCs locally; production uses rook-ceph-block(+encrypted).
+  # Encryption plumbing (SC + Vault + CSI secrets) is still applied for verification.
+  storage_class                 = "standard"
+  gitaly_storage_class          = "standard"
+  storage_encryption_passphrase = module.rook_ceph.rbd_luks_passphrase
+  gitaly_storage_size           = "4Gi"
   postgresql_storage_size = "3Gi"
   valkey_storage_size     = "1Gi"
+
+  install_gitlab_runner  = true
+  gitlab_runner_replicas = 1
 
   # Light local profile — reclaim RAM on a small VPS
   webservice_min_replicas     = 1
@@ -515,6 +524,48 @@ module "gitlab" {
     module.cert_manager,
     module.cluster_dns,
   ]
+}
+
+# GitLab uses Envoy Gateway, not nginx. Point VPN/in-cluster DNS for scm + registry at Envoy.
+resource "null_resource" "coredns_gitlab_envoy" {
+  triggers = {
+    gateway_ip = module.gitlab.gateway_cluster_ip
+    scm        = local.hosts.scm
+    registry   = local.hosts.registry
+    ingress_ip = module.cluster_dns.ingress_ip
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      export GW='${module.gitlab.gateway_cluster_ip}'
+      export SCM='${local.hosts.scm}'
+      export REG='${local.hosts.registry}'
+      python3 - <<'PY'
+import re, subprocess, json, os
+gw, scm, reg = os.environ["GW"], os.environ["SCM"], os.environ["REG"]
+cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
+corefile = cm["data"]["Corefile"]
+for host in (scm, reg):
+    corefile = re.sub(
+        rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$",
+        rf"\g<1>{gw} {host}",
+        corefile,
+    )
+cm["data"]["Corefile"] = corefile
+meta = cm.setdefault("metadata", {})
+for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "generation"):
+    meta.pop(k, None)
+subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
+print(f"coredns_gitlab_envoy: patched {scm}, {reg} -> {gw}")
+PY
+      kubectl -n kube-system rollout restart deploy/coredns
+      kubectl -n kube-system rollout status deploy/coredns --timeout=120s
+    EOT
+  }
+
+  depends_on = [module.cluster_dns, module.gitlab]
 }
 
 # HashiCorp Vault - Centralized secret management
@@ -572,6 +623,30 @@ module "rgw_bootstrap" {
   ]
 }
 
+# Durable copy of the RBD LUKS master passphrase (K8s Secrets are the runtime source for CSI).
+resource "vault_kv_secret_v2" "rbd_luks" {
+  mount = "secret"
+  name  = module.rook_ceph.encryption_vault_secret_name
+
+  data_json = jsonencode({
+    encryptionPassphrase = module.rook_ceph.rbd_luks_passphrase
+    kms_id               = module.rook_ceph.encryption_kms_id
+    note                 = "Master passphrase for Ceph-CSI metadata KMS (PVC LUKS)"
+  })
+
+  depends_on = [module.vault, module.rook_ceph]
+}
+
+# Cosign keypair for signing algo images in GitLab Container Registry
+module "cosign_keys" {
+  source = "../../modules/cosign-keys"
+
+  vault_kv_mount    = "secret"
+  vault_secret_path = "cosign/gitlab"
+
+  depends_on = [module.vault]
+}
+
 # Data source to read credentials from Vault (for AWS provider)
 # This reads the credentials stored by the bootstrap module
 # Note: This may not exist during plan phase, so we handle it gracefully in locals
@@ -596,8 +671,9 @@ data "vault_kv_secret_v2" "rgw_credentials" {
 # Created using AWS provider configured for RGW S3-compatible storage
 # Credentials must be available via AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars
 resource "aws_s3_bucket" "loki_logs" {
-  provider = aws.rgw
-  bucket   = "loki-logs-local"
+  provider      = aws.rgw
+  bucket        = "loki-logs-local"
+  force_destroy = true
 
   tags = {
     Name        = "loki-logs-local"
@@ -610,8 +686,9 @@ resource "aws_s3_bucket" "loki_logs" {
 }
 
 resource "aws_s3_bucket" "gitlab_storage" {
-  provider = aws.rgw
-  bucket   = "gitlab-storage-local"
+  provider      = aws.rgw
+  bucket        = "gitlab-storage-local"
+  force_destroy = true
 
   tags = {
     Name        = "gitlab-storage-local"
