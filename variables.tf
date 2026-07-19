@@ -689,7 +689,7 @@ variable "backup_s3_secret_key" {
 }
 
 variable "backup_encryption_password" {
-  description = "Client-side Kopia repository password (min 16 chars when backup_enabled). Store offline — required to restore volume data."
+  description = "Shared client-side password for Kopia (Velero) and rclone crypt (RGW object mirror). Min 16 chars when backup_enabled. Store offline — required to restore."
   type        = string
   sensitive   = true
   default     = ""
@@ -717,4 +717,22 @@ variable "backup_excluded_namespaces" {
   description = "Namespaces to exclude from backups"
   type        = list(string)
   default     = ["kube-system", "kube-public", "kube-node-lease", "local-path-storage", "velero"]
+}
+
+variable "backup_object_sync_enabled" {
+  description = "Mirror RGW application buckets (GitLab, Loki, …) into the backup store via rclone crypt (same encryption password as Kopia)"
+  type        = bool
+  default     = true
+}
+
+variable "backup_object_sync_schedule_cron" {
+  description = "Cron for RGW→backup object mirror (UTC)"
+  type        = string
+  default     = "30 2 * * *"
+}
+
+variable "backup_object_sync_dest_prefix" {
+  description = "Prefix under the backup bucket for crypt-mirrored RGW objects"
+  type        = string
+  default     = "rgw-mirror"
 }

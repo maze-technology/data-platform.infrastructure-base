@@ -562,9 +562,54 @@ resource "aws_s3_bucket" "gitlab_storage" {
   depends_on = [module.rgw_bootstrap]
 }
 
+resource "aws_s3_bucket_versioning" "loki_logs" {
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.loki_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "gitlab_storage" {
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.gitlab_storage.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 # ============================================================================
-# BACKUP (Velero + Kopia — object store chosen by composition)
+# BACKUP (Velero + Kopia + RGW object mirror — object store chosen by composition)
 # ============================================================================
+
+locals {
+  backup_rgw_insecure = startswith(module.rook_ceph.rgw_endpoint, "http://")
+
+  backup_object_sync_sources = var.backup_enabled && var.backup_object_sync_enabled ? [
+    {
+      name                     = "gitlab-storage"
+      bucket                   = aws_s3_bucket.gitlab_storage.id
+      endpoint                 = module.rook_ceph.rgw_endpoint
+      region                   = "us-east-1"
+      force_path_style         = true
+      insecure_skip_tls_verify = local.backup_rgw_insecure
+      access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+      secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+    },
+    {
+      name                     = "loki-logs"
+      bucket                   = aws_s3_bucket.loki_logs.id
+      endpoint                 = module.rook_ceph.rgw_endpoint
+      region                   = "us-east-1"
+      force_path_style         = true
+      insecure_skip_tls_verify = local.backup_rgw_insecure
+      access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+      secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+    },
+  ] : []
+}
 
 module "backup" {
   source = "./iac/modules/backup"
@@ -590,4 +635,9 @@ module "backup" {
   # Kopia FSB = incremental after first full; CSI snapshots optional later
   default_volumes_to_fs_backup = true
   snapshots_enabled            = false
+
+  object_sync_enabled       = var.backup_object_sync_enabled
+  object_sync_schedule_cron = var.backup_object_sync_schedule_cron
+  object_sync_dest_prefix   = var.backup_object_sync_dest_prefix
+  object_sync_sources       = local.backup_object_sync_sources
 }

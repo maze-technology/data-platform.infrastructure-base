@@ -86,7 +86,7 @@ variable "s3_secret_key" {
 # ---------------------------------------------------------------------------
 
 variable "encryption_password" {
-  description = "Kopia/Velero repository password for client-side backup encryption. Required when enabled. Losing it makes volume data unrecoverable."
+  description = "Shared client-side password for Kopia (Velero) and rclone crypt (RGW object mirror). Required when enabled. Losing it makes encrypted backups unrecoverable."
   type        = string
   sensitive   = true
   default     = ""
@@ -137,3 +137,48 @@ variable "snapshots_enabled" {
   type        = bool
   default     = false
 }
+
+# ---------------------------------------------------------------------------
+# RGW / S3 object mirror (rclone → same backup bucket as Velero)
+# ---------------------------------------------------------------------------
+
+variable "object_sync_enabled" {
+  description = "Schedule rclone sync of RGW application buckets into the backup object store (encrypted with rclone crypt)"
+  type        = bool
+  default     = true
+}
+
+variable "object_sync_schedule_cron" {
+  description = "Cron for RGW→backup object sync (UTC). Defaults independently of Velero schedule."
+  type        = string
+  default     = "30 2 * * *"
+}
+
+variable "object_sync_dest_prefix" {
+  description = "Prefix under the backup bucket for mirrored RGW objects"
+  type        = string
+  default     = "rgw-mirror"
+}
+
+variable "object_sync_rclone_image" {
+  description = "rclone container image"
+  type        = string
+  default     = "rclone/rclone:1.69.1"
+}
+
+variable "object_sync_sources" {
+  description = "RGW (or other S3) buckets to mirror into the backup store"
+  type = list(object({
+    name                     = string
+    bucket                   = string
+    endpoint                 = string
+    region                   = optional(string, "us-east-1")
+    force_path_style         = optional(bool, true)
+    insecure_skip_tls_verify = optional(bool, false)
+    access_key               = string
+    secret_key               = string
+  }))
+  default   = []
+  sensitive = true
+}
+

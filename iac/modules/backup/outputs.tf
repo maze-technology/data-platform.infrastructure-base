@@ -27,3 +27,24 @@ output "schedule_cron" {
   description = "Configured backup cron schedule"
   value       = var.enabled ? var.schedule_cron : ""
 }
+
+output "object_sync_enabled" {
+  description = "Whether RGW→backup rclone crypt mirror is scheduled"
+  value       = local.object_sync_active
+}
+
+output "object_sync_schedule_cron" {
+  description = "RGW object mirror cron (empty when inactive)"
+  value       = local.object_sync_active ? var.object_sync_schedule_cron : ""
+}
+
+output "object_sync_dest_prefix" {
+  description = "Prefix under the backup bucket for crypt-mirrored RGW objects"
+  value       = local.object_sync_active ? var.object_sync_dest_prefix : ""
+}
+
+output "object_sync_source_names" {
+  description = "RGW bucket mirror source names"
+  value       = local.object_sync_active ? [for s in var.object_sync_sources : s.name] : []
+}
+

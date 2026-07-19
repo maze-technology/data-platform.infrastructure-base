@@ -152,12 +152,16 @@ output "backup_namespace" {
 }
 
 output "backup_schedule" {
-  description = "Configured Velero schedule name, cron, and retention TTL"
+  description = "Configured Velero schedule name, cron, retention TTL, and RGW object mirror"
   value = var.backup_enabled ? {
-    name   = module.backup.schedule_name
-    cron   = module.backup.schedule_cron
-    ttl    = module.backup.backup_ttl
-    bucket = module.backup.s3_bucket
-    prefix = module.backup.s3_prefix
+    name                = module.backup.schedule_name
+    cron                = module.backup.schedule_cron
+    ttl                 = module.backup.backup_ttl
+    bucket              = module.backup.s3_bucket
+    prefix              = module.backup.s3_prefix
+    object_sync_enabled = module.backup.object_sync_enabled
+    object_sync_cron    = module.backup.object_sync_schedule_cron
+    object_sync_prefix  = module.backup.object_sync_dest_prefix
+    object_sync_sources = module.backup.object_sync_source_names
   } : null
 }

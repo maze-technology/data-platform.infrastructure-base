@@ -65,7 +65,7 @@ This root module declares `required_providers` (including `aws` with `configurat
 | Observability | Prometheus, Grafana, Loki, Tempo (+ Promtail) |
 | Applications | Argo CD, GitLab CE (+ runner), Kyverno signed-image policy, GitLab CI cosign vars |
 | Object storage | `loki-logs-<env>` and `gitlab-storage-<env>` buckets via `aws.rgw` |
-| Backup (optional) | Velero + Kopia filesystem backups to an S3-compatible store chosen by the composition |
+| Backup (optional) | Velero + Kopia (PVCs) and rclone crypt mirror of RGW buckets to the composition-chosen backup store |
 
 Optional (local/kind only):
 
@@ -90,7 +90,7 @@ See [`variables.tf`](variables.tf) for the full interface. High-level groups:
 | Observability | PVC sizes, Loki mode/caches, bucket name overrides |
 | GitLab | external PostgreSQL, storage classes (incl. Gitaly), replica profile, bucket name |
 | S3 | `s3_force_destroy` |
-| Backup | `backup_enabled`, S3 endpoint/bucket/keys, `backup_encryption_password`, `backup_schedule_cron`, `backup_ttl` |
+| Backup | `backup_enabled`, S3 endpoint/bucket/keys, `backup_encryption_password`, schedule/TTL, RGW object-sync cron |
 
 Storage class variables that are empty resolve to Rook RBD (or encrypted RBD for Gitaly).
 
@@ -107,13 +107,15 @@ See [`outputs.tf`](outputs.tf). Useful ones:
 - `bootstrap_credentials` (sensitive)
 - `backup_schedule` (cron, TTL, bucket) when `backup_enabled`
 
-## Cluster backup (Velero + Kopia)
+## Cluster backup (Velero + Kopia + RGW mirror)
 
 Opt-in via `backup_enabled`. The composition repo supplies the object store (local RGW smoke bucket or production OVH Object Storage) and:
 
-- **Encryption** — Kopia client-side via `velero-repo-credentials` / `repository-password` (`backup_encryption_password`, min 16 chars). Store this password offline; it is required to restore volume data and cannot be rotated for an existing repository.
-- **Incremental** — Kopia filesystem backup (`uploaderType=kopia`, `defaultVolumesToFsBackup=true`); first backup is full, later runs are incremental.
-- **Schedule / retention** — `backup_schedule_cron` (UTC cron) and `backup_ttl` (Go duration, e.g. `168h`).
+- **Encryption** — one password (`backup_encryption_password`, min 16 chars) for both Kopia (`velero-repo-credentials`) and **rclone crypt** (RGW object mirror). Store offline; required to restore.
+- **Cluster / PVCs** — Kopia filesystem backup (`uploaderType=kopia`); first full, then incremental. Schedule: `backup_schedule_cron` + `backup_ttl`.
+- **RGW objects** — CronJob syncs application buckets (GitLab storage, Loki logs) into the same backup bucket under `rgw-mirror/<name>/`, encrypted with rclone crypt. Schedule: `backup_object_sync_schedule_cron` (default `30 2 * * *`). Source list is built in the root module (not hardcoded in the Job image).
+- **Versioning** — enabled on the live GitLab and Loki RGW buckets.
+- **Out of scope** — external databases (e.g. managed PostgreSQL) stay the operator’s responsibility.
 
 ## Identity and access
 
