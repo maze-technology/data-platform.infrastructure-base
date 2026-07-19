@@ -561,3 +561,33 @@ resource "aws_s3_bucket" "gitlab_storage" {
 
   depends_on = [module.rgw_bootstrap]
 }
+
+# ============================================================================
+# BACKUP (Velero + Kopia — object store chosen by composition)
+# ============================================================================
+
+module "backup" {
+  source = "./iac/modules/backup"
+
+  enabled     = var.backup_enabled
+  environment = var.environment
+
+  s3_bucket                   = var.backup_s3_bucket
+  s3_prefix                   = var.backup_s3_prefix
+  s3_region                   = var.backup_s3_region
+  s3_endpoint                 = var.backup_s3_endpoint
+  s3_force_path_style         = var.backup_s3_force_path_style
+  s3_insecure_skip_tls_verify = var.backup_s3_insecure_skip_tls_verify
+  s3_access_key               = var.backup_s3_access_key
+  s3_secret_key               = var.backup_s3_secret_key
+
+  encryption_password = var.backup_encryption_password
+  schedule_cron       = var.backup_schedule_cron
+  backup_ttl          = var.backup_ttl
+  included_namespaces = var.backup_included_namespaces
+  excluded_namespaces = var.backup_excluded_namespaces
+
+  # Kopia FSB = incremental after first full; CSI snapshots optional later
+  default_volumes_to_fs_backup = true
+  snapshots_enabled            = false
+}

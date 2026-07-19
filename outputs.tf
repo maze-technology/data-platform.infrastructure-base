@@ -145,3 +145,19 @@ output "bootstrap_credentials" {
     }
   }
 }
+
+output "backup_namespace" {
+  description = "Velero namespace when backups are enabled"
+  value       = module.backup.namespace
+}
+
+output "backup_schedule" {
+  description = "Configured Velero schedule name, cron, and retention TTL"
+  value = var.backup_enabled ? {
+    name   = module.backup.schedule_name
+    cron   = module.backup.schedule_cron
+    ttl    = module.backup.backup_ttl
+    bucket = module.backup.s3_bucket
+    prefix = module.backup.s3_prefix
+  } : null
+}

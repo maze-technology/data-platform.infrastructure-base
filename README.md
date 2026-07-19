@@ -65,6 +65,7 @@ This root module declares `required_providers` (including `aws` with `configurat
 | Observability | Prometheus, Grafana, Loki, Tempo (+ Promtail) |
 | Applications | Argo CD, GitLab CE (+ runner), Kyverno signed-image policy, GitLab CI cosign vars |
 | Object storage | `loki-logs-<env>` and `gitlab-storage-<env>` buckets via `aws.rgw` |
+| Backup (optional) | Velero + Kopia filesystem backups to an S3-compatible store chosen by the composition |
 
 Optional (local/kind only):
 
@@ -89,6 +90,7 @@ See [`variables.tf`](variables.tf) for the full interface. High-level groups:
 | Observability | PVC sizes, Loki mode/caches, bucket name overrides |
 | GitLab | external PostgreSQL, storage classes (incl. Gitaly), replica profile, bucket name |
 | S3 | `s3_force_destroy` |
+| Backup | `backup_enabled`, S3 endpoint/bucket/keys, `backup_encryption_password`, `backup_schedule_cron`, `backup_ttl` |
 
 Storage class variables that are empty resolve to Rook RBD (or encrypted RBD for Gitaly).
 
@@ -103,6 +105,15 @@ See [`outputs.tf`](outputs.tf). Useful ones:
 - `keycloak_issuer_url`, `tls_cluster_issuer`
 - `cosign_vault_path`, `kyverno_signed_images_label`
 - `bootstrap_credentials` (sensitive)
+- `backup_schedule` (cron, TTL, bucket) when `backup_enabled`
+
+## Cluster backup (Velero + Kopia)
+
+Opt-in via `backup_enabled`. The composition repo supplies the object store (local RGW smoke bucket or production OVH Object Storage) and:
+
+- **Encryption** — Kopia client-side via `velero-repo-credentials` / `repository-password` (`backup_encryption_password`, min 16 chars). Store this password offline; it is required to restore volume data and cannot be rotated for an existing repository.
+- **Incremental** — Kopia filesystem backup (`uploaderType=kopia`, `defaultVolumesToFsBackup=true`); first backup is full, later runs are incremental.
+- **Schedule / retention** — `backup_schedule_cron` (UTC cron) and `backup_ttl` (Go duration, e.g. `168h`).
 
 ## Identity and access
 
