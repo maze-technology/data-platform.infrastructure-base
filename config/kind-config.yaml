@@ -1,0 +1,88 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: local
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
+          # Promtail watches pod log dirs via inotify; kind defaults are too low
+          - sysctl -w fs.inotify.max_user_watches=524288
+          - sysctl -w fs.inotify.max_user_instances=512
+          - sysctl -w fs.inotify.max_queued_events=16384
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 30080
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 30443
+        protocol: TCP
+      - containerPort: 31820
+        hostPort: 31820
+        protocol: UDP
+      # GitLab CE chart v8+ (Envoy Gateway) — NodePort 32458 inside kind node
+      - containerPort: 32458
+        hostPort: 32458
+        protocol: TCP
+    # Mount host /var/lib/rook into Kind node container
+    # This allows Rook MON pods with hostPath volumes to access the directory
+    # Terraform creates this directory on the host, and it needs to be accessible
+    # from inside the Kind node containers for Rook to use it
+    # propagation: Bidirectional ensures changes propagate between host and container
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
+          - sysctl -w fs.inotify.max_user_watches=524288
+          - sysctl -w fs.inotify.max_user_instances=512
+          - sysctl -w fs.inotify.max_queued_events=16384
+    # Mount host /var/lib/rook into Kind node container
+    # This allows Rook MON pods with hostPath volumes to access the directory
+    # Terraform creates this directory on the host, and it needs to be accessible
+    # from inside the Kind node containers for Rook to use it
+    # propagation: Bidirectional ensures changes propagate between host and container
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
+          - sysctl -w fs.inotify.max_user_watches=524288
+          - sysctl -w fs.inotify.max_user_instances=512
+          - sysctl -w fs.inotify.max_queued_events=16384
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        preKubeadmCommands:
+          - echo "172.17.0.1 host.docker.internal" >> /etc/hosts
+          - sysctl -w fs.inotify.max_user_watches=524288
+          - sysctl -w fs.inotify.max_user_instances=512
+          - sysctl -w fs.inotify.max_queued_events=16384
+    extraMounts:
+      - hostPath: /var/lib/rook
+        containerPath: /var/lib/rook
+        propagation: Bidirectional
+        readOnly: false
