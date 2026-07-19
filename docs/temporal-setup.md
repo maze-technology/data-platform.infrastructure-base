@@ -43,7 +43,7 @@ Each environment (local, production) has its own dedicated Temporal cluster with
 
 ### Local Environment
 
-Configuration in `iac/envs/local/main.tf`:
+Configuration (formerly in env roots; now parameterized on the root module / composition repo):
 
 ```hcl
 module "temporal" {
@@ -77,7 +77,7 @@ kubectl port-forward -n temporal svc/temporal-web 8080:8080
 
 ### Production Environment
 
-Configuration in `iac/envs/production/main.tf`:
+Production configuration (composition repo inputs to this module):
 
 ```hcl
 module "temporal" {
@@ -157,7 +157,7 @@ const client = new Client({
 1. **Deploy the infrastructure**:
 
    ```bash
-   cd iac/envs/local  # or prod
+   # From the infrastructure composition repo env root
    tofu init
    tofu plan
    tofu apply
