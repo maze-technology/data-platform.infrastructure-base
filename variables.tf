@@ -633,7 +633,7 @@ variable "registry_max_replicas" {
 # =============================================================================
 
 variable "backup_enabled" {
-  description = "Install Velero and schedule Kopia filesystem backups to the configured S3 bucket"
+  description = "Install Velero and schedule Kopia filesystem backups to the configured S3 bucket. Does not cover external resources (e.g. managed PostgreSQL) — those backups are the responsibility of the person running the infrastructure."
   type        = bool
   default     = false
 }

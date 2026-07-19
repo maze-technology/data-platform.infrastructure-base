@@ -115,7 +115,7 @@ Opt-in via `backup_enabled`. The composition repo supplies the object store (loc
 - **Cluster / PVCs** — Kopia filesystem backup (`uploaderType=kopia`); first full, then incremental. Schedule: `backup_schedule_cron` + `backup_ttl`.
 - **RGW objects** — CronJob syncs application buckets (GitLab storage, Loki logs) into the same backup bucket under `rgw-mirror/<name>/`, encrypted with rclone crypt. Schedule: `backup_object_sync_schedule_cron` (default `30 2 * * *`). Source list is built in the root module (not hardcoded in the Job image).
 - **Versioning** — enabled on the live GitLab and Loki RGW buckets.
-- **Out of scope** — external databases (e.g. managed PostgreSQL) stay the operator’s responsibility.
+- **Out of scope** — Backups for **external resources** supplied outside this module (for example OVH managed PostgreSQL for GitLab/Keycloak, or any other third-party database/object store) are **not** managed here. The person running the infrastructure is responsible for backing those up.
 
 ## Identity and access
 
