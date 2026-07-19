@@ -9,40 +9,17 @@ permissions:
   contents: write
 
 jobs:
-  tag-release:
+  prepare_tag:
+    name: Setup Tag
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Create next patch tag if HEAD is untagged
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@1.75.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          SHA="$(git rev-parse HEAD)"
-          if git describe --exact-match "$SHA" >/dev/null 2>&1; then
-            echo "HEAD ${SHA} is already tagged: $(git describe --exact-match "$SHA")"
-            exit 0
-          fi
-
-          git fetch --tags --force
-
-          LATEST="$(git tag -l 'v*.*.*' | sort -V | tail -n 1 || true)"
-          if [ -z "${LATEST}" ]; then
-            NEXT="v0.1.0"
-          else
-            # shellcheck disable=SC2001
-            VER="${LATEST#v}"
-            MAJOR="$(echo "${VER}" | cut -d. -f1)"
-            MINOR="$(echo "${VER}" | cut -d. -f2)"
-            PATCH="$(echo "${VER}" | cut -d. -f3)"
-            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
-          fi
-
-          echo "Tagging ${SHA} as ${NEXT}"
-          git tag "${NEXT}" "${SHA}"
-          git push origin "refs/tags/${NEXT}"
+          GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BUMP: patch
+          WITH_V: true

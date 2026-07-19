@@ -136,7 +136,7 @@ make format          # tofu fmt -recursive
 make help
 ```
 
-CI runs `tofu fmt -check -recursive` on pull requests. Pushes to `main` auto-create the next semver **patch** tag when HEAD is untagged (starting at `v0.1.0`).
+CI runs `tofu fmt -check -recursive` on pull requests. Pushes to `main` bump and push the next semver **patch** tag via [`anothrNick/github-tag-action`](https://github.com/anothrNick/github-tag-action) (same pattern as the org publish workflows).
 
 ## Related repos
 
