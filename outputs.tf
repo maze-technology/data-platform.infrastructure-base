@@ -153,6 +153,7 @@ output "backup_namespace" {
 
 output "backup_schedule" {
   description = "Configured Velero schedule name, cron, retention TTL, and RGW object mirror"
+  sensitive   = true
   value = var.backup_enabled ? {
     name                = module.backup.schedule_name
     cron                = module.backup.schedule_cron
