@@ -561,3 +561,83 @@ resource "aws_s3_bucket" "gitlab_storage" {
 
   depends_on = [module.rgw_bootstrap]
 }
+
+resource "aws_s3_bucket_versioning" "loki_logs" {
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.loki_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "gitlab_storage" {
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.gitlab_storage.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# ============================================================================
+# BACKUP (Velero + Kopia + RGW object mirror — object store chosen by composition)
+# ============================================================================
+
+locals {
+  backup_rgw_insecure = startswith(module.rook_ceph.rgw_endpoint, "http://")
+
+  backup_object_sync_sources = var.backup_enabled && var.backup_object_sync_enabled ? [
+    {
+      name                     = "gitlab-storage"
+      bucket                   = aws_s3_bucket.gitlab_storage.id
+      endpoint                 = module.rook_ceph.rgw_endpoint
+      region                   = "us-east-1"
+      force_path_style         = true
+      insecure_skip_tls_verify = local.backup_rgw_insecure
+      access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+      secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+    },
+    {
+      name                     = "loki-logs"
+      bucket                   = aws_s3_bucket.loki_logs.id
+      endpoint                 = module.rook_ceph.rgw_endpoint
+      region                   = "us-east-1"
+      force_path_style         = true
+      insecure_skip_tls_verify = local.backup_rgw_insecure
+      access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+      secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+    },
+  ] : []
+}
+
+module "backup" {
+  source = "./iac/modules/backup"
+
+  enabled     = var.backup_enabled
+  environment = var.environment
+
+  s3_bucket                   = var.backup_s3_bucket
+  s3_prefix                   = var.backup_s3_prefix
+  s3_region                   = var.backup_s3_region
+  s3_endpoint                 = var.backup_s3_endpoint
+  s3_force_path_style         = var.backup_s3_force_path_style
+  s3_insecure_skip_tls_verify = var.backup_s3_insecure_skip_tls_verify
+  s3_access_key               = var.backup_s3_access_key
+  s3_secret_key               = var.backup_s3_secret_key
+
+  encryption_password = var.backup_encryption_password
+  schedule_cron       = var.backup_schedule_cron
+  backup_ttl          = var.backup_ttl
+  included_namespaces = var.backup_included_namespaces
+  excluded_namespaces = var.backup_excluded_namespaces
+
+  # Kopia FSB = incremental after first full; CSI snapshots optional later
+  default_volumes_to_fs_backup = true
+  snapshots_enabled            = false
+
+  object_sync_enabled       = var.backup_object_sync_enabled
+  object_sync_schedule_cron = var.backup_object_sync_schedule_cron
+  object_sync_dest_prefix   = var.backup_object_sync_dest_prefix
+  object_sync_sources       = local.backup_object_sync_sources
+}

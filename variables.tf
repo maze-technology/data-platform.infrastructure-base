@@ -627,3 +627,112 @@ variable "registry_max_replicas" {
   type        = number
   default     = 2
 }
+
+# =============================================================================
+# Backup (Velero + Kopia → S3-compatible store chosen by composition)
+# =============================================================================
+
+variable "backup_enabled" {
+  description = "Install Velero and schedule Kopia filesystem backups to the configured S3 bucket. Does not cover external resources (e.g. managed PostgreSQL) — those backups are the responsibility of the person running the infrastructure."
+  type        = bool
+  default     = false
+}
+
+variable "backup_s3_bucket" {
+  description = "S3 bucket for Velero backups (composition provides — RGW locally, OVH in production)"
+  type        = string
+  default     = ""
+}
+
+variable "backup_s3_prefix" {
+  description = "Prefix inside the backup bucket"
+  type        = string
+  default     = "velero"
+}
+
+variable "backup_s3_region" {
+  description = "S3 region string for the backup store"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "backup_s3_endpoint" {
+  description = "S3-compatible endpoint URL for backups"
+  type        = string
+  default     = ""
+}
+
+variable "backup_s3_force_path_style" {
+  description = "Path-style S3 addressing for the backup store"
+  type        = bool
+  default     = true
+}
+
+variable "backup_s3_insecure_skip_tls_verify" {
+  description = "Skip TLS verify for backup S3 endpoint (local HTTP RGW only)"
+  type        = bool
+  default     = false
+}
+
+variable "backup_s3_access_key" {
+  description = "Access key for the backup object store"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "backup_s3_secret_key" {
+  description = "Secret key for the backup object store"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "backup_encryption_password" {
+  description = "Shared client-side password for Kopia (Velero) and rclone crypt (RGW object mirror). Min 16 chars when backup_enabled. Store offline — required to restore."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "backup_schedule_cron" {
+  description = "Cron schedule for cluster backups (UTC)"
+  type        = string
+  default     = "0 2 * * *"
+}
+
+variable "backup_ttl" {
+  description = "Backup retention TTL (Go duration, e.g. 168h, 720h)"
+  type        = string
+  default     = "168h"
+}
+
+variable "backup_included_namespaces" {
+  description = "Namespaces to include (empty = all except excluded)"
+  type        = list(string)
+  default     = []
+}
+
+variable "backup_excluded_namespaces" {
+  description = "Namespaces to exclude from backups"
+  type        = list(string)
+  default     = ["kube-system", "kube-public", "kube-node-lease", "local-path-storage", "velero"]
+}
+
+variable "backup_object_sync_enabled" {
+  description = "Mirror RGW application buckets (GitLab, Loki, …) into the backup store via rclone crypt (same encryption password as Kopia)"
+  type        = bool
+  default     = true
+}
+
+variable "backup_object_sync_schedule_cron" {
+  description = "Cron for RGW→backup object mirror (UTC)"
+  type        = string
+  default     = "30 2 * * *"
+}
+
+variable "backup_object_sync_dest_prefix" {
+  description = "Prefix under the backup bucket for crypt-mirrored RGW objects"
+  type        = string
+  default     = "rgw-mirror"
+}
