@@ -163,14 +163,20 @@ resource "helm_release" "keycloak" {
         }
       }
 
-      extraEnvVars = var.use_external_database ? [] : [
-        { name = "KEYCLOAK_DATABASE_HOST", value = "keycloak-postgresql" },
-        { name = "KEYCLOAK_DATABASE_PORT", value = "5432" },
-        { name = "KEYCLOAK_DATABASE_USER", value = "bn_keycloak" },
-        { name = "KEYCLOAK_DATABASE_NAME", value = "bitnami_keycloak" },
-        { name = "KEYCLOAK_DATABASE_PASSWORD", value = random_password.postgresql_password[0].result },
-        { name = "KC_DB_PASSWORD", value = random_password.postgresql_password[0].result },
-      ]
+      extraEnvVars = concat(
+        var.use_external_database ? (
+          var.postgresql_ssl ? [
+            { name = "KC_DB_URL_PROPERTIES", value = "sslmode=require" }
+          ] : []
+          ) : [
+          { name = "KEYCLOAK_DATABASE_HOST", value = "keycloak-postgresql" },
+          { name = "KEYCLOAK_DATABASE_PORT", value = "5432" },
+          { name = "KEYCLOAK_DATABASE_USER", value = "bn_keycloak" },
+          { name = "KEYCLOAK_DATABASE_NAME", value = "bitnami_keycloak" },
+          { name = "KEYCLOAK_DATABASE_PASSWORD", value = random_password.postgresql_password[0].result },
+          { name = "KC_DB_PASSWORD", value = random_password.postgresql_password[0].result },
+        ]
+      )
 
       resources = {
         requests = {
@@ -182,21 +188,18 @@ resource "helm_release" "keycloak" {
           memory = "1Gi"
         }
       }
-      }, var.use_external_database ? {
-      externalDatabase = {
-        host     = var.postgresql_host
-        port     = var.postgresql_port
-        user     = var.postgresql_username
-        password = var.postgresql_password
-        database = var.postgresql_database
-      }
-      extraEnvVars = var.postgresql_ssl ? [
-        {
-          name  = "KC_DB_URL_PROPERTIES"
-          value = "sslmode=require"
+      },
+      # jsondecode keeps both ternary branches the same dynamic type for OpenTofu
+      jsondecode(var.use_external_database ? jsonencode({
+        externalDatabase = {
+          host     = var.postgresql_host
+          port     = var.postgresql_port
+          user     = var.postgresql_username
+          password = var.postgresql_password
+          database = var.postgresql_database
         }
-      ] : []
-    } : {}))
+      }) : "{}")
+    ))
   ]
 
   depends_on = [kubernetes_namespace.keycloak]
