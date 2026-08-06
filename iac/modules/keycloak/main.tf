@@ -190,6 +190,12 @@ resource "helm_release" "keycloak" {
         password = var.postgresql_password
         database = var.postgresql_database
       }
+      extraEnvVars = var.postgresql_ssl ? [
+        {
+          name  = "KC_DB_URL_PROPERTIES"
+          value = "sslmode=require"
+        }
+      ] : []
     } : {}))
   ]
 

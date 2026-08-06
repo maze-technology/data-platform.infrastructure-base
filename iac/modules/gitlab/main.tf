@@ -201,16 +201,23 @@ locals {
   valkey_host         = "gitlab-valkey-primary.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
 
   gitlab_global = merge(local.global_base, {
-    psql = {
-      host     = local.postgresql_host
-      port     = var.postgresql_port
-      database = var.postgresql_database
-      username = var.postgresql_username
-      password = {
-        secret = kubernetes_secret.gitlab_postgresql.metadata[0].name
-        key    = "password"
-      }
-    }
+    psql = merge(
+      {
+        host     = local.postgresql_host
+        port     = var.postgresql_port
+        database = var.postgresql_database
+        username = var.postgresql_username
+        password = {
+          secret = kubernetes_secret.gitlab_postgresql.metadata[0].name
+          key    = "password"
+        }
+      },
+      var.postgresql_ssl ? {
+        ssl = {
+          enabled = true
+        }
+      } : {}
+    )
     redis = {
       host = local.valkey_host
       port = 6379

@@ -364,11 +364,35 @@ variable "keycloak_postgresql_host" {
   default     = ""
 }
 
+variable "keycloak_postgresql_port" {
+  description = "External PostgreSQL port for Keycloak (OVH managed often uses a non-5432 port)"
+  type        = number
+  default     = 5432
+}
+
+variable "keycloak_postgresql_username" {
+  description = "External PostgreSQL username for Keycloak"
+  type        = string
+  default     = "keycloak"
+}
+
+variable "keycloak_postgresql_database" {
+  description = "External PostgreSQL database name for Keycloak"
+  type        = string
+  default     = "keycloak"
+}
+
 variable "keycloak_postgresql_password" {
   description = "External PostgreSQL password for Keycloak"
   type        = string
   sensitive   = true
   default     = ""
+}
+
+variable "keycloak_postgresql_ssl" {
+  description = "Require TLS when Keycloak connects to external PostgreSQL (needed for OVH managed DB)"
+  type        = bool
+  default     = false
 }
 
 # =============================================================================
@@ -513,11 +537,35 @@ variable "gitlab_postgresql_host" {
   default     = ""
 }
 
+variable "gitlab_postgresql_port" {
+  description = "External PostgreSQL port for GitLab (OVH managed often uses a non-5432 port)"
+  type        = number
+  default     = 5432
+}
+
+variable "gitlab_postgresql_username" {
+  description = "External PostgreSQL username for GitLab"
+  type        = string
+  default     = "gitlab"
+}
+
+variable "gitlab_postgresql_database" {
+  description = "External PostgreSQL database name for GitLab"
+  type        = string
+  default     = "gitlabhq_production"
+}
+
 variable "gitlab_postgresql_password" {
   description = "External PostgreSQL password for GitLab"
   type        = string
   sensitive   = true
   default     = ""
+}
+
+variable "gitlab_postgresql_ssl" {
+  description = "Require TLS when GitLab connects to external PostgreSQL (needed for OVH managed DB)"
+  type        = bool
+  default     = false
 }
 
 variable "gitlab_storage_class" {

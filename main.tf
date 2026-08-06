@@ -271,9 +271,13 @@ module "keycloak" {
   postgresql_storage_size = var.keycloak_postgresql_storage_size
   production_mode         = var.keycloak_production_mode
 
-  use_external_database = var.use_external_keycloak_database
-  postgresql_host       = var.keycloak_postgresql_host
-  postgresql_password   = var.keycloak_postgresql_password
+  use_external_database   = var.use_external_keycloak_database
+  postgresql_host         = var.keycloak_postgresql_host
+  postgresql_port         = var.keycloak_postgresql_port
+  postgresql_username     = var.keycloak_postgresql_username
+  postgresql_database     = var.keycloak_postgresql_database
+  postgresql_password     = var.keycloak_postgresql_password
+  postgresql_ssl          = var.keycloak_postgresql_ssl
 
   oidc_clients = {
     gitlab_redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
@@ -396,7 +400,11 @@ module "gitlab" {
 
   use_external_postgresql = var.use_external_gitlab_postgresql
   postgresql_host         = var.gitlab_postgresql_host
+  postgresql_port         = var.gitlab_postgresql_port
+  postgresql_username     = var.gitlab_postgresql_username
+  postgresql_database     = var.gitlab_postgresql_database
   postgresql_password     = var.gitlab_postgresql_password
+  postgresql_ssl          = var.gitlab_postgresql_ssl
 
   object_storage = {
     endpoint         = module.rook_ceph.rgw_endpoint

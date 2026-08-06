@@ -156,6 +156,12 @@ variable "postgresql_password" {
   default     = ""
 }
 
+variable "postgresql_ssl" {
+  description = "Require TLS for external PostgreSQL (e.g. OVH managed)"
+  type        = bool
+  default     = false
+}
+
 variable "replica_count" {
   description = "Number of Keycloak replicas"
   type        = number

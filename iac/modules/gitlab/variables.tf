@@ -99,6 +99,12 @@ variable "postgresql_password" {
   default     = ""
 }
 
+variable "postgresql_ssl" {
+  description = "Require TLS for external PostgreSQL (e.g. OVH managed)"
+  type        = bool
+  default     = false
+}
+
 variable "valkey_storage_size" {
   description = "Persistent volume size for in-cluster Valkey (Redis protocol)"
   type        = string
