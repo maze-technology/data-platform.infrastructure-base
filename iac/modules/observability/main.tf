@@ -422,6 +422,9 @@ resource "helm_release" "loki" {
           rulerConfig = {
             storage = {
               type = "local"
+              local = {
+                directory = "/var/loki/rules"
+              }
             }
           }
         }
@@ -526,6 +529,9 @@ resource "helm_release" "loki" {
           rulerConfig = {
             storage = {
               type = "local"
+              local = {
+                directory = "/var/loki/rules"
+              }
             }
           }
         }
