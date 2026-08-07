@@ -61,10 +61,11 @@ resource "helm_release" "vault" {
           storageClass = var.storage_class != "" ? var.storage_class : null
         }
         # Dev mode for local (in-memory, auto-unsealed). Use chart dev block — not extraArgs -dev (port conflict).
-        dev = var.storage_backend == "kubernetes" ? {
-          enabled      = true
-          devRootToken = "root"
-        } : null
+        # Always set enabled explicitly: Helm helpers dereference .Values.server.dev.enabled.
+        dev = {
+          enabled      = var.storage_backend == "kubernetes"
+          devRootToken = var.storage_backend == "kubernetes" ? "root" : ""
+        }
         standalone = {
           enabled = var.storage_backend != "kubernetes"
         }
