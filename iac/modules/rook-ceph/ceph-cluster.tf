@@ -113,10 +113,12 @@ resource "kubernetes_manifest" "ceph_cluster" {
       # MON (Monitor) configuration
       # MONs maintain the cluster map and handle quorum
       # With 3 MONs, cluster remains HEALTH_OK with 1 node down
+      # Do NOT set volumeClaimTemplate (even to null): kubernetes_manifest serializes
+      # null as {}, and Rook then creates mon PVCs with no StorageClass — deadlock
+      # on a fresh cluster. Omitting the field uses dataDirHostPath instead.
       mon = {
         count                = var.mon_count
         allowMultiplePerNode = false
-        volumeClaimTemplate  = null # Use hostPath for bare-metal
       }
 
       # MGR (Manager) configuration
