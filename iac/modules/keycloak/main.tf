@@ -153,13 +153,48 @@ resource "helm_release" "keycloak" {
       }
 
       keycloakConfigCli = {
-        enabled = true
+        enabled      = true
+        backoffLimit = 20
         image = {
           registry   = "docker.io"
           repository = "bitnamilegacy/keycloak-config-cli"
         }
         configuration = {
           "maze-realm.yaml" = local.realm_config
+        }
+        # First Keycloak boot builds the server image; default 120s wait is too short.
+        extraEnvVars = [
+          { name = "KEYCLOAK_AVAILABILITYCHECK_ENABLED", value = "true" },
+          { name = "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT", value = "600s" },
+        ]
+      }
+
+      # First start runs Quarkus build; without startupProbe, liveness (120s) kills the pod.
+      startupProbe = {
+        enabled             = true
+        initialDelaySeconds = 30
+        periodSeconds       = 10
+        timeoutSeconds      = 5
+        failureThreshold    = 60
+        httpGet = {
+          path = "/realms/master"
+        }
+      }
+      livenessProbe = {
+        enabled             = true
+        initialDelaySeconds = 0
+        periodSeconds       = 10
+        timeoutSeconds      = 5
+        failureThreshold    = 3
+      }
+      readinessProbe = {
+        enabled             = true
+        initialDelaySeconds = 0
+        periodSeconds       = 10
+        timeoutSeconds      = 5
+        failureThreshold    = 3
+        httpGet = {
+          path = "/realms/master"
         }
       }
 
@@ -188,12 +223,12 @@ resource "helm_release" "keycloak" {
 
       resources = {
         requests = {
-          cpu    = "250m"
-          memory = "512Mi"
+          cpu    = "500m"
+          memory = "1Gi"
         }
         limits = {
-          cpu    = "1"
-          memory = "1Gi"
+          cpu    = "2"
+          memory = "2Gi"
         }
       }
       },
