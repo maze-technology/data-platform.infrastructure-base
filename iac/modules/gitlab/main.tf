@@ -228,12 +228,13 @@ locals {
         key     = "redis-password"
       }
     }
+    # Use cluster ingress-nginx (NodePort behind OVH LB). Envoy Gateway certgen
+    # has been unreliable on this cluster and is unnecessary for that path.
     gatewayApi = {
-      enabled      = true
-      installEnvoy = true
-      # Prefer Certificates created below (maze-ca / letsencrypt) over ACME HTTP-01.
+      enabled              = false
+      installEnvoy         = false
       configureCertmanager = false
-      httpToHttpsRedirect  = var.enable_tls
+      httpToHttpsRedirect  = false
     }
   })
 
@@ -358,37 +359,6 @@ locals {
           secret = kubernetes_secret.gitlab_registry_storage.metadata[0].name
           key    = "config"
         }
-      }
-      gatewayApiResources = {
-        gateway = {
-          protocol = var.enable_tls ? "HTTPS" : "HTTP"
-        }
-        envoy = merge(
-          # VPN-gate GitLab (Envoy ignores nginx whitelist annotations).
-          {
-            securityPolicySpec = {
-              authorization = {
-                defaultAction = "Deny"
-                rules = [
-                  {
-                    action = "Allow"
-                    principal = {
-                      clientCIDRs = split(",", local.ingress_whitelist)
-                    }
-                  },
-                ]
-              }
-            }
-          },
-          # HTTP-only listeners need KeepUnchanged for %2F project paths.
-          var.enable_tls ? {} : {
-            clientTrafficPolicySpec = {
-              path = {
-                escapedSlashesAction = "KeepUnchanged"
-              }
-            }
-          },
-        )
       }
     },
   )
