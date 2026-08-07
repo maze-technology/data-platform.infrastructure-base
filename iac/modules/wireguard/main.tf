@@ -64,6 +64,11 @@ resource "kubernetes_deployment" "wireguard" {
         labels = {
           app = "wireguard"
         }
+        # Ubuntu 25+/26 ships an AppArmor wg-quick profile that breaks
+        # linuxserver's busybox readlink inside the container.
+        annotations = {
+          "container.apparmor.security.beta.kubernetes.io/wireguard" = "unconfined"
+        }
       }
 
       spec {
@@ -121,7 +126,8 @@ resource "kubernetes_deployment" "wireguard" {
             capabilities {
               add = ["NET_ADMIN", "SYS_MODULE"]
             }
-            privileged = true
+            privileged                 = true
+            allow_privilege_escalation = true
           }
 
           volume_mount {
