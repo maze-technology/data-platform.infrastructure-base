@@ -92,7 +92,9 @@ locals {
         name = local.registry_domain
       }
     }
-    certificates = length(var.custom_ca_secret_keys) > 0 ? {
+    # Gate on PEM presence (same as kubernetes_secret.custom_ca count), not keys alone —
+    # keys default to ["maze-ca.crt"] even when no CA is configured.
+    certificates = var.custom_ca_pem != "" ? {
       customCAs = [{
         secret = kubernetes_secret.custom_ca[0].metadata[0].name
         keys   = var.custom_ca_secret_keys
