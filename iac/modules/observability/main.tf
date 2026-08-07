@@ -418,6 +418,7 @@ resource "helm_release" "loki" {
             gcs         = {}
             azure       = {}
           }
+          structuredConfig = {}
           rulerConfig = {
             storage = {
               type = "local"
@@ -430,12 +431,22 @@ resource "helm_release" "loki" {
         # Disable scalable mode components
         backend = {
           replicas = 0
+          persistence = {
+            volumeClaimsEnabled = false
+            size                = var.loki_storage_size
+            storageClass        = var.storage_class != "" ? var.storage_class : null
+          }
         }
         read = {
           replicas = 0
         }
         write = {
           replicas = 0
+          persistence = {
+            volumeClaimsEnabled = false
+            size                = var.loki_storage_size
+            storageClass        = var.storage_class != "" ? var.storage_class : null
+          }
         }
         ingester = {
           replicas = 0
@@ -490,7 +501,8 @@ resource "helm_release" "loki" {
             s3 = var.loki_object_storage.type == "s3" ? merge(
               var.loki_object_storage.region != null ? { region = var.loki_object_storage.region } : {},
               var.loki_object_storage.endpoint != null ? { endpoint = var.loki_object_storage.endpoint } : {},
-              var.loki_object_storage.force_path_style != null ? { s3ForcePathStyle = var.loki_object_storage.force_path_style } : {}
+              # Omit s3ForcePathStyle here — the Loki chart quotes it as a string and
+              # Quarkus/Loki reject s3forcepathstyle: "true". Set via structuredConfig.
             ) : {}
             gcs   = var.loki_object_storage.type == "gcs" ? {} : {}
             azure = var.loki_object_storage.type == "azure" ? {} : {}
@@ -501,6 +513,16 @@ resource "helm_release" "loki" {
             gcs         = {}
             azure       = {}
           }
+          # Bool must stay unquoted in the rendered Loki config.
+          structuredConfig = var.loki_object_storage != null && var.loki_object_storage.force_path_style == true ? {
+            common = {
+              storage = {
+                s3 = {
+                  s3forcepathstyle = true
+                }
+              }
+            }
+          } : {}
           rulerConfig = {
             storage = {
               type = "local"
@@ -514,12 +536,22 @@ resource "helm_release" "loki" {
         # Enable scalable mode components (can be configured per environment)
         backend = {
           replicas = 1
+          persistence = {
+            volumeClaimsEnabled = true
+            size                = var.loki_storage_size
+            storageClass        = var.storage_class != "" ? var.storage_class : null
+          }
         }
         read = {
           replicas = 2
         }
         write = {
           replicas = 2
+          persistence = {
+            volumeClaimsEnabled = true
+            size                = var.loki_storage_size
+            storageClass        = var.storage_class != "" ? var.storage_class : null
+          }
         }
         ingester = {
           replicas = 0
