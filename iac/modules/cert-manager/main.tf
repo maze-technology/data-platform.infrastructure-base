@@ -118,35 +118,38 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer" {
         privateKeySecretRef = {
           name = "letsencrypt-prod"
         }
-        solvers = local.acme_dns01 ? [{
-          dns01 = {
-            webhook = {
-              groupName  = local.ovh_webhook_group
-              solverName = "ovh"
-              config = {
-                endpoint = var.ovh_endpoint_name
-                applicationKeyRef = {
-                  name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
-                  key  = "applicationKey"
-                }
-                applicationSecretRef = {
-                  name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
-                  key  = "applicationSecret"
-                }
-                consumerKeyRef = {
-                  name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
-                  key  = "consumerKey"
+        # yamldecode erases object-type differences between dns01 and http01 solvers.
+        solvers = yamldecode(yamlencode(
+          local.acme_dns01 ? [{
+            dns01 = {
+              webhook = {
+                groupName  = local.ovh_webhook_group
+                solverName = "ovh"
+                config = {
+                  endpoint = var.ovh_endpoint_name
+                  applicationKeyRef = {
+                    name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
+                    key  = "applicationKey"
+                  }
+                  applicationSecretRef = {
+                    name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
+                    key  = "applicationSecret"
+                  }
+                  consumerKeyRef = {
+                    name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
+                    key  = "consumerKey"
+                  }
                 }
               }
             }
-          }
           }] : [{
-          http01 = {
-            ingress = {
-              class = "nginx"
+            http01 = {
+              ingress = {
+                class = "nginx"
+              }
             }
-          }
-        }]
+          }]
+        ))
       }
     }
   }
