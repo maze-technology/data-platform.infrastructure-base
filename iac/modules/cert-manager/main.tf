@@ -142,7 +142,7 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer" {
                 }
               }
             }
-          }] : [{
+            }] : [{
             http01 = {
               ingress = {
                 class = "nginx"
