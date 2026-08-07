@@ -164,7 +164,15 @@ resource "helm_release" "keycloak" {
       }
 
       extraEnvVars = concat(
-        var.use_external_database ? (
+        var.use_external_database ? concat(
+          [
+            # Bitnami wait-for-DB still uses KEYCLOAK_DATABASE_* even when KC_DB_URL is set.
+            { name = "KEYCLOAK_DATABASE_HOST", value = var.postgresql_host },
+            { name = "KEYCLOAK_DATABASE_PORT", value = tostring(var.postgresql_port) },
+            { name = "KEYCLOAK_DATABASE_USER", value = var.postgresql_username },
+            { name = "KEYCLOAK_DATABASE_NAME", value = var.postgresql_database },
+            { name = "KEYCLOAK_DATABASE_PASSWORD", value = var.postgresql_password },
+          ],
           var.postgresql_ssl ? [
             { name = "KC_DB_URL_PROPERTIES", value = "sslmode=require" }
           ] : []
