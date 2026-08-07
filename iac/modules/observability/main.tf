@@ -409,7 +409,11 @@ resource "helm_release" "loki" {
             replication_factor = 1
           }
           storage = {
-            type = "filesystem"
+            type        = "filesystem"
+            bucketNames = { chunks = "", ruler = "" }
+            s3          = {}
+            gcs         = {}
+            azure       = {}
           }
           rulerConfig = {
             storage = {
