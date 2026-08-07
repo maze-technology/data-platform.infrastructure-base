@@ -203,23 +203,22 @@ locals {
   valkey_host         = "gitlab-valkey-primary.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
 
   gitlab_global = merge(local.global_base, {
-    psql = merge(
-      {
-        host     = local.postgresql_host
-        port     = var.postgresql_port
-        database = var.postgresql_database
-        username = var.postgresql_username
-        password = {
-          secret = kubernetes_secret.gitlab_postgresql.metadata[0].name
-          key    = "password"
-        }
-      },
-      var.postgresql_ssl ? {
-        ssl = {
-          enabled = true
-        }
-      } : {}
-    )
+    # OVH Web Cloud / managed Postgres enforce TLS without client certs.
+    # GitLab chart global.psql.ssl is mutual-TLS only and requires a secret —
+    # use libpq PGSSLMODE instead.
+    extraEnv = var.postgresql_ssl ? {
+      PGSSLMODE = "require"
+    } : {}
+    psql = {
+      host     = local.postgresql_host
+      port     = var.postgresql_port
+      database = var.postgresql_database
+      username = var.postgresql_username
+      password = {
+        secret = kubernetes_secret.gitlab_postgresql.metadata[0].name
+        key    = "password"
+      }
+    }
     redis = {
       host = local.valkey_host
       port = 6379

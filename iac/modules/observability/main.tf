@@ -408,6 +408,9 @@ resource "helm_release" "loki" {
           commonConfig = {
             replication_factor = 1
           }
+          schemaConfig = {
+            configs = []
+          }
           storage = {
             type        = "filesystem"
             bucketNames = { chunks = "", ruler = "" }
@@ -459,9 +462,23 @@ resource "helm_release" "loki" {
         deploymentMode = "SimpleScalable"
         # Scalable mode: separate components for production (requires object storage)
         loki = {
-          useTestSchema = var.loki_deployment_mode != "scalable"
+          useTestSchema = false
           commonConfig = {
             replication_factor = 2
+          }
+          schemaConfig = {
+            configs = [
+              {
+                from         = "2024-04-01"
+                store        = "tsdb"
+                object_store = "s3"
+                schema       = "v13"
+                index = {
+                  prefix = "loki_index_"
+                  period = "24h"
+                }
+              }
+            ]
           }
           # Both ternary branches must share the same object attribute set (OpenTofu type check).
           storage = var.loki_object_storage != null ? {
