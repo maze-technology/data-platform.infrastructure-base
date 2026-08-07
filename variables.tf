@@ -202,6 +202,56 @@ variable "letsencrypt_server" {
   default     = "https://acme-v02.api.letsencrypt.org/directory"
 }
 
+variable "acme_solver" {
+  description = "ACME challenge: http01 (public :80) or dns01 (OVH DNS webhook; preferred for VPN-only)"
+  type        = string
+  default     = "http01"
+
+  validation {
+    condition     = contains(["http01", "dns01"], var.acme_solver)
+    error_message = "acme_solver must be http01 or dns01."
+  }
+}
+
+variable "ovh_dns_application_key" {
+  description = "OVH API application key for cert-manager DNS-01 (dns01 only)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ovh_dns_application_secret" {
+  description = "OVH API application secret for cert-manager DNS-01 (dns01 only)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ovh_dns_consumer_key" {
+  description = "OVH API consumer key for cert-manager DNS-01 (dns01 only)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ovh_dns_endpoint_name" {
+  description = "OVH API endpoint name for DNS webhook (ovh-eu, ovh-ca, …)"
+  type        = string
+  default     = "ovh-eu"
+}
+
+variable "ovh_dns_webhook_group_name" {
+  description = "cert-manager OVH webhook groupName; empty defaults to acme.<cluster_name>"
+  type        = string
+  default     = ""
+}
+
+variable "ovh_dns_webhook_chart_version" {
+  description = "aureq/cert-manager-webhook-ovh Helm chart version"
+  type        = string
+  default     = "0.9.14"
+}
+
 variable "cert_manager_replica_count" {
   description = "cert-manager controller replicas"
   type        = number
