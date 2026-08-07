@@ -246,9 +246,10 @@ resource "kubernetes_manifest" "ceph_cluster" {
                 labelSelector = {
                   matchExpressions = [
                     {
-                      key      = "ceph_daemon_id"
+                      # Must match mon type only — ceph_daemon_id a/b/c also matches mgr-a etc.
+                      key      = "ceph_daemon_type"
                       operator = "In"
-                      values   = ["a", "b", "c"]
+                      values   = ["mon"]
                     }
                   ]
                 }
