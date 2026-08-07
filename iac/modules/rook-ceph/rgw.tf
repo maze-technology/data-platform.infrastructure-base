@@ -108,6 +108,11 @@ resource "kubernetes_manifest" "ceph_object_store" {
     null_resource.install_rook_platform
   ]
 
+  # Rook mutates gateway resources; take ownership on apply.
+  field_manager {
+    force_conflicts = true
+  }
+
   # Note: CephObjectStore can take time to become Ready
   # We don't wait here to avoid timeouts - the store will continue initializing in the background
 }
@@ -138,6 +143,10 @@ resource "kubernetes_manifest" "ceph_object_store_user" {
     kubernetes_namespace.rook_ceph,
     kubernetes_manifest.ceph_object_store
   ]
+
+  field_manager {
+    force_conflicts = true
+  }
 
   # Wait for user to be created and credentials available
   # Note: CephObjectStoreUser can take time to become Ready

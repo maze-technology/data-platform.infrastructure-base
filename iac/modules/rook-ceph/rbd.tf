@@ -58,6 +58,10 @@ resource "kubernetes_manifest" "ceph_block_pool" {
     null_resource.install_rook_platform
   ]
 
+  field_manager {
+    force_conflicts = true
+  }
+
   # Note: CephBlockPool can take time to become Ready
   # We don't wait here to avoid timeouts - the pool will continue initializing in the background
 }
