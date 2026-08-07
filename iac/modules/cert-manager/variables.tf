@@ -50,6 +50,56 @@ variable "letsencrypt_server" {
   default     = "https://acme-v02.api.letsencrypt.org/directory"
 }
 
+variable "acme_solver" {
+  description = "ACME challenge type: http01 (needs public :80) or dns01 (OVH DNS webhook, VPN-only friendly)"
+  type        = string
+  default     = "http01"
+
+  validation {
+    condition     = contains(["http01", "dns01"], var.acme_solver)
+    error_message = "acme_solver must be http01 or dns01."
+  }
+}
+
+variable "ovh_application_key" {
+  description = "OVH API application key (required for dns01)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ovh_application_secret" {
+  description = "OVH API application secret (required for dns01)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ovh_consumer_key" {
+  description = "OVH API consumer key (required for dns01)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "ovh_endpoint_name" {
+  description = "OVH API endpoint name for the DNS webhook (ovh-eu, ovh-ca, …)"
+  type        = string
+  default     = "ovh-eu"
+}
+
+variable "ovh_dns_webhook_group_name" {
+  description = "cert-manager OVH webhook groupName (unique per install)"
+  type        = string
+  default     = ""
+}
+
+variable "ovh_dns_webhook_chart_version" {
+  description = "Helm chart version for aureq/cert-manager-webhook-ovh"
+  type        = string
+  default     = "0.9.14"
+}
+
 variable "resource_requests" {
   description = "Resource requests for cert-manager components"
   type = object({

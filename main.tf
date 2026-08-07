@@ -209,6 +209,14 @@ module "cert_manager" {
   letsencrypt_server = var.letsencrypt_server
   create_maze_ca     = var.create_maze_ca
   replica_count      = var.cert_manager_replica_count
+
+  acme_solver                   = var.acme_solver
+  ovh_application_key           = var.ovh_dns_application_key
+  ovh_application_secret        = var.ovh_dns_application_secret
+  ovh_consumer_key              = var.ovh_dns_consumer_key
+  ovh_endpoint_name             = var.ovh_dns_endpoint_name
+  ovh_dns_webhook_group_name    = var.ovh_dns_webhook_group_name
+  ovh_dns_webhook_chart_version = var.ovh_dns_webhook_chart_version
 }
 
 module "ingress" {
@@ -226,16 +234,14 @@ module "ingress" {
   depends_on = [module.cert_manager]
 }
 
-# Make *.<cluster_domain> resolvable inside the cluster (pods don't have client /etc/hosts).
-# scm + registry are owned by null_resource.coredns_gitlab_envoy (Envoy ClusterIP), not nginx.
+# Make *.<cluster_domain> resolvable inside the cluster and for WireGuard clients
+# (peer DNS = CoreDNS). All app hostnames map to ingress-nginx ClusterIP.
+# When GitLab Envoy Gateway is enabled, coredns_gitlab_envoy overrides scm/registry.
 module "cluster_dns" {
   count  = var.enable_cluster_dns ? 1 : 0
   source = "./iac/modules/cluster-dns"
 
-  hosts = [
-    for h in values(local.hosts) : h
-    if h != local.hosts.scm && h != local.hosts.registry
-  ]
+  hosts = values(local.hosts)
 
   depends_on = [module.ingress]
 }
@@ -455,9 +461,10 @@ module "gitlab" {
   ]
 }
 
-# GitLab uses Envoy Gateway, not nginx. Own scm + registry DNS → Envoy ClusterIP (local/kind).
+# GitLab Envoy Gateway path: override scm + registry DNS → Envoy ClusterIP.
+# Skipped when Gateway API is disabled (nginx ingress serves scm/registry).
 resource "null_resource" "coredns_gitlab_envoy" {
-  count = var.enable_cluster_dns ? 1 : 0
+  count = var.enable_cluster_dns && module.gitlab.gateway_cluster_ip != "" ? 1 : 0
 
   triggers = {
     gateway_ip = module.gitlab.gateway_cluster_ip

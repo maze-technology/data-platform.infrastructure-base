@@ -44,7 +44,59 @@ resource "helm_release" "cert_manager" {
   depends_on = [kubernetes_namespace.cert_manager]
 }
 
-# ClusterIssuer for Let's Encrypt (if email is provided)
+locals {
+  acme_dns01        = var.letsencrypt_email != "" && var.acme_solver == "dns01"
+  acme_http01       = var.letsencrypt_email != "" && var.acme_solver == "http01"
+  ovh_webhook_group = var.ovh_dns_webhook_group_name != "" ? var.ovh_dns_webhook_group_name : "acme.${var.cluster_name}"
+}
+
+resource "kubernetes_secret" "ovh_dns_credentials" {
+  count = local.acme_dns01 ? 1 : 0
+
+  metadata {
+    name      = "ovh-dns-credentials"
+    namespace = kubernetes_namespace.cert_manager.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    applicationKey    = var.ovh_application_key
+    applicationSecret = var.ovh_application_secret
+    consumerKey       = var.ovh_consumer_key
+  }
+}
+
+# OVH DNS-01 webhook (no public :80 required — VPN-only clusters).
+resource "helm_release" "cert_manager_webhook_ovh" {
+  count = local.acme_dns01 ? 1 : 0
+
+  name       = "cert-manager-webhook-ovh"
+  repository = "https://aureq.github.io/cert-manager-webhook-ovh/"
+  chart      = "cert-manager-webhook-ovh"
+  version    = var.ovh_dns_webhook_chart_version
+  namespace  = kubernetes_namespace.cert_manager.metadata[0].name
+
+  values = [
+    yamlencode({
+      groupName = local.ovh_webhook_group
+      certManager = {
+        namespace          = kubernetes_namespace.cert_manager.metadata[0].name
+        serviceAccountName = "cert-manager"
+      }
+      # Issuer is managed below as kubernetes_manifest for a stable name (letsencrypt-prod).
+      issuers = []
+    })
+  ]
+
+  depends_on = [
+    helm_release.cert_manager,
+    kubernetes_secret.ovh_dns_credentials,
+  ]
+}
+
 resource "kubernetes_manifest" "letsencrypt_cluster_issuer" {
   count = var.letsencrypt_email != "" ? 1 : 0
 
@@ -56,6 +108,7 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer" {
       labels = {
         environment = var.environment
         managed-by  = "opentofu"
+        acme-solver = var.acme_solver
       }
     }
     spec = {
@@ -65,7 +118,29 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer" {
         privateKeySecretRef = {
           name = "letsencrypt-prod"
         }
-        solvers = [{
+        solvers = local.acme_dns01 ? [{
+          dns01 = {
+            webhook = {
+              groupName  = local.ovh_webhook_group
+              solverName = "ovh"
+              config = {
+                endpoint = var.ovh_endpoint_name
+                applicationKeyRef = {
+                  name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
+                  key  = "applicationKey"
+                }
+                applicationSecretRef = {
+                  name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
+                  key  = "applicationSecret"
+                }
+                consumerKeyRef = {
+                  name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
+                  key  = "consumerKey"
+                }
+              }
+            }
+          }
+          }] : [{
           http01 = {
             ingress = {
               class = "nginx"
@@ -76,7 +151,10 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer" {
     }
   }
 
-  depends_on = [helm_release.cert_manager]
+  depends_on = [
+    helm_release.cert_manager,
+    helm_release.cert_manager_webhook_ovh,
+  ]
 }
 
 # Local / offline CA: same ClusterIssuer pattern as production (cert-manager.io/cluster-issuer),
@@ -159,4 +237,3 @@ resource "kubernetes_manifest" "maze_ca_cluster_issuer" {
 
   depends_on = [kubernetes_manifest.maze_ca_certificate]
 }
-
