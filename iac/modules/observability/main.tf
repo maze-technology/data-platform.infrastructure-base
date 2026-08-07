@@ -270,12 +270,38 @@ resource "kubernetes_secret" "loki_s3_credentials" {
     namespace = kubernetes_namespace.monitoring.metadata[0].name
   }
 
+  # Provider ~>2.x base64-encodes `data` values; do not base64encode() here or
+  # keys end up double-encoded (Loki then fails S3 auth / falls back to IMDS).
   data = {
-    access-key-id     = base64encode(try(var.loki_object_storage.access_key, "") != null ? try(var.loki_object_storage.access_key, "") : "")
-    secret-access-key = base64encode(try(var.loki_object_storage.secret_key, "") != null ? try(var.loki_object_storage.secret_key, "") : "")
+    access-key-id     = coalesce(try(var.loki_object_storage.access_key, null), "")
+    secret-access-key = coalesce(try(var.loki_object_storage.secret_key, null), "")
   }
 
   depends_on = [kubernetes_namespace.monitoring]
+}
+
+locals {
+  # Grafana Loki chart uses extraEnv (not env). AWS SDK picks these up for RGW/S3.
+  loki_s3_extra_env = local.needs_loki_s3_credentials ? [
+    {
+      name = "AWS_ACCESS_KEY_ID"
+      valueFrom = {
+        secretKeyRef = {
+          name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+          key  = "access-key-id"
+        }
+      }
+    },
+    {
+      name = "AWS_SECRET_ACCESS_KEY"
+      valueFrom = {
+        secretKeyRef = {
+          name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
+          key  = "secret-access-key"
+        }
+      }
+    }
+  ] : []
 }
 
 # Loki for log aggregation (required for unified observability)
@@ -309,97 +335,6 @@ resource "helm_release" "loki" {
           allocatedMemory = var.loki_results_cache_memory_mb
         }
       },
-      # Add S3 credentials from secret if provided
-      local.needs_loki_s3_credentials ? {
-        loki = {
-          env = [
-            {
-              name = "AWS_ACCESS_KEY_ID"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "access-key-id"
-                }
-              }
-            },
-            {
-              name = "AWS_SECRET_ACCESS_KEY"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "secret-access-key"
-                }
-              }
-            }
-          ]
-        }
-        backend = {
-          env = [
-            {
-              name = "AWS_ACCESS_KEY_ID"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "access-key-id"
-                }
-              }
-            },
-            {
-              name = "AWS_SECRET_ACCESS_KEY"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "secret-access-key"
-                }
-              }
-            }
-          ]
-        }
-        read = {
-          env = [
-            {
-              name = "AWS_ACCESS_KEY_ID"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "access-key-id"
-                }
-              }
-            },
-            {
-              name = "AWS_SECRET_ACCESS_KEY"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "secret-access-key"
-                }
-              }
-            }
-          ]
-        }
-        write = {
-          env = [
-            {
-              name = "AWS_ACCESS_KEY_ID"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "access-key-id"
-                }
-              }
-            },
-            {
-              name = "AWS_SECRET_ACCESS_KEY"
-              valueFrom = {
-                secretKeyRef = {
-                  name = kubernetes_secret.loki_s3_credentials[0].metadata[0].name
-                  key  = "secret-access-key"
-                }
-              }
-            }
-          ]
-        }
-      } : {},
       var.loki_deployment_mode == "single-binary" ? {
         deploymentMode = "SingleBinary"
         # Single binary mode: all-in-one deployment (suitable for local/dev)
@@ -439,9 +374,11 @@ resource "helm_release" "loki" {
             size                = var.loki_storage_size
             storageClass        = var.storage_class != "" ? var.storage_class : null
           }
+          extraEnv = local.loki_s3_extra_env
         }
         read = {
           replicas = 0
+          extraEnv = local.loki_s3_extra_env
         }
         write = {
           replicas = 0
@@ -450,6 +387,7 @@ resource "helm_release" "loki" {
             size                = var.loki_storage_size
             storageClass        = var.storage_class != "" ? var.storage_class : null
           }
+          extraEnv = local.loki_s3_extra_env
         }
         ingester = {
           replicas = 0
@@ -547,9 +485,11 @@ resource "helm_release" "loki" {
             size                = var.loki_storage_size
             storageClass        = var.storage_class != "" ? var.storage_class : null
           }
+          extraEnv = local.loki_s3_extra_env
         }
         read = {
           replicas = 2
+          extraEnv = local.loki_s3_extra_env
         }
         write = {
           replicas = 2
@@ -558,6 +498,7 @@ resource "helm_release" "loki" {
             size                = var.loki_storage_size
             storageClass        = var.storage_class != "" ? var.storage_class : null
           }
+          extraEnv = local.loki_s3_extra_env
         }
         ingester = {
           replicas = 0
@@ -607,6 +548,19 @@ resource "helm_release" "promtail" {
           tenant_id = var.loki_tenant_id
         }]
       }
+      # Bare-metal nodes with many pods exhaust default inotify/nofile limits;
+      # Promtail then CrashLoops with "too many open files".
+      initContainer = [{
+        name  = "sysctl"
+        image = "busybox:1.36"
+        securityContext = {
+          privileged = true
+        }
+        command = [
+          "sh", "-c",
+          "sysctl -w fs.inotify.max_user_instances=8192; sysctl -w fs.inotify.max_user_watches=1048576; sysctl -w fs.file-max=2097152; true"
+        ]
+      }]
     })
   ]
 

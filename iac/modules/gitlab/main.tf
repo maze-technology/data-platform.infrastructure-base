@@ -101,6 +101,7 @@ locals {
       }]
     } : {}
     ingress = {
+      enabled              = true
       configureCertmanager = false
       class                = var.ingress_class
       annotations = {
@@ -200,18 +201,20 @@ resource "random_password" "gitlab_valkey" {
 locals {
   postgresql_password = var.postgresql_password != "" ? var.postgresql_password : random_password.gitlab_postgresql[0].result
   postgresql_host     = var.use_external_postgresql ? var.postgresql_host : "gitlab-postgresql.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
+  postgresql_port     = var.use_external_postgresql ? var.postgresql_port : 5432
+  postgresql_ssl      = var.use_external_postgresql ? var.postgresql_ssl : false
   valkey_host         = "gitlab-valkey-primary.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
 
   gitlab_global = merge(local.global_base, {
     # OVH Web Cloud / managed Postgres enforce TLS without client certs.
     # GitLab chart global.psql.ssl is mutual-TLS only and requires a secret —
     # use libpq PGSSLMODE instead.
-    extraEnv = var.postgresql_ssl ? {
+    extraEnv = local.postgresql_ssl ? {
       PGSSLMODE = "require"
     } : {}
     psql = {
       host     = local.postgresql_host
-      port     = var.postgresql_port
+      port     = local.postgresql_port
       database = var.postgresql_database
       username = var.postgresql_username
       password = {
