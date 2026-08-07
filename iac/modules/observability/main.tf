@@ -459,23 +459,26 @@ resource "helm_release" "loki" {
           commonConfig = {
             replication_factor = 2
           }
-          storage = var.loki_object_storage != null ? merge(
-            {
-              type = var.loki_object_storage.type
-              bucketNames = {
-                chunks = var.loki_object_storage.bucket
-                ruler  = var.loki_object_storage.bucket
-              }
-              s3 = var.loki_object_storage.type == "s3" ? merge(
-                var.loki_object_storage.region != null ? { region = var.loki_object_storage.region } : {},
-                var.loki_object_storage.endpoint != null ? { endpoint = var.loki_object_storage.endpoint } : {},
-                var.loki_object_storage.force_path_style != null ? { s3ForcePathStyle = var.loki_object_storage.force_path_style } : {}
-              ) : {}
-              gcs   = var.loki_object_storage.type == "gcs" ? {} : {}
-              azure = var.loki_object_storage.type == "azure" ? {} : {}
+          # Both ternary branches must share the same object attribute set (OpenTofu type check).
+          storage = var.loki_object_storage != null ? {
+            type = var.loki_object_storage.type
+            bucketNames = {
+              chunks = var.loki_object_storage.bucket
+              ruler  = var.loki_object_storage.bucket
             }
-            ) : {
-            type = "filesystem"
+            s3 = var.loki_object_storage.type == "s3" ? merge(
+              var.loki_object_storage.region != null ? { region = var.loki_object_storage.region } : {},
+              var.loki_object_storage.endpoint != null ? { endpoint = var.loki_object_storage.endpoint } : {},
+              var.loki_object_storage.force_path_style != null ? { s3ForcePathStyle = var.loki_object_storage.force_path_style } : {}
+            ) : {}
+            gcs   = var.loki_object_storage.type == "gcs" ? {} : {}
+            azure = var.loki_object_storage.type == "azure" ? {} : {}
+            } : {
+            type        = "filesystem"
+            bucketNames = { chunks = "", ruler = "" }
+            s3          = {}
+            gcs         = {}
+            azure       = {}
           }
           rulerConfig = {
             storage = {
