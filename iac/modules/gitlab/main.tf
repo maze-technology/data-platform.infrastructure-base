@@ -332,7 +332,8 @@ locals {
           persistence = {
             enabled = true
             size    = var.gitaly_storage_size
-            storage = (
+            # GitLab chart key is storageClass (not "storage").
+            storageClass = (
               var.gitaly_storage_class != "" ? var.gitaly_storage_class :
               var.storage_class != "" ? var.storage_class : null
             )
@@ -678,8 +679,10 @@ resource "helm_release" "gitlab" {
   ]
 }
 
-# Wait for the chart-managed Envoy proxy Service (needed for VPN DNS → ClusterIP).
+# When Gateway API / Envoy is disabled, skip the wait and leave gateway IP empty.
 resource "null_resource" "gitlab_gateway_ready" {
+  count = try(local.gitlab_global.gatewayApi.enabled, false) ? 1 : 0
+
   triggers = {
     release = helm_release.gitlab.id
   }
@@ -707,6 +710,8 @@ resource "null_resource" "gitlab_gateway_ready" {
 }
 
 data "external" "gitlab_gateway_ip" {
+  count = try(local.gitlab_global.gatewayApi.enabled, false) ? 1 : 0
+
   program = [
     "bash",
     "-c",

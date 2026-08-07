@@ -19,6 +19,6 @@ output "helm_release" {
 }
 
 output "gateway_cluster_ip" {
-  description = "ClusterIP of the GitLab Envoy Gateway proxy (VPN DNS should point scm/registry here)"
-  value       = data.external.gitlab_gateway_ip.result.ip
+  description = "ClusterIP of the GitLab Envoy Gateway proxy (empty when Gateway API is disabled)"
+  value       = try(data.external.gitlab_gateway_ip[0].result.ip, "")
 }
