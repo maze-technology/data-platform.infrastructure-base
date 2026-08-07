@@ -271,13 +271,13 @@ module "keycloak" {
   postgresql_storage_size = var.keycloak_postgresql_storage_size
   production_mode         = var.keycloak_production_mode
 
-  use_external_database   = var.use_external_keycloak_database
-  postgresql_host         = var.keycloak_postgresql_host
-  postgresql_port         = var.keycloak_postgresql_port
-  postgresql_username     = var.keycloak_postgresql_username
-  postgresql_database     = var.keycloak_postgresql_database
-  postgresql_password     = var.keycloak_postgresql_password
-  postgresql_ssl          = var.keycloak_postgresql_ssl
+  use_external_database = var.use_external_keycloak_database
+  postgresql_host       = var.keycloak_postgresql_host
+  postgresql_port       = var.keycloak_postgresql_port
+  postgresql_username   = var.keycloak_postgresql_username
+  postgresql_database   = var.keycloak_postgresql_database
+  postgresql_password   = var.keycloak_postgresql_password
+  postgresql_ssl        = var.keycloak_postgresql_ssl
 
   oidc_clients = {
     gitlab_redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
