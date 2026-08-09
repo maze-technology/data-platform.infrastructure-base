@@ -143,8 +143,8 @@ resource "kubernetes_cron_job_v1" "postgres_dump" {
             }
 
             init_container {
-              name  = "fetch-rclone"
-              image = var.object_sync_rclone_image
+              name    = "fetch-rclone"
+              image   = var.object_sync_rclone_image
               command = ["sh", "-c", "cp /usr/local/bin/rclone /shared/rclone && chmod 755 /shared/rclone"]
 
               volume_mount {
