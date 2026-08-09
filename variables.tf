@@ -840,3 +840,35 @@ variable "backup_object_sync_dest_prefix" {
   type        = string
   default     = "rgw-mirror"
 }
+
+variable "backup_postgres_dump_enabled" {
+  description = "Schedule logical pg_dump of in-cluster Postgres (GitLab/Keycloak) to the backup object store"
+  type        = bool
+  default     = true
+}
+
+variable "backup_postgres_dump_schedule_cron" {
+  description = "Cron for logical Postgres dumps (UTC)"
+  type        = string
+  default     = "0 3 * * *"
+}
+
+variable "backup_postgres_dump_prefix" {
+  description = "Prefix under the backup bucket for encrypted logical dumps"
+  type        = string
+  default     = "logical/postgres"
+}
+
+variable "backup_postgres_dump_targets" {
+  description = "Postgres dump targets (composition supplies in-cluster endpoints + passwords)"
+  type = list(object({
+    name     = string
+    host     = string
+    port     = optional(number, 5432)
+    user     = string
+    database = string
+    password = string
+  }))
+  default   = []
+  sensitive = true
+}
