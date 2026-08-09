@@ -554,7 +554,8 @@ module "renovate" {
   enabled              = var.renovate_enabled
   environment          = var.environment
   gitlab_namespace     = "gitlab"
-  gitlab_endpoint      = "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4"
+  # Public HTTPS endpoint so clone URLs and API host match (in-cluster HTTP causes Renovate auth failures).
+  gitlab_endpoint      = "https://${local.hosts.scm}/api/v4"
   schedule_cron        = var.renovate_schedule_cron
   image                = var.renovate_image
   github_com_token     = var.renovate_github_com_token
