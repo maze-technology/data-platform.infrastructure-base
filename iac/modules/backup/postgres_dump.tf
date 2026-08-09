@@ -4,7 +4,7 @@
 locals {
   postgres_dump_active = var.enabled && var.postgres_dump_enabled && length(var.postgres_dump_targets) > 0
 
-  postgres_dump_rclone_conf = local.postgres_dump_active ? <<-EOT
+  postgres_dump_rclone_conf = <<-EOT
     [backup]
     type = s3
     provider = Ceph
@@ -17,7 +17,6 @@ locals {
     acl = private
     ${var.s3_insecure_skip_tls_verify ? "no_check_certificate = true" : ""}
   EOT
-  : ""
 
   postgres_dump_script = <<-EOT
     set -euo pipefail
@@ -144,8 +143,8 @@ resource "kubernetes_cron_job_v1" "postgres_dump" {
             }
 
             init_container {
-              name  = "fetch-rclone"
-              image = var.object_sync_rclone_image
+              name    = "fetch-rclone"
+              image   = var.object_sync_rclone_image
               command = ["sh", "-c", "cp /usr/local/bin/rclone /shared/rclone && chmod 755 /shared/rclone"]
 
               volume_mount {
