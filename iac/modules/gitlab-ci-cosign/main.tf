@@ -1,5 +1,6 @@
-# Wire COSIGN_* as GitLab instance CI variables (from Vault) and ensure org group
-# maze is shared with engineers (+ admins Owner). Cleans up obsolete algo groups.
+# Wire COSIGN_* as GitLab instance CI variables (from Vault). Ensure OIDC ACL
+# roster groups (engineers/admins). Optionally create/share an org group when
+# org_group_path is set. Deletes paths in delete_group_paths (includes unused maze).
 # Requires VAULT_ADDR + VAULT_TOKEN in the apply environment.
 
 terraform {
@@ -17,7 +18,7 @@ resource "null_resource" "gitlab_cosign_instance_vars" {
     admin_group     = var.admin_gitlab_group
     delete_groups   = join(",", var.delete_group_paths)
     vault_path      = "${var.vault_kv_mount}/${var.vault_secret_path}"
-    generation      = "7"
+    generation      = "8"
   }
 
   provisioner "local-exec" {
@@ -177,7 +178,7 @@ def ensure_group(path, name, parent_id=None, visibility="private", acl_only=Fals
                 "project_creation_level": "noone",
                 "subgroup_creation_level": "owner",
                 "request_access_enabled": False,
-                "description": "OIDC ACL roster only — do not create projects here; use group maze.",
+                "description": "OIDC ACL roster only — do not create projects here.",
             }
         )
     existing = get_group(path)
@@ -253,20 +254,29 @@ def put_instance_variable(key, value, masked=True):
         raise SystemExit(f"set instance variable {key} failed: {code} {body}")
     print(f"created instance variable {key}")
 
-# Delete obsolete groups (deepest paths first)
+# Delete obsolete / unused groups (deepest paths first)
 for path in sorted(delete_paths, key=lambda p: p.count("/"), reverse=True):
-    if path == org_path:
-        print(f"refusing to delete org group {path}")
+    if org_path and path == org_path:
+        print(f"refusing to delete active org group {path}")
         continue
     delete_group(path)
 
-org_id = ensure_group(org_path, org_name, None, "private", acl_only=False)
+# OIDC ACL roster groups (no projects)
 if engineers:
     ensure_group(engineers, engineers, None, "private", acl_only=True)
-    share_group(org_id, engineers, ACCESS_MAINTAINER)
 if admins:
     ensure_group(admins, admins, None, "private", acl_only=True)
-    share_group(org_id, admins, ACCESS_OWNER)
+
+# Optional catch-all org group (disabled by default)
+if org_path:
+    display = org_name or org_path
+    org_id = ensure_group(org_path, display, None, "private", acl_only=False)
+    if engineers:
+        share_group(org_id, engineers, ACCESS_MAINTAINER)
+    if admins:
+        share_group(org_id, admins, ACCESS_OWNER)
+else:
+    print("org_group_path empty — skipping org group create/share")
 
 # PEM keys contain newlines/spaces — GitLab masked vars reject those.
 priv_b64 = base64.b64encode(os.environ["PRIVATE_KEY"].encode()).decode()
@@ -275,7 +285,7 @@ pub_b64 = base64.b64encode(os.environ["PUBLIC_KEY"].encode()).decode()
 put_instance_variable("COSIGN_PRIVATE_KEY", priv_b64, True)
 put_instance_variable("COSIGN_PASSWORD", os.environ["COSIGN_PASSWORD_VALUE"], True)
 put_instance_variable("COSIGN_PUBLIC_KEY", pub_b64, True)
-print(f"gitlab-ci-cosign: instance COSIGN_* wired; org={org_path} engineers={engineers} admins={admins}")
+print(f"gitlab-ci-cosign: instance COSIGN_* wired; org={org_path or '(none)'} engineers={engineers} admins={admins}")
 PY
     EOT
   }

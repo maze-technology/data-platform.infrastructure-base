@@ -119,7 +119,7 @@ output "cosign_ci_scope" {
 }
 
 output "gitlab_org_group" {
-  description = "GitLab org group shared with engineers"
+  description = "Optional GitLab org group path from gitlab-ci-cosign (empty when none is managed)"
   value       = module.gitlab_ci_cosign.org_group_path
 }
 

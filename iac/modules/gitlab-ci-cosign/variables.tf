@@ -5,33 +5,33 @@ variable "gitlab_namespace" {
 }
 
 variable "org_group_path" {
-  description = "Top-level GitLab group shared with all engineers (e.g. maze)"
+  description = "Optional top-level GitLab group to create and share with engineers/admins. Empty skips (no default org group)."
   type        = string
-  default     = "maze"
+  default     = ""
 }
 
 variable "org_group_name" {
-  description = "Display name for the org group"
+  description = "Display name for org_group_path when set"
   type        = string
-  default     = "maze"
+  default     = ""
 }
 
 variable "engineers_gitlab_group" {
-  description = "OIDC-synced GitLab group for engineers (Maintainer on org group)"
+  description = "OIDC-synced GitLab group for engineers (ACL roster only)"
   type        = string
   default     = "engineers"
 }
 
 variable "admin_gitlab_group" {
-  description = "OIDC-synced GitLab group for admins (Owner on org group). Empty skips."
+  description = "OIDC-synced GitLab group for admins (ACL roster only). Empty skips."
   type        = string
   default     = "admins"
 }
 
 variable "delete_group_paths" {
-  description = "GitLab group full paths to delete if present (obsolete algo ACL groups)"
+  description = "GitLab group full paths to delete if present (unused default org + obsolete ACL groups)"
   type        = list(string)
-  default     = ["maze/algorithms", "maze/algos", "algotrader-engineers"]
+  default     = ["maze", "maze/algorithms", "maze/algos", "algotrader-engineers"]
 }
 
 variable "vault_kv_mount" {
