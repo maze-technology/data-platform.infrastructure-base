@@ -173,54 +173,35 @@ resource "kubernetes_deployment" "wireguard" {
   depends_on = [kubernetes_namespace.wireguard]
 }
 
-# linuxserver writes Endpoint with SERVERPORT (container listen port). On kind NodePort,
-# clients must dial node_port instead — patch generated peer confs once the deploy is ready.
+# Patch peer templates + generated confs after deploy:
+# - NodePort: Endpoint must use node_port (container listens on server_port)
+# - Always: MTU=1280 (avoids TLS blackholes over WG), DNS/AllowedIPs, no ListenPort
+# - Server PostUp: TCP MSS clamp for the same MTU path issue
 resource "null_resource" "patch_peer_endpoint_port" {
-  count = var.service_type == "NodePort" ? 1 : 0
-
   triggers = {
-    deploy   = kubernetes_deployment.wireguard.id
-    peers    = var.peers
-    nodeport = tostring(var.node_port)
-    listen   = tostring(var.server_port)
-    dns      = var.peer_dns
-    allowed  = local.allowed_ips
+    deploy       = kubernetes_deployment.wireguard.id
+    peers        = var.peers
+    nodeport     = tostring(var.node_port)
+    listen       = tostring(var.server_port)
+    dns          = var.peer_dns
+    allowed      = local.allowed_ips
+    service_type = var.service_type
+    peer_mtu     = "1280"
+    patch_script = filesha256("${path.module}/patch-peer-confs.sh")
+    peer_tpl     = filesha256("${path.module}/templates/peer.conf")
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    command = "${path.module}/patch-peer-confs.sh"
     environment = {
-      WG_NS       = var.namespace
-      WG_LISTEN   = tostring(var.server_port)
-      WG_NODEPORT = tostring(var.node_port)
-      WG_DNS      = var.peer_dns
-      WG_ALLOWED  = local.allowed_ips
+      WG_NS           = var.namespace
+      WG_LISTEN       = tostring(var.server_port)
+      WG_NODEPORT     = tostring(var.node_port)
+      WG_DNS          = var.peer_dns
+      WG_ALLOWED      = local.allowed_ips
+      WG_SERVICE_TYPE = var.service_type
+      WG_PEER_MTU     = "1280"
     }
-    command = <<-EOT
-      set -euo pipefail
-      kubectl -n "$${WG_NS}" rollout status deploy/wireguard --timeout=300s
-      for i in $(seq 1 60); do
-        if kubectl -n "$${WG_NS}" exec deploy/wireguard -- sh -c 'ls /config/peer_*/*.conf >/dev/null 2>&1'; then
-          break
-        fi
-        sleep 2
-      done
-      # Expand WG_* locally; pass \$f to the container shell.
-      kubectl -n "$${WG_NS}" exec deploy/wireguard -- /bin/sh -c "
-        set -e
-        for f in /config/peer_*/*.conf; do
-          [ -f \"\$f\" ] || continue
-          sed -i \"s/^Endpoint = \\(.*\\):$${WG_LISTEN}\$/Endpoint = \\1:$${WG_NODEPORT}/\" \"\$f\"
-          if [ -n \"$${WG_DNS}\" ]; then
-            sed -i \"s/^DNS = .*/DNS = $${WG_DNS}/\" \"\$f\"
-          fi
-          sed -i \"s|^AllowedIPs = .*|AllowedIPs = $${WG_ALLOWED}|\" \"\$f\"
-          sed -i '/^ListenPort = /d' \"\$f\"
-          echo patched \"\$f\"
-          grep -E '^(DNS|Endpoint|AllowedIPs)' \"\$f\" || true
-        done
-      "
-    EOT
   }
 
   depends_on = [kubernetes_deployment.wireguard, kubernetes_service.wireguard]
