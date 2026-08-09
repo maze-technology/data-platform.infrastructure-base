@@ -344,12 +344,12 @@ resource "kubernetes_cron_job_v1" "renovate" {
 
               resources {
                 requests = {
-                  cpu    = "200m"
-                  memory = "1Gi"
+                  cpu    = "500m"
+                  memory = "2Gi"
                 }
                 limits = {
                   cpu    = "2"
-                  memory = "4Gi"
+                  memory = "6Gi"
                 }
               }
 
