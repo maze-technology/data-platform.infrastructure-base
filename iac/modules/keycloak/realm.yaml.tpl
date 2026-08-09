@@ -5,6 +5,8 @@ registrationAllowed: false
 resetPasswordAllowed: true
 loginWithEmailAllowed: true
 duplicateEmailsAllowed: false
+# Allow Admin API / config-cli username changes (e.g. bootstrap_admin rename).
+editUsernameAllowed: true
 
 # Password + MFA hardening
 passwordPolicy: "length(12) and digits(1) and upperCase(1) and lowerCase(1) and specialChars(1) and notUsername"

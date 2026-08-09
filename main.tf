@@ -656,4 +656,9 @@ module "backup" {
   object_sync_schedule_cron = var.backup_object_sync_schedule_cron
   object_sync_dest_prefix   = var.backup_object_sync_dest_prefix
   object_sync_sources       = local.backup_object_sync_sources
+
+  postgres_dump_enabled       = var.backup_postgres_dump_enabled
+  postgres_dump_schedule_cron = var.backup_postgres_dump_schedule_cron
+  postgres_dump_prefix        = var.backup_postgres_dump_prefix
+  postgres_dump_targets       = var.backup_postgres_dump_targets
 }

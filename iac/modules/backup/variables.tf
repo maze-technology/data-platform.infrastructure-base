@@ -182,3 +182,45 @@ variable "object_sync_sources" {
   sensitive = true
 }
 
+# ---------------------------------------------------------------------------
+# Logical PostgreSQL dumps (pg_dump → same backup bucket via rclone crypt)
+# ---------------------------------------------------------------------------
+
+variable "postgres_dump_enabled" {
+  description = "Schedule application-consistent pg_dump of in-cluster Postgres to the backup object store"
+  type        = bool
+  default     = true
+}
+
+variable "postgres_dump_schedule_cron" {
+  description = "Cron for logical Postgres dumps (UTC)"
+  type        = string
+  default     = "0 3 * * *"
+}
+
+variable "postgres_dump_prefix" {
+  description = "Prefix under the backup bucket for encrypted logical dumps"
+  type        = string
+  default     = "logical/postgres"
+}
+
+variable "postgres_dump_image" {
+  description = "Container image providing pg_dump (official postgres client tools)"
+  type        = string
+  default     = "postgres:16-alpine"
+}
+
+variable "postgres_dump_targets" {
+  description = "Postgres instances to dump (host/user/db/password)"
+  type = list(object({
+    name     = string
+    host     = string
+    port     = optional(number, 5432)
+    user     = string
+    database = string
+    password = string
+  }))
+  default   = []
+  sensitive = true
+}
+
