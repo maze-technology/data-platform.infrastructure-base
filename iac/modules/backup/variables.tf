@@ -207,7 +207,7 @@ variable "postgres_dump_prefix" {
 variable "postgres_dump_image" {
   description = "Container image providing pg_dump (official postgres client tools)"
   type        = string
-  default     = "postgres:16-alpine"
+  default     = "postgres:17-alpine"
 }
 
 variable "postgres_dump_targets" {
