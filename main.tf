@@ -534,9 +534,10 @@ module "gitlab_ci_cosign" {
   source = "./iac/modules/gitlab-ci-cosign"
 
   gitlab_namespace  = module.gitlab.namespace
-  org_group_path    = "maze"
   vault_kv_mount    = "secret"
   vault_secret_path = "cosign/gitlab"
+  # No default org group (maze removed). Product groups (data-platform, templates)
+  # are created outside OpenTofu.
 
   depends_on = [
     module.gitlab,

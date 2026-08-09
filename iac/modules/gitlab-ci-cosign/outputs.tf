@@ -1,5 +1,5 @@
 output "org_group_path" {
-  description = "GitLab org group shared with engineers"
+  description = "Optional GitLab org group path (empty when not managed)"
   value       = var.org_group_path
 }
 
