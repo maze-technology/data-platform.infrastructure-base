@@ -600,7 +600,7 @@ resource "null_resource" "gitlab_sso_only" {
     admin_user  = var.sso_admin_username
     admin_email = var.sso_admin_email
     oidc_issuer = var.oidc.issuer_url
-    harden_v2   = "signup-off-webide-fallback-off-git-password-off"
+    harden_v3   = "signup-off-sso-admin-not-root"
   }
 
   provisioner "local-exec" {
@@ -619,23 +619,28 @@ resource "null_resource" "gitlab_sso_only" {
         fi
         if kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "$(cat <<'RUBY'
 # SSO-only + instance hardening (ApplicationSetting is DB-backed, not helm).
-# Keycloak username "admin" is reserved in GitLab — link SSO via root email.
+# Prefer configured SSO admin username (Keycloak "admin" is reserved in GitLab).
 # Git over HTTP(S): no account passwords (SSH keys or personal access tokens).
-ApplicationSetting.current.update!(
+attrs = {
   password_authentication_enabled_for_web: false,
   password_authentication_enabled_for_git: false,
   signup_enabled: false,
-  vscode_extension_marketplace_single_origin_fallback_enabled: false
-)
+}
+# Optional attribute — not present on every GitLab version.
+if ApplicationSetting.current.respond_to?(:vscode_extension_marketplace_single_origin_fallback_enabled=)
+  attrs[:vscode_extension_marketplace_single_origin_fallback_enabled] = false
+end
+ApplicationSetting.current.update!(attrs)
 admin_email = '${var.sso_admin_email}'
-root = User.find_by_username('root')
-raise 'root user missing' if root.nil?
-root.skip_reconfirmation! if root.respond_to?(:skip_reconfirmation!)
-root.email = admin_email
-root.confirmed_at ||= Time.current
-root.save!
+admin_username = '${var.sso_admin_username}'
+admin = User.find_by_username(admin_username) || User.find_by_username('root') || User.find_by_email(admin_email)
+raise "SSO admin user missing (tried #{admin_username}, root, #{admin_email})" if admin.nil?
+admin.skip_reconfirmation! if admin.respond_to?(:skip_reconfirmation!)
+admin.email = admin_email
+admin.confirmed_at ||= Time.current
+admin.save!
 s = ApplicationSetting.current
-puts "root email=#{root.email} admin=#{root.admin?} password_auth_web=#{s.password_authentication_enabled_for_web} password_auth_git=#{s.password_authentication_enabled_for_git} signup=#{s.signup_enabled} webide_fallback=#{s.vscode_extension_marketplace_single_origin_fallback_enabled}"
+puts "admin=#{admin.username} email=#{admin.email} admin?=#{admin.admin?} password_auth_web=#{s.password_authentication_enabled_for_web} password_auth_git=#{s.password_authentication_enabled_for_git} signup=#{s.signup_enabled}"
 RUBY
 )"; then
           exit 0

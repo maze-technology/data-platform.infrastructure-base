@@ -546,23 +546,21 @@ module "gitlab_ci_cosign" {
 }
 
 # Self-hosted Renovate for GitLab (CronJob). GitHub App does not cover self-hosted GitLab.
+# Namespace is literal so this module does not depend on the whole gitlab module graph
+# (avoids re-running gitlab_sso_only / helm drift on every Renovate apply).
 module "renovate" {
   source = "./iac/modules/renovate"
 
   enabled              = var.renovate_enabled
   environment          = var.environment
-  gitlab_namespace     = module.gitlab.namespace
-  gitlab_endpoint      = "http://gitlab-webservice-default.${module.gitlab.namespace}.svc.cluster.local:8181/api/v4"
+  gitlab_namespace     = "gitlab"
+  gitlab_endpoint      = "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4"
   schedule_cron        = var.renovate_schedule_cron
   image                = var.renovate_image
   github_com_token     = var.renovate_github_com_token
   custom_ca_pem        = local.maze_ca_pem
   autodiscover_filters = var.renovate_autodiscover_filters
   group_paths          = var.renovate_group_paths
-
-  depends_on = [
-    module.gitlab,
-  ]
 }
 
 # ============================================================================
