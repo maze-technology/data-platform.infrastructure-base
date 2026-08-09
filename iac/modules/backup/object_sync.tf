@@ -50,8 +50,9 @@ locals {
       exit 1
     fi
 
-    CRYPT_PASS="$$(rclone obscure "$$ENCRYPTION_PASSWORD")"
-    CRYPT_SALT="$$(rclone obscure "$$ENCRYPTION_PASSWORD")"
+    # Do not use $$ — OpenTofu leaves it literal and bash expands $$ as PID.
+    CRYPT_PASS="$(rclone obscure "$${ENCRYPTION_PASSWORD}")"
+    CRYPT_SALT="$(rclone obscure "$${ENCRYPTION_PASSWORD}")"
 
     {
       cat /config/rclone.conf
@@ -59,8 +60,8 @@ locals {
       echo "[${local.rclone_crypt}]"
       echo "type = crypt"
       echo "remote = ${local.rclone_s3_dest}:${var.s3_bucket}/${var.object_sync_dest_prefix}"
-      echo "password = $$CRYPT_PASS"
-      echo "password2 = $$CRYPT_SALT"
+      echo "password = $${CRYPT_PASS}"
+      echo "password2 = $${CRYPT_SALT}"
       echo "filename_encryption = standard"
       echo "directory_name_encryption = true"
     } > /tmp/rclone.conf

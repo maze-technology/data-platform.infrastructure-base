@@ -31,9 +31,11 @@ locals {
     ${var.s3_insecure_skip_tls_verify ? "no_check_certificate = true" : ""}
   EOT
 
+  # OpenTofu <<-EOT: escape shell $${ENV} as $${ENV}; do NOT use $$ for $.
+  # Literal $$ is preserved and bash treats it as PID (broke earlier dumps).
   postgres_dump_script = <<-EOT
     set -euo pipefail
-    echo "postgres dump starting at $$(date -u +%Y-%m-%dT%H:%M:%SZ) target=$${DUMP_NAME}"
+    echo "postgres dump starting at $(date -u +%Y-%m-%dT%H:%M:%SZ) target=$${DUMP_NAME}"
 
     if [ -z "$${ENCRYPTION_PASSWORD:-}" ]; then
       echo "ENCRYPTION_PASSWORD is required" >&2
@@ -44,28 +46,28 @@ locals {
       exit 1
     fi
 
-    STAMP="$$(date -u +%Y%m%dT%H%M%SZ)"
+    STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
     OUT="/tmp/$${DUMP_NAME}-$${STAMP}.dump"
-    pg_dump -Fc -h "$${PGHOST}" -p "$${PGPORT}" -U "$${PGUSER}" -d "$${PGDATABASE}" -f "$$OUT"
-    ls -la "$$OUT"
+    pg_dump -Fc -h "$${PGHOST}" -p "$${PGPORT}" -U "$${PGUSER}" -d "$${PGDATABASE}" -f "$${OUT}"
+    ls -la "$${OUT}"
 
-    CRYPT_PASS="$$(/shared/rclone obscure "$$ENCRYPTION_PASSWORD")"
-    CRYPT_SALT="$$(/shared/rclone obscure "$$ENCRYPTION_PASSWORD")"
+    CRYPT_PASS="$(/shared/rclone obscure "$${ENCRYPTION_PASSWORD}")"
+    CRYPT_SALT="$(/shared/rclone obscure "$${ENCRYPTION_PASSWORD}")"
     {
       cat /config/rclone.conf
       echo ""
       echo "[backup-crypt]"
       echo "type = crypt"
       echo "remote = backup:$${S3_BUCKET}/$${DEST_PREFIX}"
-      echo "password = $$CRYPT_PASS"
-      echo "password2 = $$CRYPT_SALT"
+      echo "password = $${CRYPT_PASS}"
+      echo "password2 = $${CRYPT_SALT}"
       echo "filename_encryption = standard"
       echo "directory_name_encryption = true"
     } > /tmp/rclone.conf
     export RCLONE_CONFIG=/tmp/rclone.conf
 
-    /shared/rclone copy "$$OUT" "backup-crypt:$${DUMP_NAME}/" --log-level INFO
-    echo "postgres dump finished at $$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    /shared/rclone copy "$${OUT}" "backup-crypt:$${DUMP_NAME}/" --log-level INFO
+    echo "postgres dump finished at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   EOT
 }
 
