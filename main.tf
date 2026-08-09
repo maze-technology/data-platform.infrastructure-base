@@ -551,9 +551,9 @@ module "gitlab_ci_cosign" {
 module "renovate" {
   source = "./iac/modules/renovate"
 
-  enabled              = var.renovate_enabled
-  environment          = var.environment
-  gitlab_namespace     = "gitlab"
+  enabled          = var.renovate_enabled
+  environment      = var.environment
+  gitlab_namespace = "gitlab"
   # Public HTTPS endpoint so clone URLs and API host match (in-cluster HTTP causes Renovate auth failures).
   gitlab_endpoint      = "https://${local.hosts.scm}/api/v4"
   schedule_cron        = var.renovate_schedule_cron
