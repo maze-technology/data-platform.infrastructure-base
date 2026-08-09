@@ -107,7 +107,7 @@ resource "null_resource" "renovate_bot" {
     bot_name    = var.bot_name
     groups      = join(",", var.group_paths)
     secret_name = var.api_token_secret_name
-    generation  = "2"
+    generation  = "3"
   }
 
   provisioner "local-exec" {
@@ -169,13 +169,19 @@ end
       kubectl -n "$NS" port-forward svc/gitlab-webservice-default "$${PF_LOCAL}:8181" >/tmp/gitlab-pf-renovate.log 2>&1 &
       PF_PID=$!
       trap 'kill $PF_PID 2>/dev/null || true' EXIT
+      for i in $(seq 1 30); do
+        if curl -sf -o /dev/null "http://127.0.0.1:$${PF_LOCAL}/-/readiness" 2>/dev/null; then
+          break
+        fi
+        sleep 1
+      done
 
       TOKEN=""
       if kubectl -n "$NS" get secret "$${API_TOKEN_SECRET}" >/dev/null 2>&1; then
         TOKEN="$(kubectl -n "$NS" get secret "$${API_TOKEN_SECRET}" -o jsonpath='{.data.token}' | base64 -d || true)"
       fi
 
-      for i in $(seq 1 60); do
+      for i in $(seq 1 10); do
         if [ -n "$${TOKEN}" ]; then
           code="$(curl -s -o /tmp/gitlab-renovate-ver.json -w '%%{http_code}' \
             -H "PRIVATE-TOKEN: $${TOKEN}" \
@@ -183,6 +189,7 @@ end
           if [ "$code" = "200" ]; then
             break
           fi
+          echo "renovate: existing PAT rejected code=$${code}, recreating"
           TOKEN=""
         fi
         TOKEN="$(kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "
@@ -209,33 +216,34 @@ puts pat.token
         "http://127.0.0.1:$${PF_LOCAL}/api/v4/version" || true)"
       if [ "$${code:-}" != "200" ]; then
         echo "renovate: API not ready code=$${code:-none}" >&2
-        cat /tmp/gitlab-renovate-ver.json 2>/dev/null || true
+        cat /tmp/gitlab-pf-renovate.log /tmp/gitlab-renovate-ver.json 2>/dev/null || true
         exit 1
       fi
 
       BOT_ID="$(curl -sS -H "PRIVATE-TOKEN: $${TOKEN}" \
         "http://127.0.0.1:$${PF_LOCAL}/api/v4/user" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')"
 
-      IFS=',' read -r -a GROUPS <<< "$${GROUP_PATHS}"
-      for gpath in "$${GROUPS[@]}"; do
-        [ -n "$gpath" ] || continue
-        kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "
-g = Group.find_by_full_path('$gpath')
-raise 'group $gpath missing' if g.nil?
+      # Group membership via Rails (bot PAT cannot always self-invite).
+      kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "
 u = User.find_by_username('${var.bot_username}')
 raise 'bot missing' if u.nil?
-m = g.members.find_by(user_id: u.id)
-if m.nil?
-  g.add_member(u, Gitlab::Access::MAINTAINER)
-  puts 'added $gpath'
-elsif m.access_level < Gitlab::Access::MAINTAINER
-  m.update!(access_level: Gitlab::Access::MAINTAINER)
-  puts 'upgraded $gpath'
-else
-  puts 'ok $gpath'
+'${join(",", var.group_paths)}'.split(',').each do |gpath|
+  gpath = gpath.strip
+  next if gpath.empty?
+  g = Group.find_by_full_path(gpath)
+  raise \"group #{gpath} missing\" if g.nil?
+  m = g.members.find_by(user_id: u.id)
+  if m.nil?
+    g.add_member(u, Gitlab::Access::MAINTAINER)
+    puts \"added #{gpath}\"
+  elsif m.access_level < Gitlab::Access::MAINTAINER
+    m.update!(access_level: Gitlab::Access::MAINTAINER)
+    puts \"upgraded #{gpath}\"
+  else
+    puts \"ok #{gpath}\"
+  end
 end
 "
-      done
 
       echo "renovate: bot ready user=${var.bot_username} id=$${BOT_ID}"
     EOT
