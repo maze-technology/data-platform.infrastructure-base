@@ -298,14 +298,15 @@ locals {
           minReplicas     = var.webservice_min_replicas
           maxReplicas     = var.webservice_max_replicas
           workerProcesses = var.webservice_worker_processes
+          # 2 Puma workers alone ~900Mi RSS each at idle; 2Gi limit OOMs under API load.
           resources = {
             requests = {
-              cpu    = "250m"
-              memory = "1Gi"
+              cpu    = "500m"
+              memory = "2Gi"
             }
             limits = {
-              cpu    = "1"
-              memory = "2Gi"
+              cpu    = "2"
+              memory = "4Gi"
             }
           }
         }
@@ -314,12 +315,12 @@ locals {
           maxReplicas = 1
           resources = {
             requests = {
-              cpu    = "100m"
-              memory = "512Mi"
+              cpu    = "200m"
+              memory = "1Gi"
             }
             limits = {
-              cpu    = "500m"
-              memory = "1Gi"
+              cpu    = "1"
+              memory = "2Gi"
             }
           }
         }
