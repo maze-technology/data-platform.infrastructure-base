@@ -869,6 +869,5 @@ variable "backup_postgres_dump_targets" {
     database = string
     password = string
   }))
-  default   = []
-  sensitive = true
+  default = []
 }

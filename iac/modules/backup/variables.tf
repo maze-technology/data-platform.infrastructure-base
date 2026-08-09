@@ -211,7 +211,7 @@ variable "postgres_dump_image" {
 }
 
 variable "postgres_dump_targets" {
-  description = "Postgres instances to dump (host/user/db/password)"
+  description = "Postgres instances to dump (host/user/db/password). Not marked sensitive as a whole so for_each keys work; passwords still land only in Kubernetes Secrets."
   type = list(object({
     name     = string
     host     = string
@@ -220,7 +220,6 @@ variable "postgres_dump_targets" {
     database = string
     password = string
   }))
-  default   = []
-  sensitive = true
+  default = []
 }
 
