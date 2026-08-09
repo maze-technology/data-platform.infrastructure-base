@@ -2,7 +2,20 @@
 # Complements Velero/Kopia PVC snapshots with application-consistent dumps.
 
 locals {
-  postgres_dump_active = var.enabled && var.postgres_dump_enabled && length(var.postgres_dump_targets) > 0
+  postgres_dump_names  = toset([for t in var.postgres_dump_targets : nonsensitive(t.name)])
+  postgres_dump_active = var.enabled && var.postgres_dump_enabled && length(local.postgres_dump_names) > 0
+
+  # for_each keys must be non-sensitive; passwords stay in values / secrets.
+  postgres_dump_by_name = {
+    for t in var.postgres_dump_targets : nonsensitive(t.name) => {
+      name     = nonsensitive(t.name)
+      host     = nonsensitive(t.host)
+      port     = nonsensitive(tostring(t.port))
+      user     = nonsensitive(t.user)
+      database = nonsensitive(t.database)
+      password = t.password
+    }
+  }
 
   postgres_dump_rclone_conf = <<-EOT
     [backup]
@@ -57,9 +70,7 @@ locals {
 }
 
 resource "kubernetes_secret" "postgres_dump" {
-  for_each = local.postgres_dump_active ? {
-    for t in var.postgres_dump_targets : t.name => t
-  } : {}
+  for_each = local.postgres_dump_active ? local.postgres_dump_by_name : {}
 
   metadata {
     name      = "postgres-dump-${each.key}"
@@ -88,9 +99,7 @@ resource "kubernetes_secret" "postgres_dump" {
 }
 
 resource "kubernetes_cron_job_v1" "postgres_dump" {
-  for_each = local.postgres_dump_active ? {
-    for t in var.postgres_dump_targets : t.name => t
-  } : {}
+  for_each = local.postgres_dump_active ? local.postgres_dump_by_name : {}
 
   metadata {
     name      = "postgres-dump-${each.key}"
