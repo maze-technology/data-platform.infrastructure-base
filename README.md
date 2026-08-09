@@ -84,7 +84,7 @@ See [`variables.tf`](variables.tf) for the full interface. High-level groups:
 | Feature flags | `enable_kind_cluster`, `enable_cluster_dns`, `create_maze_ca`, `restrict_to_vpn` |
 | Rook-Ceph | `storage_nodes`, `create_loop_devices`, `mon_count`, `replication_size`, resource requests/limits |
 | TLS / ingress | `letsencrypt_email`, `letsencrypt_server`, `ingress_service_type`, NodePorts |
-| VPN | `vpn_subnet`, `wireguard_server_url`, `wireguard_peers`, service type / storage |
+| VPN | `vpn_subnet`, `wireguard_server_url`, `wireguard_peers`, `wireguard_allowed_ips`, service type / storage |
 | Identity | `bootstrap_admin`, `bootstrap_users`, Keycloak admin + DB settings |
 | Vault | replica/HA, `vault_storage_backend`, storage class/size |
 | Observability | PVC sizes, Loki mode/caches, bucket name overrides |

@@ -316,6 +316,12 @@ variable "wireguard_peers" {
   default     = ""
 }
 
+variable "wireguard_allowed_ips" {
+  description = "Comma-separated AllowedIPs for WireGuard peers. Empty uses VPN + kind service/pod CIDRs. Production should add the bare-metal private CIDR (e.g. 192.168.0.0/16)."
+  type        = string
+  default     = ""
+}
+
 variable "wireguard_service_type" {
   description = "WireGuard Service type"
   type        = string
