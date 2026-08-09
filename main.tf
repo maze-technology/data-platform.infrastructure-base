@@ -304,6 +304,7 @@ module "wireguard" {
   service_type  = var.wireguard_service_type
   node_port     = var.wireguard_node_port
   vpn_subnet    = var.vpn_subnet
+  allowed_ips   = var.wireguard_allowed_ips
   peers         = local.wireguard_peers
   storage_class = local.wireguard_storage_class
   storage_size  = var.wireguard_storage_size
