@@ -166,7 +166,7 @@ resource "kubernetes_job" "create_temporal_namespaces" {
 
         container {
           name  = "tctl"
-          image = "temporalio/admin-tools:1.25.0"
+          image = "temporalio/admin-tools:1.31.2"
 
           command = ["/bin/sh", "-c"]
           args = [
