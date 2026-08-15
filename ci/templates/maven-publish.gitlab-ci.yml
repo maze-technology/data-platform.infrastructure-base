@@ -221,7 +221,9 @@ maven_publish:
       fi
 
       VERSION_ARGS=""
-      if [ "$[[ inputs.version_property ]]" = "true" ] && [ -n "${CI_COMMIT_TAG:-}" ]; then
+      if [ -n "${MAVEN_PUBLISH_VERSION:-}" ]; then
+        VERSION_ARGS="-Pversion=${MAVEN_PUBLISH_VERSION}"
+      elif [ "$[[ inputs.version_property ]]" = "true" ] && [ -n "${CI_COMMIT_TAG:-}" ]; then
         VERSION_ARGS="-Pversion=${CI_COMMIT_TAG}"
       fi
       # Switch credentials to job token for Package Registry write (Deploy Token is read-only).
