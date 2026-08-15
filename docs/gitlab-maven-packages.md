@@ -1,5 +1,14 @@
 # GitLab Maven Package Registry
 
+## Releases (auto-tag on main)
+
+GitHub used to bump a patch tag on every push to `main` (`publish.yaml` /
+`tag-release.yaml`). That was not initially ported.
+
+GitLab equivalent: include `ci/templates/tag-release.gitlab-ci.yml`. It creates
+the next `vX.Y.Z` tag on `main` via `GITLAB_TAG_TOKEN` (group access token:
+`api` + `write_repository`). Tag pipelines then run maven/cargo/container publish.
+
 ## Resolve (read)
 
 Group Maven URL (data-platform): `https://scm.maze.trading/api/v4/groups/6/-/packages/maven`

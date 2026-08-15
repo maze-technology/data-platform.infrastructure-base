@@ -1,0 +1,5 @@
+# Tag release on main (replaces .github/workflows/tag-release.yaml for GitLab SoT).
+stages: [publish]
+
+include:
+  - local: "/ci/templates/tag-release.gitlab-ci.yml"

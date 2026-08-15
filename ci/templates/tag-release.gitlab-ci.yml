@@ -1,0 +1,108 @@
+# Auto patch-tag on push to main (GitHub publish.yaml parity).
+#
+# Old GitHub flow: push to main → bump patch tag → publish used that version.
+# GitLab publish jobs already run on $CI_COMMIT_TAG; this job only creates the tag.
+#
+# Include:
+#   include:
+#     - project: "data-platform/infrastructure-base"
+#       ref: "develop"
+#       file: "/ci/templates/tag-release.gitlab-ci.yml"
+#
+# Auth (group/project CI variable, masked):
+#   GITLAB_TAG_TOKEN — Group/Project Access Token with api + write_repository
+#   (CI_JOB_TOKEN is tried as fallback but often cannot create tags on CE.)
+#
+# Loop-safe: never runs on tag pipelines. Creating a tag starts a separate pipeline
+# that runs maven/cargo/container publish — this job does not.
+
+spec:
+  inputs:
+    with_v:
+      description: Prefix tags with v (v0.1.2)
+      default: "true"
+    initial_version:
+      description: First tag when the repo has none
+      default: "0.0.1"
+
+---
+
+tag_release:
+  stage: .pre
+  image:
+    name: alpine:3.20
+    entrypoint: [""]
+  variables:
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - |
+      set -euo pipefail
+      apk add --no-cache curl jq git >/dev/null
+
+      TOKEN="${GITLAB_TAG_TOKEN:-${CI_JOB_TOKEN:-}}"
+      if [ -z "${TOKEN}" ]; then
+        echo "ERROR: set GITLAB_TAG_TOKEN (api + write_repository) for tag_release" >&2
+        exit 1
+      fi
+
+      API="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}"
+      AUTH_HEADER="PRIVATE-TOKEN: ${TOKEN}"
+      # Job-token auth uses a different header when falling back
+      if [ -z "${GITLAB_TAG_TOKEN:-}" ]; then
+        AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN}"
+      fi
+
+      # Idempotent: skip if this SHA already has a version tag
+      EXISTING="$(curl -fsS --header "${AUTH_HEADER}" \
+        "${API}/repository/commits/${CI_COMMIT_SHA}/refs?type=tag" \
+        | jq -r '.[].name' | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+      if [ -n "${EXISTING}" ]; then
+        echo "SHA ${CI_COMMIT_SHA} already tagged: ${EXISTING}"
+        exit 0
+      fi
+
+      LATEST="$(curl -fsS --header "${AUTH_HEADER}" \
+        "${API}/repository/tags?per_page=100" \
+        | jq -r '.[].name' | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sed 's/^v//' | sort -V | tail -1 || true)"
+
+      if [ -z "${LATEST}" ]; then
+        NEXT="$[[ inputs.initial_version ]]"
+      else
+        NEXT="$(printf '%s' "${LATEST}" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')"
+      fi
+
+      if [ "$[[ inputs.with_v ]]" = "true" ]; then
+        TAG="v${NEXT}"
+      else
+        TAG="${NEXT}"
+      fi
+
+      echo "Creating tag ${TAG} on ${CI_COMMIT_SHA} (was ${LATEST:-<none>})"
+      HTTP="$(curl -sS -o /tmp/tag_resp.json -w '%{http_code}' --request POST \
+        --header "${AUTH_HEADER}" \
+        --header "Content-Type: application/json" \
+        --data "{\"tag_name\":\"${TAG}\",\"ref\":\"${CI_COMMIT_SHA}\",\"message\":\"Release ${TAG}\"}" \
+        "${API}/repository/tags")"
+
+      if [ "${HTTP}" = "201" ] || [ "${HTTP}" = "200" ]; then
+        echo "Created ${TAG}"
+        cat /tmp/tag_resp.json | jq -r '.name // .'
+        exit 0
+      fi
+
+      # Race: another pipeline created the same tag
+      if [ "${HTTP}" = "400" ] && grep -qi 'already exists' /tmp/tag_resp.json; then
+        echo "Tag ${TAG} already exists — ok"
+        exit 0
+      fi
+
+      echo "ERROR: create tag HTTP ${HTTP}" >&2
+      cat /tmp/tag_resp.json >&2 || true
+      exit 1
