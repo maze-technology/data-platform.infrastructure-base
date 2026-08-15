@@ -92,7 +92,10 @@ maven_publish:
       echo "make=$(make --version 2>&1 | head -n1 || true)"
 
       if [ -f .gitmodules ]; then
-        echo "=== maven_publish: git submodules (HTTPS rewrite for github.com SSH URLs) ==="
+        echo "=== maven_publish: git submodules (CI HTTPS for GitLab SSH URLs) ==="
+        # Runners authenticate to scm via job token, not deploy keys.
+        git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@scm.maze.trading/".insteadOf "git@scm.maze.trading:"
+        # Legacy: keep GitHub HTTPS rewrite if any submodule still points there.
         git config --global url."https://github.com/".insteadOf "git@github.com:"
         git submodule sync --recursive
         git submodule update --init --recursive
