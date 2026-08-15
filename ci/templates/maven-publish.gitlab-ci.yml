@@ -10,8 +10,9 @@
 #         job_image: eclipse-temurin:21-jdk
 #
 # Flow (matches former GitHub commons publish):
-#   apt deps → optional SDKMAN (.sdkmanrc) → optional smithy tools → pre_publish (codegen) → ./gradlew publish
+#   apt deps → optional SDKMAN (.sdkmanrc) → optional smithy tools → codegen pre_publish → ./gradlew publish
 #   Job requests 2Gi/6Gi (runner default 1536Mi OOMs on Gradle).
+#   Publish URL is project Package Registry (group Maven URL is resolve-only).
 #
 # Auth:
 #   Publish URL: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/maven (group URL returns 415 on PUT)
@@ -25,8 +26,8 @@ spec:
       description: CI job image with JDK (temurin + apt-get for tooling)
       default: eclipse-temurin:21-jdk
     pre_publish:
-      description: Shell command run before ./gradlew publish (empty skips). Default make pre-build (codegen); skipped automatically when there is no Makefile. Use "make build" only if you need full verify and have raised KUBERNETES_MEMORY_LIMIT.
-      default: "make pre-build"
+      description: Shell before ./gradlew publish. Default runs smithy/buf codegen targets shared by commons and specs Makefiles (not full make build).
+      default: "make generate-proto inject-protovalidate-validations buf-codegen"
     use_sdkman:
       description: If "true", install SDKMAN and sdk env install when .sdkmanrc is present
       default: "true"
@@ -115,17 +116,33 @@ maven_publish:
         echo "=== maven_publish: SDKMAN (.sdkmanrc present) ==="
         export SDKMAN_DIR="${SDKMAN_DIR:-$HOME/.sdkman}"
         if [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
-          curl -s "https://get.sdkman.io" | bash
+          # api.sdkman.io occasionally 503s under parallel CI; retry a few times.
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            echo "SDKMAN install attempt ${attempt}/5"
+            if curl -fsS --retry 3 --retry-delay 2 "https://get.sdkman.io" | bash; then
+              ok=1
+              break
+            fi
+            sleep $((attempt * 3))
+          done
+          if [ "$ok" != "1" ] || [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+            echo "WARN: SDKMAN install failed; falling back to image JDK" >&2
+          fi
         fi
-        # SDKMAN scripts are not nounset-safe (sdk env install hits unbound $3).
-        # shellcheck disable=SC1091
-        set +eu
-        . "$SDKMAN_DIR/bin/sdkman-init.sh"
-        sdk env install
-        set -eu
-        export JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"
-        export PATH="${JAVA_HOME}/bin:${PATH}"
-        echo "JAVA_HOME=${JAVA_HOME}"
+        if [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+          # SDKMAN scripts are not nounset-safe (sdk env install hits unbound $3).
+          # shellcheck disable=SC1091
+          set +eu
+          . "$SDKMAN_DIR/bin/sdkman-init.sh"
+          sdk env install || echo "WARN: sdk env install failed; falling back to image JDK" >&2
+          set -eu
+          if [ -x "${SDKMAN_DIR}/candidates/java/current/bin/java" ]; then
+            export JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"
+            export PATH="${JAVA_HOME}/bin:${PATH}"
+            echo "JAVA_HOME=${JAVA_HOME}"
+          fi
+        fi
       else
         echo "=== maven_publish: using image JDK (use_sdkman=$[[ inputs.use_sdkman ]], sdkmanrc=$([ -f .sdkmanrc ] && echo yes || echo no)) ==="
       fi
@@ -182,7 +199,7 @@ maven_publish:
       # Trim accidental whitespace from input interpolation
       PRE_PUBLISH=$(printf '%s' "$PRE_PUBLISH" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       if [ -n "$PRE_PUBLISH" ]; then
-        if { [ "$PRE_PUBLISH" = "make build" ] || [ "$PRE_PUBLISH" = "make pre-build" ]; } && [ ! -f Makefile ]; then
+        if [ ! -f Makefile ] && echo "$PRE_PUBLISH" | grep -q '^make '; then
           echo "=== maven_publish: skipping pre_publish '${PRE_PUBLISH}' (no Makefile) ==="
         else
           echo "=== maven_publish: pre_publish: ${PRE_PUBLISH} ==="
