@@ -95,12 +95,12 @@ maven_publish:
         if [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
           curl -s "https://get.sdkman.io" | bash
         fi
+        # SDKMAN scripts are not nounset-safe (sdk env install hits unbound $3).
         # shellcheck disable=SC1091
-        set +u
-        # SDKMAN init is not nounset-safe
+        set +eu
         . "$SDKMAN_DIR/bin/sdkman-init.sh"
-        set -u
         sdk env install
+        set -eu
         export JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"
         export PATH="${JAVA_HOME}/bin:${PATH}"
         echo "JAVA_HOME=${JAVA_HOME}"
