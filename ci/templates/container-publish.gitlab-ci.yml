@@ -103,18 +103,18 @@ container_publish:
       echo "Logging into GitLab registry ${CI_REGISTRY}"
       echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
-    # Custom build (optional). Kept as its own step so inputs are not stuffed into
-    # a CI variable (multiline/# comments / masked-secret expansion break there).
-    - |
-      set -euo pipefail
-      echo "Build target → ${PUBLISH_IMAGE}:${PUBLISH_TAG}"
-    - |
-      $[[ inputs.build_script ]]
     - |
       set -euo pipefail
       GITLAB_REF="${PUBLISH_IMAGE}:${PUBLISH_TAG}"
+      echo "Build target → ${GITLAB_REF}"
 
-      if ! docker image inspect "${GITLAB_REF}" >/dev/null 2>&1; then
+      # Prefer a single-line build_script input. Multiline inputs break YAML
+      # indentation when expanded into this block and can truncate the job.
+      CUSTOM_BUILD="$[[ inputs.build_script ]]"
+      if [ -n "${CUSTOM_BUILD}" ]; then
+        echo "Custom build → ${GITLAB_REF}"
+        bash -lc "${CUSTOM_BUILD}"
+      else
         echo "Building ${GITLAB_REF} (Dockerfile=${PUBLISH_DOCKERFILE} context=${PUBLISH_CONTEXT})"
         docker build -f "${PUBLISH_DOCKERFILE}" -t "${GITLAB_REF}" "${PUBLISH_CONTEXT}"
       fi
