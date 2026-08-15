@@ -30,7 +30,7 @@ spec:
 tag_release:
   stage: .pre
   image:
-    name: alpine:3.20
+    name: alpine:3.24
     entrypoint: [""]
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
