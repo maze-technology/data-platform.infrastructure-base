@@ -35,12 +35,10 @@ spec:
       default: "."
     build_script:
       description: >
-        Optional shell to produce the image already tagged as image_name:tag
+        Optional shell to produce the image already tagged as PUBLISH_IMAGE:PUBLISH_TAG
         (e.g. gradle bootBuildImage). Empty = docker build -f dockerfile.
-        IMPORTANT: do not reference masked CI vars (e.g. GITLAB_MAVEN_PASSWORD)
-        inside this script — it is stored in PUBLISH_BUILD_SCRIPT and eval'd;
-        masked vars expand to empty there and can wipe real job env. Rely on
-        group/project env vars being present for the toolchain instead.
+        Inserted as its own script step (not a CI variable) so multiline content
+        and # comments stay intact.
       default: ""
     image_name:
       description: GitLab registry image (runtime source of truth)
@@ -69,7 +67,6 @@ variables:
   PUBLISH_TAG: $[[ inputs.tag ]]
   PUBLISH_DOCKERFILE: $[[ inputs.dockerfile ]]
   PUBLISH_CONTEXT: $[[ inputs.context ]]
-  PUBLISH_BUILD_SCRIPT: $[[ inputs.build_script ]]
   PUBLISH_PUSH_LATEST: $[[ inputs.push_latest ]]
   PUBLISH_DOCKERHUB: $[[ inputs.dockerhub_enabled ]]
   # Runtime SoT for secure scan/sign jobs
@@ -106,14 +103,18 @@ container_publish:
       echo "Logging into GitLab registry ${CI_REGISTRY}"
       echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
+    # Custom build (optional). Kept as its own step so inputs are not stuffed into
+    # a CI variable (multiline/# comments / masked-secret expansion break there).
+    - |
+      set -euo pipefail
+      echo "Build target → ${PUBLISH_IMAGE}:${PUBLISH_TAG}"
+    - |
+      $[[ inputs.build_script ]]
     - |
       set -euo pipefail
       GITLAB_REF="${PUBLISH_IMAGE}:${PUBLISH_TAG}"
 
-      if [ -n "${PUBLISH_BUILD_SCRIPT}" ]; then
-        echo "Custom build → ${GITLAB_REF}"
-        eval "${PUBLISH_BUILD_SCRIPT}"
-      else
+      if ! docker image inspect "${GITLAB_REF}" >/dev/null 2>&1; then
         echo "Building ${GITLAB_REF} (Dockerfile=${PUBLISH_DOCKERFILE} context=${PUBLISH_CONTEXT})"
         docker build -f "${PUBLISH_DOCKERFILE}" -t "${GITLAB_REF}" "${PUBLISH_CONTEXT}"
       fi
