@@ -12,22 +12,18 @@
 # Publishes with ./gradlew publish using:
 #   GITLAB_MAVEN_URL   (default: https://scm.maze.trading/api/v4/groups/6/-/packages/maven)
 #   GITLAB_MAVEN_USER  (default: gitlab-ci-token)
-#   GITLAB_MAVEN_PASSWORD / CI_JOB_TOKEN / GITLAB_TOKEN
-#
-# Runs on tags, and on pushes to main/develop (override with rules input if needed).
-# Local/dev: set GITLAB_TOKEN with read_api + read_package_registry (or a group Deploy Token
-# as GITLAB_MAVEN_USER / GITLAB_MAVEN_PASSWORD).
+#   CI_JOB_TOKEN for publish (write); group Deploy Token GITLAB_MAVEN_* for local/read
 
 spec:
   inputs:
     job_image:
-      description: CI job image with JDK (SDKMAN used when .sdkmanrc is present)
+      description: CI job image with JDK
       default: eclipse-temurin:21-jdk
     gradle_args:
       description: Extra args passed to ./gradlew publish
       default: ""
     version_property:
-      description: If non-empty, pass -Pversion=<git tag or CI_COMMIT_TAG>
+      description: If "true", pass -Pversion=<CI_COMMIT_TAG> when tagged
       default: "true"
 
 ---
@@ -35,24 +31,22 @@ spec:
 stages:
   - publish
 
-variables:
-  GITLAB_MAVEN_URL: "${GITLAB_MAVEN_URL}"
-  GITLAB_MAVEN_USER: "${GITLAB_MAVEN_USER}"
-
 maven_publish:
   stage: publish
   image:
     name: $[[ inputs.job_image ]]
     entrypoint: [""]
+  variables:
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_BRANCH == "develop"
   before_script:
     - |
-      set -euo pipefail
+      set -eu
       export GITLAB_MAVEN_URL="${GITLAB_MAVEN_URL:-https://scm.maze.trading/api/v4/groups/6/-/packages/maven}"
-      # Publish requires write_package_registry: prefer CI_JOB_TOKEN over read-only Deploy Token
+      # Publish needs write_package_registry — always prefer CI_JOB_TOKEN over read-only Deploy Token.
       if [ -n "${CI_JOB_TOKEN:-}" ]; then
         export GITLAB_MAVEN_USER=gitlab-ci-token
         export GITLAB_MAVEN_PASSWORD="$CI_JOB_TOKEN"
@@ -64,21 +58,16 @@ maven_publish:
         echo "ERROR: set CI_JOB_TOKEN, GITLAB_MAVEN_PASSWORD, or GITLAB_TOKEN" >&2
         exit 1
       fi
-      if [ -f .sdkmanrc ]; then
-        export SDKMAN_DIR="${SDKMAN_DIR:-$HOME/.sdkman}"
-        if [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
-          curl -s "https://get.sdkman.io" | bash >/dev/null
-        fi
-        # shellcheck disable=SC1091
-        source "$SDKMAN_DIR/bin/sdkman-init.sh"
-        sdk env install
-        export JAVA_HOME="$SDKMAN_DIR/candidates/java/current"
-      fi
+      echo "GITLAB_MAVEN_URL=${GITLAB_MAVEN_URL}"
+      echo "GITLAB_MAVEN_USER=${GITLAB_MAVEN_USER}"
+      java -version
+      chmod +x ./gradlew
   script:
     - |
-      set -euo pipefail
+      set -eu
       VERSION_ARGS=""
       if [ "$[[ inputs.version_property ]]" = "true" ] && [ -n "${CI_COMMIT_TAG:-}" ]; then
         VERSION_ARGS="-Pversion=${CI_COMMIT_TAG}"
       fi
-      ./gradlew $VERSION_ARGS $[[ inputs.gradle_args ]] publish
+      # shellcheck disable=SC2086
+      ./gradlew --no-daemon ${VERSION_ARGS} $[[ inputs.gradle_args ]] publish
