@@ -16,8 +16,8 @@
 #
 # Auth:
 #   Publish URL: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/maven (group URL returns 415 on PUT)
-#   GITLAB_MAVEN_USER  (default: gitlab-ci-token)
-#   CI_JOB_TOKEN for publish (write); group Deploy Token GITLAB_MAVEN_* for local/read
+#   Resolve (smithy-build): keep group CI vars GITLAB_MAVEN_USER/PASSWORD (Deploy Token)
+#   Publish write: switch to gitlab-ci-token + $CI_JOB_TOKEN just before ./gradlew publish
 #   Consumers resolve via group URL https://scm.maze.trading/api/v4/groups/6/-/packages/maven
 
 spec:
@@ -71,22 +71,19 @@ maven_publish:
     - |
       set -eu
       echo "=== maven_publish: env setup ==="
-      # Group Maven URL is read-only for resolution; PUT must target the project registry.
+      # Publish PUT must target the project registry (group URL returns 415).
       export GITLAB_MAVEN_URL="${GITLAB_MAVEN_PUBLISH_URL:-${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/maven}"
-      # Publish needs write_package_registry — always prefer CI_JOB_TOKEN over read-only Deploy Token.
-      if [ -n "${CI_JOB_TOKEN:-}" ]; then
-        export GITLAB_MAVEN_USER=gitlab-ci-token
-        export GITLAB_MAVEN_PASSWORD="$CI_JOB_TOKEN"
-      else
-        export GITLAB_MAVEN_USER="${GITLAB_MAVEN_USER:-gitlab-ci-token}"
-        export GITLAB_MAVEN_PASSWORD="${GITLAB_MAVEN_PASSWORD:-${GITLAB_TOKEN:-}}"
-      fi
-      if [ -z "${GITLAB_MAVEN_PASSWORD}" ]; then
-        echo "ERROR: set CI_JOB_TOKEN, GITLAB_MAVEN_PASSWORD, or GITLAB_TOKEN" >&2
+      # Keep group Deploy Token (GITLAB_MAVEN_USER/PASSWORD) for smithy-build.json dependency
+      # resolution. Do NOT replace with CI_JOB_TOKEN here — job tokens cannot read other
+      # projects' packages under inbound job-token allowlists.
+      if [ -z "${CI_JOB_TOKEN:-}" ] && [ -z "${GITLAB_MAVEN_PASSWORD:-}" ] && [ -z "${GITLAB_TOKEN:-}" ]; then
+        echo "ERROR: set CI_JOB_TOKEN (publish) and/or GITLAB_MAVEN_PASSWORD (resolve)" >&2
         exit 1
       fi
       echo "GITLAB_MAVEN_URL=${GITLAB_MAVEN_URL}"
-      echo "GITLAB_MAVEN_USER=${GITLAB_MAVEN_USER}"
+      echo "GITLAB_MAVEN_USER=${GITLAB_MAVEN_USER:-<unset>}"
+      echo "has_GITLAB_MAVEN_PASSWORD=$([ -n "${GITLAB_MAVEN_PASSWORD:-}" ] && echo yes || echo no)"
+      echo "has_CI_JOB_TOKEN=$([ -n "${CI_JOB_TOKEN:-}" ] && echo yes || echo no)"
       echo "CI_COMMIT_REF_NAME=${CI_COMMIT_REF_NAME:-}"
       echo "CI_COMMIT_SHA=${CI_COMMIT_SHA:-}"
       echo "PWD=$(pwd)"
@@ -227,7 +224,15 @@ maven_publish:
       if [ "$[[ inputs.version_property ]]" = "true" ] && [ -n "${CI_COMMIT_TAG:-}" ]; then
         VERSION_ARGS="-Pversion=${CI_COMMIT_TAG}"
       fi
-      echo "=== maven_publish: ./gradlew ${VERSION_ARGS} $[[ inputs.gradle_args ]] publish ==="
+      # Switch credentials to job token for Package Registry write (Deploy Token is read-only).
+      if [ -n "${CI_JOB_TOKEN:-}" ]; then
+        export GITLAB_MAVEN_USER=gitlab-ci-token
+        export GITLAB_MAVEN_PASSWORD="$CI_JOB_TOKEN"
+      else
+        export GITLAB_MAVEN_USER="${GITLAB_MAVEN_USER:-gitlab-ci-token}"
+        export GITLAB_MAVEN_PASSWORD="${GITLAB_MAVEN_PASSWORD:-${GITLAB_TOKEN:-}}"
+      fi
+      echo "=== maven_publish: ./gradlew ${VERSION_ARGS} $[[ inputs.gradle_args ]] publish (user=${GITLAB_MAVEN_USER}) ==="
       # shellcheck disable=SC2086
       ./gradlew --no-daemon --stacktrace ${VERSION_ARGS} $[[ inputs.gradle_args ]] publish
       echo "=== maven_publish: success ==="
