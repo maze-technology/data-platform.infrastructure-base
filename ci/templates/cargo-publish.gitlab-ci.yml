@@ -84,7 +84,14 @@ cargo_publish:
         "" \
         "[registry]" \
         "default = \"${REGISTRY_NAME}\"" \
+        "global-credential-providers = [\"cargo:token\"]" \
         > "${HOME}/.cargo/config.toml"
+      # Explicit token file — env-only auth is rejected by Cargo ≥1.85 without providers.
+      printf '%s\n' \
+        "[registries.${REGISTRY_NAME}]" \
+        "token = \"${TOKEN_VAL}\"" \
+        > "${HOME}/.cargo/credentials.toml"
+      chmod 600 "${HOME}/.cargo/credentials.toml"
       echo "registry=${REGISTRY_NAME} index=${INDEX_VAL}"
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
