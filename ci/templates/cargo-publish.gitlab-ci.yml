@@ -48,7 +48,9 @@ cargo_publish:
     entrypoint: [""]
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
-    GIT_SUBMODULE_STRATEGY: "none"
+    # Needed for scripts/smithy-protovalidate (inject-protovalidate-validations).
+    GIT_SUBMODULE_STRATEGY: "recursive"
+    GIT_SUBMODULE_FORCE_HTTPS: "true"
     CARGO_TERM_COLOR: always
     KUBERNETES_MEMORY_REQUEST: "2Gi"
     KUBERNETES_MEMORY_LIMIT: "6Gi"
@@ -86,12 +88,33 @@ cargo_publish:
       echo "registry=${REGISTRY_NAME} index=${INDEX_VAL}"
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
-      apt-get install -y -qq curl unzip zip ca-certificates python3 make git protobuf-compiler openjdk-21-jdk-headless >/dev/null
-      # Optional smithy/buf tooling when pre_publish needs Makefile codegen
-      if [ ! -x /usr/local/bin/buf ]; then
-        curl -fsSL "https://github.com/bufbuild/buf/releases/download/v1.55.1/buf-Linux-x86_64" -o /usr/local/bin/buf
-        chmod +x /usr/local/bin/buf
+      apt-get install -y -qq curl unzip zip ca-certificates python3 make git protobuf-compiler openjdk-21-jdk-headless gzip >/dev/null
+      # Smithy/buf tooling (same stack as maven-publish) for Makefile codegen.
+      SMITHY_VERSION="${SMITHY_VERSION:-1.57.1}"
+      SMITHYTRANSLATE_VERSION="${SMITHYTRANSLATE_VERSION:-0.7.2}"
+      BUF_VERSION="${BUF_VERSION:-1.55.1}"
+      echo "=== cargo_publish: Smithy CLI ${SMITHY_VERSION} ==="
+      SMITHY_TMP="$(mktemp -d)"
+      curl -fsSL "https://github.com/smithy-lang/smithy/releases/download/${SMITHY_VERSION}/smithy-cli-linux-x86_64.zip" \
+        -o "${SMITHY_TMP}/smithy-cli.zip"
+      unzip -qo "${SMITHY_TMP}/smithy-cli.zip" -d "${SMITHY_TMP}"
+      "${SMITHY_TMP}/smithy-cli-linux-x86_64/install"
+      rm -rf "${SMITHY_TMP}"
+      echo "=== cargo_publish: coursier + smithytranslate ${SMITHYTRANSLATE_VERSION} ==="
+      CS_BIN="${HOME}/.local/share/coursier/bin"
+      mkdir -p "${HOME}/.local/bin" "${CS_BIN}"
+      if ! command -v cs >/dev/null 2>&1; then
+        curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > "${HOME}/.local/bin/cs"
+        chmod +x "${HOME}/.local/bin/cs"
+        export PATH="${HOME}/.local/bin:${PATH}"
+        cs setup --yes || true
       fi
+      export PATH="${HOME}/.local/bin:${CS_BIN}:${PATH}"
+      cs install --channel https://disneystreaming.github.io/coursier.json "smithytranslate:${SMITHYTRANSLATE_VERSION}"
+      export PATH="${CS_BIN}:${PATH}"
+      echo "=== cargo_publish: buf ${BUF_VERSION} ==="
+      curl -fsSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" -o /usr/local/bin/buf
+      chmod +x /usr/local/bin/buf
   script:
     - |
       set -eu
@@ -99,9 +122,10 @@ cargo_publish:
       CRATE_DIR="$[[ inputs.crate_dir ]]"
       PRE="$[[ inputs.pre_publish ]]"
       PKG_ARGS="$[[ inputs.package_args ]]"
+      export PATH="${HOME}/.local/bin:${HOME}/.local/share/coursier/bin:${PATH}"
       if [ -n "${PRE}" ]; then
         echo "=== cargo_publish: pre_publish ==="
-        bash -lc "${PRE}"
+        bash -c "${PRE}"
       fi
       if [ ! -f "${CRATE_DIR}/Cargo.toml" ]; then
         echo "ERROR: missing ${CRATE_DIR}/Cargo.toml after pre_publish" >&2
