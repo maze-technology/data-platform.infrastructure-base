@@ -25,6 +25,7 @@ output "service_urls" {
     auth_realm   = module.keycloak.issuer_url
     scm          = "https://${local.hosts.scm}"
     registry     = "https://${local.hosts.registry}"
+    crates       = var.enable_kellnr ? "https://${local.hosts.crates}" : null
     grafana      = "https://${local.hosts.grafana}"
     argocd       = "https://${local.hosts.argocd}"
     vault        = "https://${local.hosts.vault}"
@@ -83,6 +84,33 @@ output "gitlab_bucket_name" {
   value       = local.gitlab_bucket_name
 }
 
+output "kellnr_url" {
+  description = "Kellnr web UI / API URL (null when disabled)"
+  value       = var.enable_kellnr ? module.kellnr[0].url : null
+}
+
+output "kellnr_sparse_index" {
+  description = "Cargo sparse index for registry = \"maze\" (null when disabled)"
+  value       = var.enable_kellnr ? module.kellnr[0].sparse_index : null
+}
+
+output "kellnr_bucket_name" {
+  description = "S3 bucket for Kellnr crate blobs"
+  value       = local.kellnr_bucket_name
+}
+
+output "kellnr_admin_token" {
+  description = "Bootstrap Kellnr Cargo admin token (prefer UI-issued tokens for CI)"
+  sensitive   = true
+  value       = var.enable_kellnr ? module.kellnr[0].admin_token : null
+}
+
+output "kellnr_postgresql_password" {
+  description = "Kellnr Postgres password for backup dumps"
+  sensitive   = true
+  value       = var.enable_kellnr ? module.kellnr[0].postgresql_password : null
+}
+
 output "gitlab_url" {
   description = "GitLab web UI URL"
   value       = module.gitlab.gitlab_url
@@ -136,7 +164,7 @@ output "bootstrap_credentials" {
       username = var.bootstrap_admin.username
       password = var.bootstrap_admin.password
       realm    = module.keycloak.realm
-      note     = "Use Keycloak SSO on GitLab, Grafana, and Argo CD (local passwords disabled)"
+      note     = "Use Keycloak SSO on GitLab, Grafana, Argo CD, and Kellnr (local passwords disabled)"
     }
     keycloak_master = {
       username = var.keycloak_admin_username

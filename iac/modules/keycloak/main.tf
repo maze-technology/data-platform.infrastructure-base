@@ -8,6 +8,11 @@ resource "random_password" "argocd_client_secret" {
   special = false
 }
 
+resource "random_password" "kellnr_client_secret" {
+  length  = 32
+  special = false
+}
+
 resource "random_password" "grafana_client_secret" {
   length  = 32
   special = false
@@ -85,9 +90,11 @@ ${join("\n", [for g in user.groups : "      - ${g}"])}
     gitlab_client_secret  = random_password.gitlab_client_secret.result
     argocd_client_secret  = random_password.argocd_client_secret.result
     grafana_client_secret = random_password.grafana_client_secret.result
+    kellnr_client_secret  = random_password.kellnr_client_secret.result
     gitlab_redirect_uri   = var.oidc_clients.gitlab_redirect_uri
     argocd_redirect_uri   = var.oidc_clients.argocd_redirect_uri
     grafana_redirect_uri  = var.oidc_clients.grafana_redirect_uri
+    kellnr_redirect_uri   = var.oidc_clients.kellnr_redirect_uri
     realm_users_yaml      = local.realm_users_yaml
   })
 }
