@@ -149,6 +149,10 @@ resource "helm_release" "prometheus_operator" {
           # Enable correlation between metrics, logs, and traces
           "grafana.ini" = merge(
             {
+              server = {
+                domain   = var.grafana_ingress_host
+                root_url = var.grafana_enable_tls ? "https://${var.grafana_ingress_host}/" : "http://${var.grafana_ingress_host}/"
+              }
               feature_toggles = {
                 enable = "correlations"
               }
