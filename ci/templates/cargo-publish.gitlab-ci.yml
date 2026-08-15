@@ -1,0 +1,118 @@
+# Reusable Cargo publish to Kellnr private registry (maze).
+#
+# Include from a specs/crate .gitlab-ci.yml:
+#
+#   include:
+#     - project: "data-platform/infrastructure-base"
+#       ref: "develop"
+#       file: "/ci/templates/cargo-publish.gitlab-ci.yml"
+#       inputs:
+#         crate_dir: build/generated/rust
+#
+# Auth (group CI/CD variable, masked):
+#   CARGO_REGISTRIES_MAZE_TOKEN — Kellnr API token with publish rights
+#
+# Optional:
+#   CARGO_REGISTRIES_MAZE_INDEX — sparse+https://crates.maze.trading/api/v1/crates/
+
+spec:
+  inputs:
+    crate_dir:
+      description: Directory containing Cargo.toml to publish
+      default: "build/generated/rust"
+    pre_publish:
+      description: Shell before cargo publish (codegen, etc.)
+      default: "make generate-proto inject-protovalidate-validations buf-codegen rust-crate"
+    rust_version:
+      description: Rust toolchain channel or version
+      default: "1.85.0"
+    registry_name:
+      description: Cargo registry name (must match [registries.*] and CARGO_REGISTRIES_*_TOKEN)
+      default: "maze"
+    registry_index:
+      description: Sparse index URL (override with CI var CARGO_REGISTRIES_MAZE_INDEX)
+      default: "sparse+https://crates.maze.trading/api/v1/crates/"
+    package_args:
+      description: Extra args for cargo publish
+      default: "--allow-dirty"
+
+---
+
+stages:
+  - publish
+
+cargo_publish:
+  stage: publish
+  image:
+    name: rust:$[[ inputs.rust_version ]]-bookworm
+    entrypoint: [""]
+  variables:
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+    GIT_SUBMODULE_STRATEGY: "none"
+    CARGO_TERM_COLOR: always
+    KUBERNETES_MEMORY_REQUEST: "2Gi"
+    KUBERNETES_MEMORY_LIMIT: "6Gi"
+    KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
+    KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
+  rules:
+    # Cargo has no Maven SNAPSHOT — publish on tags only.
+    - if: $CI_COMMIT_TAG
+  before_script:
+    - |
+      set -eu
+      echo "=== cargo_publish: env ==="
+      REGISTRY_NAME="$[[ inputs.registry_name ]]"
+      INDEX_DEFAULT="$[[ inputs.registry_index ]]"
+      SUFFIX="$(echo "${REGISTRY_NAME}" | tr '[:lower:]-' '[:upper:]_')"
+      INDEX_VAR="CARGO_REGISTRIES_${SUFFIX}_INDEX"
+      TOKEN_VAR="CARGO_REGISTRIES_${SUFFIX}_TOKEN"
+      eval "INDEX_VAL=\${${INDEX_VAR}:-}"
+      eval "TOKEN_VAL=\${${TOKEN_VAR}:-}"
+      INDEX_VAL="${INDEX_VAL:-${INDEX_DEFAULT}}"
+      if [ -z "${TOKEN_VAL}" ]; then
+        echo "ERROR: set group/project CI variable ${TOKEN_VAR} (Kellnr publish token)" >&2
+        exit 1
+      fi
+      export "${INDEX_VAR}=${INDEX_VAL}"
+      export "${TOKEN_VAR}=${TOKEN_VAL}"
+      mkdir -p "${HOME}/.cargo"
+      printf '%s\n' \
+        "[registries.${REGISTRY_NAME}]" \
+        "index = \"${INDEX_VAL}\"" \
+        "" \
+        "[registry]" \
+        "default = \"${REGISTRY_NAME}\"" \
+        > "${HOME}/.cargo/config.toml"
+      echo "registry=${REGISTRY_NAME} index=${INDEX_VAL}"
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y -qq curl unzip zip ca-certificates python3 make git protobuf-compiler openjdk-21-jdk-headless >/dev/null
+      # Optional smithy/buf tooling when pre_publish needs Makefile codegen
+      if [ ! -x /usr/local/bin/buf ]; then
+        curl -fsSL "https://github.com/bufbuild/buf/releases/download/v1.55.1/buf-Linux-x86_64" -o /usr/local/bin/buf
+        chmod +x /usr/local/bin/buf
+      fi
+  script:
+    - |
+      set -eu
+      REGISTRY_NAME="$[[ inputs.registry_name ]]"
+      CRATE_DIR="$[[ inputs.crate_dir ]]"
+      PRE="$[[ inputs.pre_publish ]]"
+      PKG_ARGS="$[[ inputs.package_args ]]"
+      if [ -n "${PRE}" ]; then
+        echo "=== cargo_publish: pre_publish ==="
+        bash -lc "${PRE}"
+      fi
+      if [ ! -f "${CRATE_DIR}/Cargo.toml" ]; then
+        echo "ERROR: missing ${CRATE_DIR}/Cargo.toml after pre_publish" >&2
+        ls -la "${CRATE_DIR}" 2>/dev/null || true
+        exit 1
+      fi
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        VER="${CI_COMMIT_TAG#v}"
+        echo "Setting package.version=${VER} from CI_COMMIT_TAG"
+        sed -i -E "s/^version = \".*\"/version = \"${VER}\"/" "${CRATE_DIR}/Cargo.toml"
+      fi
+      echo "=== cargo_publish: publish ${CRATE_DIR} → ${REGISTRY_NAME} ==="
+      # shellcheck disable=SC2086
+      (cd "${CRATE_DIR}" && cargo publish --registry "${REGISTRY_NAME}" ${PKG_ARGS})
