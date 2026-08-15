@@ -37,6 +37,10 @@ spec:
       description: >
         Optional shell to produce the image already tagged as image_name:tag
         (e.g. gradle bootBuildImage). Empty = docker build -f dockerfile.
+        IMPORTANT: do not reference masked CI vars (e.g. GITLAB_MAVEN_PASSWORD)
+        inside this script — it is stored in PUBLISH_BUILD_SCRIPT and eval'd;
+        masked vars expand to empty there and can wipe real job env. Rely on
+        group/project env vars being present for the toolchain instead.
       default: ""
     image_name:
       description: GitLab registry image (runtime source of truth)
