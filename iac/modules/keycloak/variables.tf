@@ -116,6 +116,7 @@ variable "oidc_clients" {
     gitlab_redirect_uri  = string
     argocd_redirect_uri  = string
     grafana_redirect_uri = string
+    kellnr_redirect_uri  = string
   })
 }
 

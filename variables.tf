@@ -660,6 +660,36 @@ variable "gitlab_bucket_name" {
   default     = ""
 }
 
+variable "enable_kellnr" {
+  description = "Deploy Kellnr private Cargo registry (crates.<domain>)"
+  type        = bool
+  default     = true
+}
+
+variable "kellnr_bucket_name" {
+  description = "S3 bucket for Kellnr crate blobs. Empty defaults to kellnr-crates-<environment>."
+  type        = string
+  default     = ""
+}
+
+variable "kellnr_storage_class" {
+  description = "StorageClass for Kellnr Postgres PVC. Empty uses Rook RBD."
+  type        = string
+  default     = ""
+}
+
+variable "kellnr_postgresql_storage_size" {
+  description = "Kellnr Bitnami Postgres PVC size"
+  type        = string
+  default     = "10Gi"
+}
+
+variable "kellnr_replica_count" {
+  description = "Kellnr web/API replicas"
+  type        = number
+  default     = 1
+}
+
 variable "s3_force_destroy" {
   description = "Allow OpenTofu to destroy non-empty S3 buckets (local only)"
   type        = bool

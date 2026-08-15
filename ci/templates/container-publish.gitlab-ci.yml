@@ -77,12 +77,20 @@ container_publish:
     name: $[[ inputs.job_image ]]
     entrypoint: [""]
   services:
-    - name: docker:29.7.2-dind
+    - name: docker:27.5.1-dind
       alias: docker
       command: ["--tls=false"]
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+    # Runner chart default is 1536Mi — too small for JDK + dind + bootBuildImage.
+    KUBERNETES_MEMORY_REQUEST: "2Gi"
+    KUBERNETES_MEMORY_LIMIT: "6Gi"
+    KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
+    KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
+    KUBERNETES_SERVICE_MEMORY_REQUEST: "512Mi"
+    KUBERNETES_SERVICE_MEMORY_LIMIT: "2Gi"
   before_script:
     - |
       set -euo pipefail

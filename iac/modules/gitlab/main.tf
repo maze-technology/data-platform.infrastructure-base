@@ -330,6 +330,13 @@ locals {
         kas = {
           minReplicas = var.kas_min_replicas
           maxReplicas = var.kas_max_replicas
+          # Override global.ingress.tls.secretName (gitlab-tls) — otherwise nginx
+          # serves the default ingress.local cert for kas.maze.trading.
+          ingress = var.enable_tls ? {
+            tls = {
+              secretName = "kas-tls"
+            }
+          } : {}
         }
         gitaly = {
           persistence = {
@@ -363,6 +370,13 @@ locals {
           secret = kubernetes_secret.gitlab_registry_storage.metadata[0].name
           key    = "config"
         }
+        # Override global.ingress.tls.secretName (gitlab-tls) — wrong SAN made
+        # docker login fail with x509: certificate is valid for ingress.local.
+        ingress = var.enable_tls ? {
+          tls = {
+            secretName = "registry-tls"
+          }
+        } : {}
       }
     },
   )

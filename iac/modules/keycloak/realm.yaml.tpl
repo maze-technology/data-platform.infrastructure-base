@@ -204,5 +204,36 @@ clients:
           access.token.claim: "true"
           userinfo.token.claim: "true"
 
+  - clientId: kellnr
+    name: Kellnr
+    enabled: true
+    clientAuthenticatorType: client-secret
+    secret: ${kellnr_client_secret}
+    redirectUris:
+      - "${kellnr_redirect_uri}"
+    webOrigins:
+      - "+"
+    standardFlowEnabled: true
+    directAccessGrantsEnabled: false
+    publicClient: false
+    protocol: openid-connect
+    fullScopeAllowed: true
+    defaultClientScopes:
+      - basic
+      - email
+      - profile
+      - roles
+      - groups
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        config:
+          claim.name: groups
+          full.path: "false"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          userinfo.token.claim: "true"
+
 users:
 ${realm_users_yaml}
