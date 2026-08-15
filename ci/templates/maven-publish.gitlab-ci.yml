@@ -29,7 +29,7 @@ spec:
       description: If "true", install SDKMAN and sdk env install when .sdkmanrc is present
       default: "true"
     install_smithy_tools:
-      description: If "true", install coursier, smithytranslate 0.5.7, node/npm, buf 1.55.1, python3
+      description: If "true", install coursier, smithytranslate 0.5.7, buf 1.55.1, python3
       default: "true"
     gradle_args:
       description: Extra args passed to ./gradlew publish
@@ -84,12 +84,13 @@ maven_publish:
 
       echo "=== maven_publish: apt packages ==="
       export DEBIAN_FRONTEND=noninteractive
+      # Keep apt lean: nodejs/npm are huge and contention-prone on runners.
+      # buf is installed from the official GitHub release binary below.
       apt-get update -qq
-      apt-get install -y -qq curl unzip zip ca-certificates python3 make nodejs npm git >/dev/null
+      apt-get install -y -qq curl unzip zip ca-certificates python3 make git >/dev/null
       echo "python3=$(python3 --version 2>&1)"
-      echo "node=$(node --version 2>&1 || true)"
-      echo "npm=$(npm --version 2>&1 || true)"
       echo "make=$(make --version 2>&1 | head -n1 || true)"
+      echo "git=$(git --version 2>&1 || true)"
 
       if [ -f .gitmodules ]; then
         echo "=== maven_publish: git submodules (CI HTTPS for GitLab SSH URLs) ==="
@@ -140,13 +141,12 @@ maven_publish:
         smithytranslate --help >/dev/null 2>&1 || smithytranslate --version || true
 
         echo "=== maven_publish: buf ${BUF_VERSION} ==="
-        # Prefer official binary (apt node can be too old for @bufbuild/buf); npm fallback.
-        if curl -fsSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" -o /usr/local/bin/buf; then
-          chmod +x /usr/local/bin/buf
-        else
-          echo "WARN: buf binary download failed; trying npm @bufbuild/buf@${BUF_VERSION}"
-          npm install -g "@bufbuild/buf@${BUF_VERSION}"
+        # Official binary only (avoid apt/npm node on runners).
+        if ! curl -fsSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" -o /usr/local/bin/buf; then
+          echo "ERROR: failed to download buf v${BUF_VERSION} binary" >&2
+          exit 1
         fi
+        chmod +x /usr/local/bin/buf
         command -v buf
         buf --version
       else
