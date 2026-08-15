@@ -23,7 +23,7 @@ stages:
 smithy_fmt:
   stage: test
   image:
-    name: eclipse-temurin:21-jdk
+    name: eclipse-temurin:21.0.11_10-jdk
     entrypoint: [""]
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
