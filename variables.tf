@@ -228,7 +228,7 @@ variable "ovh_dns_application_secret" {
 }
 
 variable "ovh_dns_consumer_key" {
-  description = "OVH API consumer key for cert-manager DNS-01 (dns01 only)"
+  description = "OVH API consumer key for cert-manager DNS-01. Prefer a key limited to /domain/zone/<domain>/* (not the cloud-project CK)."
   type        = string
   sensitive   = true
   default     = ""

@@ -32,6 +32,12 @@ variable "peer_dns" {
   default     = "10.96.0.10"
 }
 
+variable "peer_dns_domain" {
+  description = "Routing domain for split-DNS on peers (systemd-resolved ~domain → peer_dns only)."
+  type        = string
+  default     = "maze.trading"
+}
+
 variable "server_port" {
   description = "WireGuard UDP listen port"
   type        = number

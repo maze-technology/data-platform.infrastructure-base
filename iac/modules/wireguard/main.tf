@@ -184,6 +184,7 @@ resource "null_resource" "patch_peer_endpoint_port" {
     nodeport     = tostring(var.node_port)
     listen       = tostring(var.server_port)
     dns          = var.peer_dns
+    dns_domain   = var.peer_dns_domain
     allowed      = local.allowed_ips
     service_type = var.service_type
     peer_mtu     = "1280"
@@ -198,6 +199,7 @@ resource "null_resource" "patch_peer_endpoint_port" {
       WG_LISTEN       = tostring(var.server_port)
       WG_NODEPORT     = tostring(var.node_port)
       WG_DNS          = var.peer_dns
+      WG_DNS_DOMAIN   = var.peer_dns_domain
       WG_ALLOWED      = local.allowed_ips
       WG_SERVICE_TYPE = var.service_type
       WG_PEER_MTU     = "1280"

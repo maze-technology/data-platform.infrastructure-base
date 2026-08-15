@@ -244,7 +244,10 @@ module "cluster_dns" {
   count  = var.enable_cluster_dns ? 1 : 0
   source = "./iac/modules/cluster-dns"
 
-  hosts = values(local.hosts)
+  # Never map vpn.<domain> to the ingress ClusterIP — peers resolve the WireGuard
+  # endpoint via public DNS; CoreDNS overriding it to 10.x breaks the tunnel once
+  # clients switch DNS to CoreDNS (exclusive resolvconf), which kills all internet.
+  hosts = [for h in values(local.hosts) : h if h != local.hosts.vpn]
 
   depends_on = [module.ingress]
 }
@@ -304,14 +307,15 @@ module "wireguard" {
   cluster_name = var.cluster_name
   environment  = var.environment
 
-  server_url    = local.wireguard_server
-  service_type  = var.wireguard_service_type
-  node_port     = var.wireguard_node_port
-  vpn_subnet    = var.vpn_subnet
-  allowed_ips   = var.wireguard_allowed_ips
-  peers         = local.wireguard_peers
-  storage_class = local.wireguard_storage_class
-  storage_size  = var.wireguard_storage_size
+  server_url       = local.wireguard_server
+  service_type     = var.wireguard_service_type
+  node_port        = var.wireguard_node_port
+  vpn_subnet       = var.vpn_subnet
+  allowed_ips      = var.wireguard_allowed_ips
+  peers            = local.wireguard_peers
+  storage_class    = local.wireguard_storage_class
+  storage_size     = var.wireguard_storage_size
+  peer_dns_domain  = var.cluster_domain
 
   depends_on = [module.rook_ceph]
 }

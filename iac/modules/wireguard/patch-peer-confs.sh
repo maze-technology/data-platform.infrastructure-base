@@ -8,7 +8,8 @@ set -euo pipefail
 : "${WG_NODEPORT:?}"
 : "${WG_ALLOWED:?}"
 : "${WG_SERVICE_TYPE:?}"
-WG_DNS="${WG_DNS:-}"
+WG_DNS="${WG_DNS:-10.96.0.10}"
+WG_DNS_DOMAIN="${WG_DNS_DOMAIN:-maze.trading}"
 WG_PEER_MTU="${WG_PEER_MTU:-1280}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -22,10 +23,11 @@ done
 
 POD="$(kubectl -n "${WG_NS}" get pod -l app=wireguard -o jsonpath='{.items[0].metadata.name}')"
 
-# Bake MTU into the template used when linuxserver (re)generates peer confs.
+# Bake split-DNS template (no DNS= — avoids resolvconf -x killing internet).
 kubectl -n "${WG_NS}" exec "${POD}" -- mkdir -p /config/templates
-# Substitute only the MTU placeholder if present; template ships with literal 1280.
-sed "s/MTU = .*/MTU = ${WG_PEER_MTU}/" "${SCRIPT_DIR}/templates/peer.conf" \
+sed -e "s/MTU = .*/MTU = ${WG_PEER_MTU}/" \
+    -e "s/REPLACE_DNS_DOMAIN/${WG_DNS_DOMAIN}/g" \
+    "${SCRIPT_DIR}/templates/peer.conf" \
   | kubectl -n "${WG_NS}" exec -i "${POD}" -- tee /config/templates/peer.conf >/dev/null
 
 kubectl -n "${WG_NS}" exec "${POD}" -- /bin/sh -c "
@@ -40,10 +42,7 @@ for f in /config/peer_*/*.conf; do
   if [ \"${WG_SERVICE_TYPE}\" = NodePort ]; then
     sed -i \"s/:${WG_LISTEN}\$/:${WG_NODEPORT}/\" \"\$f\"
   fi
-  if [ -n \"${WG_DNS}\" ]; then
-    sed -i \"s/^DNS = .*/DNS = ${WG_DNS}/\" \"\$f\"
-  fi
-  # Avoid '|' delimiter — ALLOWEDIPS may confuse some seds; use '#' 
+  # Avoid '|' delimiter — ALLOWEDIPS may confuse some seds; use '#'
   sed -i \"s#^AllowedIPs = .*#AllowedIPs = ${WG_ALLOWED}#\" \"\$f\"
   sed -i '/^ListenPort = /d' \"\$f\"
   if grep -q '^MTU' \"\$f\"; then
@@ -54,7 +53,19 @@ for f in /config/peer_*/*.conf; do
       { print }
     ' \"\$f\" > \"\$f.tmp\" && mv \"\$f.tmp\" \"\$f\"
   fi
+
+  # Split-DNS: drop DNS= (resolvconf -x) and install resolvectl hooks.
+  sed -i '/^DNS = /d' \"\$f\"
+  sed -i '/^PostUp = resolvectl/d' \"\$f\"
+  sed -i '/^PostDown = resolvectl/d' \"\$f\"
+  # Insert after MTU (or Address if no MTU)
+  if grep -q '^MTU = ' \"\$f\"; then
+    sed -i \"/^MTU = /a PostUp = resolvectl dns %i ${WG_DNS}; resolvectl domain %i ~${WG_DNS_DOMAIN}; resolvectl default-route %i false\\nPostDown = resolvectl revert %i\" \"\$f\"
+  else
+    sed -i \"/^Address = /a PostUp = resolvectl dns %i ${WG_DNS}; resolvectl domain %i ~${WG_DNS_DOMAIN}; resolvectl default-route %i false\\nPostDown = resolvectl revert %i\" \"\$f\"
+  fi
+
   echo patched \"\$f\"
-  grep -E '^(DNS|Endpoint|AllowedIPs|MTU)' \"\$f\" || true
+  grep -E '^(Address|DNS|Endpoint|AllowedIPs|MTU|PostUp|PostDown)' \"\$f\" || true
 done
 "

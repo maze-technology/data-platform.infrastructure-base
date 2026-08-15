@@ -32,7 +32,9 @@ ${join("\n", local.host_lines)}
        ttl 30
     }
     prometheus :9153
-    forward . /etc/resolv.conf {
+    # Public resolvers: node /etc/resolv.conf is often 127.0.0.53 (systemd-resolved),
+    # which is unreachable from CoreDNS pods and breaks VPN-client DNS for the internet.
+    forward . 1.1.1.1 8.8.8.8 {
        max_concurrent 1000
     }
     cache 30 {

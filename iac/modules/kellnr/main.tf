@@ -135,7 +135,7 @@ resource "helm_release" "kellnr" {
             "nginx.ingress.kubernetes.io/whitelist-source-range" = local.ingress_whitelist
           } : {},
           var.enable_tls ? {
-            "cert-manager.io/cluster-issuer"                 = var.tls_cluster_issuer
+            # Certificate CR below owns issuance; avoid duplicate ingress-shim certs.
             "nginx.ingress.kubernetes.io/force-ssl-redirect" = "true"
             "nginx.ingress.kubernetes.io/ssl-redirect"       = "true"
           } : {},

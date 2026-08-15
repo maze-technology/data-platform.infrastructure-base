@@ -69,6 +69,53 @@ resource "kubernetes_secret" "ovh_dns_credentials" {
   }
 }
 
+# Chart RBAC only covers secrets when issuers[] is managed by Helm; we own the
+# ClusterIssuer separately, so grant the webhook SA read on the OVH secret.
+resource "kubernetes_role" "ovh_dns_secret_reader" {
+  count = local.acme_dns01 ? 1 : 0
+
+  metadata {
+    name      = "cert-manager-webhook-ovh:secret-reader"
+    namespace = kubernetes_namespace.cert_manager.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  rule {
+    api_groups     = [""]
+    resources      = ["secrets"]
+    resource_names = [kubernetes_secret.ovh_dns_credentials[0].metadata[0].name]
+    verbs          = ["get"]
+  }
+}
+
+resource "kubernetes_role_binding" "ovh_dns_secret_reader" {
+  count = local.acme_dns01 ? 1 : 0
+
+  metadata {
+    name      = "cert-manager-webhook-ovh:secret-reader"
+    namespace = kubernetes_namespace.cert_manager.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.ovh_dns_secret_reader[0].metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = "cert-manager-webhook-ovh"
+    namespace = kubernetes_namespace.cert_manager.metadata[0].name
+  }
+}
+
 # OVH DNS-01 webhook (no public :80 required — VPN-only clusters).
 resource "helm_release" "cert_manager_webhook_ovh" {
   count = local.acme_dns01 ? 1 : 0
@@ -124,7 +171,8 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer_dns01" {
               groupName  = local.ovh_webhook_group
               solverName = "ovh"
               config = {
-                endpoint = var.ovh_endpoint_name
+                endpoint              = var.ovh_endpoint_name
+                authenticationMethod  = "application"
                 applicationKeyRef = {
                   name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
                   key  = "applicationKey"
@@ -133,7 +181,8 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer_dns01" {
                   name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
                   key  = "applicationSecret"
                 }
-                consumerKeyRef = {
+                # Webhook ≥0.8 expects applicationConsumerKeyRef (not consumerKeyRef).
+                applicationConsumerKeyRef = {
                   name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
                   key  = "consumerKey"
                 }
