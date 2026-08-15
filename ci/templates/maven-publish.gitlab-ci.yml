@@ -55,7 +55,7 @@ maven_publish:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
     # Submodules use git@scm / git@github.com URLs; init manually with HTTPS rewrite in before_script.
     GIT_SUBMODULE_STRATEGY: "none"
-    SMITHY_VERSION: "1.66.0"
+    SMITHY_VERSION: "1.72.1"
     SMITHYTRANSLATE_VERSION: "0.7.6"
     BUF_VERSION: "1.55.1"
     # Runner chart default is 1536Mi — too small for Gradle/SDKMAN/smithy tooling.
