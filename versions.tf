@@ -4,20 +4,20 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~> 2.23"
+      version = "~> 3.0"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "~> 2.11"
+      version = "~> 3.0"
     }
     aws = {
       source                = "hashicorp/aws"
-      version               = "~> 5.0"
+      version               = "~> 6.0"
       configuration_aliases = [aws.rgw]
     }
     vault = {
       source  = "hashicorp/vault"
-      version = "~> 3.23"
+      version = "~> 5.0"
     }
     external = {
       source  = "hashicorp/external"
