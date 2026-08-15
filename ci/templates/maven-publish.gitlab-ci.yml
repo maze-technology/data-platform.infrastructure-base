@@ -1,4 +1,4 @@
-# Reusable Maven publish to GitLab group Package Registry.
+# Reusable Maven publish to GitLab group Package Registry (Smithy/Java libraries).
 #
 # Include from a library/specs .gitlab-ci.yml:
 #
@@ -9,7 +9,10 @@
 #       inputs:
 #         job_image: eclipse-temurin:21-jdk
 #
-# Publishes with ./gradlew publish using:
+# Flow (matches former GitHub commons publish):
+#   apt deps → optional SDKMAN (.sdkmanrc) → optional smithy tools → pre_publish → ./gradlew publish
+#
+# Auth:
 #   GITLAB_MAVEN_URL   (default: https://scm.maze.trading/api/v4/groups/6/-/packages/maven)
 #   GITLAB_MAVEN_USER  (default: gitlab-ci-token)
 #   CI_JOB_TOKEN for publish (write); group Deploy Token GITLAB_MAVEN_* for local/read
@@ -17,8 +20,17 @@
 spec:
   inputs:
     job_image:
-      description: CI job image with JDK
+      description: CI job image with JDK (temurin + apt-get for tooling)
       default: eclipse-temurin:21-jdk
+    pre_publish:
+      description: Shell command run before ./gradlew publish (empty skips). Default make build; skipped automatically when there is no Makefile.
+      default: "make build"
+    use_sdkman:
+      description: If "true", install SDKMAN and sdk env install when .sdkmanrc is present
+      default: "true"
+    install_smithy_tools:
+      description: If "true", install coursier, smithytranslate 0.5.7, node/npm, buf 1.55.1, python3
+      default: "true"
     gradle_args:
       description: Extra args passed to ./gradlew publish
       default: ""
@@ -38,6 +50,8 @@ maven_publish:
     entrypoint: [""]
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+    SMITHYTRANSLATE_VERSION: "0.5.7"
+    BUF_VERSION: "1.55.1"
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == "main"
@@ -45,6 +59,7 @@ maven_publish:
   before_script:
     - |
       set -eu
+      echo "=== maven_publish: env setup ==="
       export GITLAB_MAVEN_URL="${GITLAB_MAVEN_URL:-https://scm.maze.trading/api/v4/groups/6/-/packages/maven}"
       # Publish needs write_package_registry — always prefer CI_JOB_TOKEN over read-only Deploy Token.
       if [ -n "${CI_JOB_TOKEN:-}" ]; then
@@ -60,14 +75,119 @@ maven_publish:
       fi
       echo "GITLAB_MAVEN_URL=${GITLAB_MAVEN_URL}"
       echo "GITLAB_MAVEN_USER=${GITLAB_MAVEN_USER}"
+      echo "CI_COMMIT_REF_NAME=${CI_COMMIT_REF_NAME:-}"
+      echo "CI_COMMIT_SHA=${CI_COMMIT_SHA:-}"
+      echo "PWD=$(pwd)"
+      ls -la || true
+
+      echo "=== maven_publish: apt packages ==="
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y -qq curl unzip ca-certificates python3 make nodejs npm >/dev/null
+      echo "python3=$(python3 --version 2>&1)"
+      echo "node=$(node --version 2>&1 || true)"
+      echo "npm=$(npm --version 2>&1 || true)"
+      echo "make=$(make --version 2>&1 | head -n1 || true)"
+
+      if [ "$[[ inputs.use_sdkman ]]" = "true" ] && [ -f .sdkmanrc ]; then
+        echo "=== maven_publish: SDKMAN (.sdkmanrc present) ==="
+        export SDKMAN_DIR="${SDKMAN_DIR:-$HOME/.sdkman}"
+        if [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+          curl -s "https://get.sdkman.io" | bash
+        fi
+        # shellcheck disable=SC1091
+        set +u
+        # SDKMAN init is not nounset-safe
+        . "$SDKMAN_DIR/bin/sdkman-init.sh"
+        set -u
+        sdk env install
+        export JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"
+        export PATH="${JAVA_HOME}/bin:${PATH}"
+        echo "JAVA_HOME=${JAVA_HOME}"
+      else
+        echo "=== maven_publish: using image JDK (use_sdkman=$[[ inputs.use_sdkman ]], sdkmanrc=$([ -f .sdkmanrc ] && echo yes || echo no)) ==="
+      fi
       java -version
       chmod +x ./gradlew
+
+      if [ "$[[ inputs.install_smithy_tools ]]" = "true" ]; then
+        echo "=== maven_publish: coursier + smithytranslate ${SMITHYTRANSLATE_VERSION} ==="
+        CS_BIN="${HOME}/.local/share/coursier/bin"
+        mkdir -p "${HOME}/.local/bin" "${CS_BIN}"
+        if ! command -v cs >/dev/null 2>&1; then
+          curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > "${HOME}/.local/bin/cs"
+          chmod +x "${HOME}/.local/bin/cs"
+          export PATH="${HOME}/.local/bin:${PATH}"
+          cs setup --yes || true
+        fi
+        export PATH="${HOME}/.local/bin:${CS_BIN}:${PATH}"
+        cs install --channel https://disneystreaming.github.io/coursier.json "smithytranslate:${SMITHYTRANSLATE_VERSION}"
+        export PATH="${CS_BIN}:${PATH}"
+        command -v smithytranslate
+        smithytranslate --help >/dev/null 2>&1 || smithytranslate --version || true
+
+        echo "=== maven_publish: buf ${BUF_VERSION} ==="
+        # Prefer official binary (apt node can be too old for @bufbuild/buf); npm fallback.
+        if curl -fsSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" -o /usr/local/bin/buf; then
+          chmod +x /usr/local/bin/buf
+        else
+          echo "WARN: buf binary download failed; trying npm @bufbuild/buf@${BUF_VERSION}"
+          npm install -g "@bufbuild/buf@${BUF_VERSION}"
+        fi
+        command -v buf
+        buf --version
+      else
+        echo "=== maven_publish: skipping smithy tools (install_smithy_tools=false) ==="
+      fi
   script:
     - |
       set -eu
+      fail_diag() {
+        ec=$?
+        echo "=== maven_publish FAILURE diagnostics ===" >&2
+        echo "exit_code=${ec} pwd=$(pwd)" >&2
+        echo "JAVA_HOME=${JAVA_HOME:-}" >&2
+        java -version >&2 || true
+        echo "PATH=${PATH:-}" >&2
+        command -v smithytranslate >&2 || echo "smithytranslate: missing" >&2
+        command -v buf >&2 || echo "buf: missing" >&2
+        command -v python3 >&2 || echo "python3: missing" >&2
+        ls -la >&2 || true
+        ls -la build 2>/dev/null >&2 || echo "no build/ dir" >&2
+      }
+      trap fail_diag ERR
+
+      PRE_PUBLISH='$[[ inputs.pre_publish ]]'
+      # Trim accidental whitespace from input interpolation
+      PRE_PUBLISH=$(printf '%s' "$PRE_PUBLISH" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      if [ -n "$PRE_PUBLISH" ]; then
+        if [ "$PRE_PUBLISH" = "make build" ] && [ ! -f Makefile ]; then
+          echo "=== maven_publish: skipping pre_publish 'make build' (no Makefile) ==="
+        else
+          echo "=== maven_publish: pre_publish: ${PRE_PUBLISH} ==="
+          eval "$PRE_PUBLISH"
+        fi
+      else
+        echo "=== maven_publish: pre_publish empty, skipping ==="
+      fi
+
       VERSION_ARGS=""
       if [ "$[[ inputs.version_property ]]" = "true" ] && [ -n "${CI_COMMIT_TAG:-}" ]; then
         VERSION_ARGS="-Pversion=${CI_COMMIT_TAG}"
       fi
+      echo "=== maven_publish: ./gradlew ${VERSION_ARGS} $[[ inputs.gradle_args ]] publish ==="
       # shellcheck disable=SC2086
-      ./gradlew --no-daemon ${VERSION_ARGS} $[[ inputs.gradle_args ]] publish
+      ./gradlew --no-daemon --stacktrace ${VERSION_ARGS} $[[ inputs.gradle_args ]] publish
+      echo "=== maven_publish: success ==="
+  after_script:
+    - |
+      if [ "${CI_JOB_STATUS:-}" = "failed" ]; then
+        echo "=== maven_publish after_script failure summary ==="
+        echo "CI_JOB_STATUS=${CI_JOB_STATUS}"
+        echo "CI_JOB_ID=${CI_JOB_ID:-}"
+        echo "CI_PIPELINE_URL=${CI_PIPELINE_URL:-}"
+        java -version || true
+        ls -la || true
+        ls -la build/libs 2>/dev/null || true
+        ls -la build/publications 2>/dev/null || true
+      fi
