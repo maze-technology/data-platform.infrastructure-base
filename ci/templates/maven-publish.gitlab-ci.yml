@@ -50,7 +50,8 @@ maven_publish:
     entrypoint: [""]
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
-    GIT_SUBMODULE_STRATEGY: recursive
+    # Submodules use git@github.com URLs; init manually with HTTPS rewrite in before_script.
+    GIT_SUBMODULE_STRATEGY: "none"
     SMITHYTRANSLATE_VERSION: "0.5.7"
     BUF_VERSION: "1.55.1"
   rules:
@@ -84,11 +85,19 @@ maven_publish:
       echo "=== maven_publish: apt packages ==="
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
-      apt-get install -y -qq curl unzip zip ca-certificates python3 make nodejs npm >/dev/null
+      apt-get install -y -qq curl unzip zip ca-certificates python3 make nodejs npm git >/dev/null
       echo "python3=$(python3 --version 2>&1)"
       echo "node=$(node --version 2>&1 || true)"
       echo "npm=$(npm --version 2>&1 || true)"
       echo "make=$(make --version 2>&1 | head -n1 || true)"
+
+      if [ -f .gitmodules ]; then
+        echo "=== maven_publish: git submodules (HTTPS rewrite for github.com SSH URLs) ==="
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git submodule sync --recursive
+        git submodule update --init --recursive
+        git submodule status --recursive || true
+      fi
 
       if [ "$[[ inputs.use_sdkman ]]" = "true" ] && [ -f .sdkmanrc ]; then
         echo "=== maven_publish: SDKMAN (.sdkmanrc present) ==="
