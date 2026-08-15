@@ -84,14 +84,16 @@ container_publish:
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
-    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
-    # Runner chart default is 1536Mi — too small for JDK + dind + bootBuildImage.
+    # Attach strategy (default) — legacy exec was ending jobs mid-docker-build
+    # with a false "success" before push.
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
+    # Runner chart default is 1536Mi — too small for JDK + dind + image build.
     KUBERNETES_MEMORY_REQUEST: "2Gi"
     KUBERNETES_MEMORY_LIMIT: "6Gi"
     KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
     KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
-    KUBERNETES_SERVICE_MEMORY_REQUEST: "512Mi"
-    KUBERNETES_SERVICE_MEMORY_LIMIT: "2Gi"
+    KUBERNETES_SERVICE_MEMORY_REQUEST: "1Gi"
+    KUBERNETES_SERVICE_MEMORY_LIMIT: "4Gi"
   before_script:
     - |
       set -euo pipefail
@@ -100,6 +102,18 @@ container_publish:
         curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz" \
           | tar xz --strip-components=1 -C /usr/local/bin docker/docker
       fi
+      echo "Waiting for docker daemon at ${DOCKER_HOST}"
+      for i in $(seq 1 60); do
+        if docker info >/dev/null 2>&1; then
+          echo "docker ready (${i}s)"
+          break
+        fi
+        if [ "$i" -eq 60 ]; then
+          echo "ERROR: docker daemon not ready" >&2
+          exit 1
+        fi
+        sleep 1
+      done
       echo "Logging into GitLab registry ${CI_REGISTRY}"
       echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
@@ -113,15 +127,18 @@ container_publish:
       CUSTOM_BUILD="$[[ inputs.build_script ]]"
       if [ -n "${CUSTOM_BUILD}" ]; then
         echo "Custom build → ${GITLAB_REF}"
-        # Use non-login shell so profile/cd does not leave the build dir.
-        bash -c "${CUSTOM_BUILD}"
+        # Same shell (not nested login/nonlogin) so the job cannot exit early
+        # while docker build is still running in a child shell.
+        eval "${CUSTOM_BUILD}"
       else
         echo "Building ${GITLAB_REF} (Dockerfile=${PUBLISH_DOCKERFILE} context=${PUBLISH_CONTEXT})"
         docker build -f "${PUBLISH_DOCKERFILE}" -t "${GITLAB_REF}" "${PUBLISH_CONTEXT}"
       fi
 
+      docker image inspect "${GITLAB_REF}" >/dev/null
       echo "Pushing runtime SoT → ${GITLAB_REF}"
       docker push "${GITLAB_REF}"
+      echo "Pushed ${GITLAB_REF}"
 
       if [ "${PUBLISH_PUSH_LATEST}" = "true" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
         LATEST_REF="${PUBLISH_IMAGE}:latest"

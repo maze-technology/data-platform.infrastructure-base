@@ -47,7 +47,7 @@ cargo_publish:
     name: rust:$[[ inputs.rust_version ]]-bookworm
     entrypoint: [""]
   variables:
-    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
     # Needed for scripts/smithy-protovalidate (inject-protovalidate-validations).
     GIT_SUBMODULE_STRATEGY: "recursive"
     GIT_SUBMODULE_FORCE_HTTPS: "true"
@@ -88,7 +88,7 @@ cargo_publish:
       echo "registry=${REGISTRY_NAME} index=${INDEX_VAL}"
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
-      apt-get install -y -qq curl unzip zip ca-certificates python3 make git protobuf-compiler openjdk-21-jdk-headless gzip >/dev/null
+      apt-get install -y -qq curl unzip zip ca-certificates python3 make git protobuf-compiler openjdk-17-jdk-headless gzip >/dev/null
       # Smithy/buf tooling (same stack as maven-publish) for Makefile codegen.
       SMITHY_VERSION="${SMITHY_VERSION:-1.57.1}"
       SMITHYTRANSLATE_VERSION="${SMITHYTRANSLATE_VERSION:-0.7.2}"
