@@ -1,0 +1,65 @@
+# MR / develop build gate (GitHub build-scan parity, without Trivy baseline).
+#
+# Include:
+#   include:
+#     - project: "data-platform/infrastructure-base"
+#       ref: "develop"
+#       file: "/ci/templates/java-build.gitlab-ci.yml"
+#       inputs:
+#         build_script: "make build"
+#         # or: "./gradlew test"
+
+spec:
+  inputs:
+    job_image:
+      description: JDK image for the build
+      default: eclipse-temurin:21-jdk
+    build_script:
+      description: Shell to compile/test (Makefile or Gradle)
+      default: "make build"
+    use_sdkman:
+      description: If "true", sdk env install when .sdkmanrc is present
+      default: "false"
+
+---
+
+stages:
+  - test
+
+java_build:
+  stage: test
+  image:
+    name: $[[ inputs.job_image ]]
+    entrypoint: [""]
+  variables:
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
+    GIT_SUBMODULE_STRATEGY: "none"
+    KUBERNETES_MEMORY_REQUEST: "2Gi"
+    KUBERNETES_MEMORY_LIMIT: "6Gi"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "develop"
+  before_script:
+    - |
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y -qq curl unzip zip ca-certificates python3 make git >/dev/null
+      git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "git@${CI_SERVER_HOST}:"
+      git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "git@scm.maze.trading:"
+      if [ -f .gitmodules ]; then
+        git submodule sync --recursive
+        git submodule update --init --recursive
+      fi
+      if [ "$[[ inputs.use_sdkman ]]" = "true" ] && [ -f .sdkmanrc ]; then
+        curl -s "https://get.sdkman.io" | bash >/dev/null
+        # shellcheck disable=SC1091
+        source "$HOME/.sdkman/bin/sdkman-init.sh"
+        sdk env install
+        export JAVA_HOME="$SDKMAN_DIR/candidates/java/current"
+      fi
+  script:
+    - |
+      set -euo pipefail
+      echo "=== java_build: $[[ inputs.build_script ]] ==="
+      eval "$[[ inputs.build_script ]]"

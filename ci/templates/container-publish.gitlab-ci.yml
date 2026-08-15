@@ -140,6 +140,14 @@ container_publish:
       docker push "${GITLAB_REF}"
       echo "Pushed ${GITLAB_REF}"
 
+      # Version tag parity with former GitHub publish (semver tag pipelines).
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        VER_REF="${PUBLISH_IMAGE}:${CI_COMMIT_TAG}"
+        docker tag "${GITLAB_REF}" "${VER_REF}"
+        docker push "${VER_REF}"
+        echo "Pushed ${VER_REF}"
+      fi
+
       if [ "${PUBLISH_PUSH_LATEST}" = "true" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
         LATEST_REF="${PUBLISH_IMAGE}:latest"
         docker tag "${GITLAB_REF}" "${LATEST_REF}"

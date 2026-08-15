@@ -1,0 +1,52 @@
+# Smithy format check (GitHub smithy-fmt-check.yaml parity).
+#
+# Include from specs/commons:
+#   include:
+#     - project: "data-platform/infrastructure-base"
+#       ref: "develop"
+#       file: "/ci/templates/smithy-fmt.gitlab-ci.yml"
+
+spec:
+  inputs:
+    smithy_version:
+      description: Smithy CLI version
+      default: "1.72.1"
+    paths:
+      description: Paths passed to smithy format (space-separated)
+      default: "src/main/smithy"
+
+---
+
+stages:
+  - test
+
+smithy_fmt:
+  stage: test
+  image:
+    name: eclipse-temurin:21-jdk
+    entrypoint: [""]
+  variables:
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
+    KUBERNETES_MEMORY_REQUEST: "512Mi"
+    KUBERNETES_MEMORY_LIMIT: "1Gi"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+  before_script:
+    - |
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y -qq curl unzip ca-certificates >/dev/null
+      SMITHY_VERSION="$[[ inputs.smithy_version ]]"
+      curl -fsSL "https://github.com/smithy-lang/smithy/releases/download/${SMITHY_VERSION}/smithy-cli-linux-x86_64.zip" \
+        -o /tmp/smithy-cli.zip
+      unzip -qo /tmp/smithy-cli.zip -d /opt/smithy
+      ln -sf /opt/smithy/bin/smithy /usr/local/bin/smithy
+      smithy --version
+  script:
+    - |
+      set -euo pipefail
+      echo "=== smithy format --check $[[ inputs.paths ]] ==="
+      # smithy format --check exits non-zero when files need formatting
+      smithy format --check $[[ inputs.paths ]]

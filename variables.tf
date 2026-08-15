@@ -901,3 +901,43 @@ variable "backup_postgres_dump_targets" {
   }))
   default = []
 }
+
+# Renovate (self-hosted for GitLab)
+# =============================================================================
+
+variable "renovate_enabled" {
+  description = "Deploy self-hosted Renovate CronJob against GitLab"
+  type        = bool
+  default     = true
+}
+
+variable "renovate_schedule_cron" {
+  description = "Cron schedule for Renovate runs"
+  type        = string
+  default     = "0 */2 * * *"
+}
+
+variable "renovate_image" {
+  description = "Renovate container image (SemVer-pinned)"
+  type        = string
+  default     = "renovate/renovate:43.239.0"
+}
+
+variable "renovate_github_com_token" {
+  description = "Optional github.com PAT for changelogs/release notes (avoids unauthenticated rate limits)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "renovate_autodiscover_filters" {
+  description = "Renovate autodiscoverFilter globs"
+  type        = list(string)
+  default     = ["data-platform/**", "templates/**"]
+}
+
+variable "renovate_group_paths" {
+  description = "GitLab groups the Renovate bot joins as Maintainer"
+  type        = list(string)
+  default     = ["data-platform", "templates"]
+}

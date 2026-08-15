@@ -594,6 +594,22 @@ module "gitlab_ci_cosign" {
   ]
 }
 
+module "renovate" {
+  source = "./iac/modules/renovate"
+
+  enabled          = var.renovate_enabled
+  environment      = var.environment
+  gitlab_namespace = "gitlab"
+  # Public HTTPS endpoint so clone URLs and API host match (in-cluster HTTP causes Renovate auth failures).
+  gitlab_endpoint      = "https://${local.hosts.scm}/api/v4"
+  schedule_cron        = var.renovate_schedule_cron
+  image                = var.renovate_image
+  github_com_token     = var.renovate_github_com_token
+  custom_ca_pem        = local.maze_ca_pem
+  autodiscover_filters = var.renovate_autodiscover_filters
+  group_paths          = var.renovate_group_paths
+}
+
 # ============================================================================
 # S3 BUCKETS (AWS provider alias aws.rgw — configured by the consumer)
 # ============================================================================
