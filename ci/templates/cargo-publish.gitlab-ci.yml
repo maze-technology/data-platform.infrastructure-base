@@ -90,8 +90,8 @@ cargo_publish:
       apt-get update -qq
       apt-get install -y -qq curl unzip zip ca-certificates python3 make git protobuf-compiler openjdk-17-jdk-headless gzip >/dev/null
       # Smithy/buf tooling (same stack as maven-publish) for Makefile codegen.
-      SMITHY_VERSION="${SMITHY_VERSION:-1.57.1}"
-      SMITHYTRANSLATE_VERSION="${SMITHYTRANSLATE_VERSION:-0.7.2}"
+      SMITHY_VERSION="${SMITHY_VERSION:-1.72.1}"
+      SMITHYTRANSLATE_VERSION="${SMITHYTRANSLATE_VERSION:-0.7.6}"
       BUF_VERSION="${BUF_VERSION:-1.55.1}"
       echo "=== cargo_publish: Smithy CLI ${SMITHY_VERSION} ==="
       SMITHY_TMP="$(mktemp -d)"
