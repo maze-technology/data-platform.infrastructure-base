@@ -57,6 +57,21 @@ resource "helm_release" "kyverno" {
 
   values = [
     yamlencode({
+      # Keep CI runner pods in gitlab ns out of Fail webhooks (runner create storms).
+      # Image-sign policy is namespace-label opt-in anyway.
+      config = {
+        webhooks = {
+          namespaceSelector = {
+            matchExpressions = [
+              {
+                key      = "kubernetes.io/metadata.name"
+                operator = "NotIn"
+                values   = ["kube-system", "kyverno", "gitlab"]
+              }
+            ]
+          }
+        }
+      }
       admissionController = {
         replicas = 1
         container = {
