@@ -77,7 +77,7 @@ container_publish:
     name: $[[ inputs.job_image ]]
     entrypoint: [""]
   services:
-    - name: docker:27.5.1-dind
+    - name: docker:29.7.2-dind
       alias: docker
       command: ["--tls=false"]
   variables:
