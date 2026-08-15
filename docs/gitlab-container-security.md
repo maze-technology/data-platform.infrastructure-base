@@ -49,6 +49,14 @@ export VAULT_ADDR=... VAULT_TOKEN=...
 vault kv get -field=public_key secret/cosign/gitlab
 ```
 
+### CI template: dual publish (GitLab registry SoT + optional Docker Hub)
+
+Template: [`ci/templates/container-publish.gitlab-ci.yml`](../ci/templates/container-publish.gitlab-ci.yml)
+
+- Build **once**, push to `$CI_REGISTRY_IMAGE` (runtime source of truth)
+- Optionally also push the same image to Docker Hub when `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` are set (`DOCKERHUB_REPOSITORY` optional)
+- Optional `build_script` input for non-Dockerfile builders (e.g. `./gradlew bootBuildImage --imageName=...`)
+
 ### CI template: Trivy + sign + verify
 
 Template: [`ci/templates/container-secure.gitlab-ci.yml`](../ci/templates/container-secure.gitlab-ci.yml)
@@ -62,21 +70,14 @@ Example `.gitlab-ci.yml`:
 ```yaml
 stages: [build, secure]
 
-build:
-  stage: build
-  script:
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-
 include:
-  - project: 'platform/ci-templates'   # after you mirror the template there
-    file: '/container-secure.gitlab-ci.yml'
+  - project: 'data-platform/infrastructure-base'
+    file: '/ci/templates/container-publish.gitlab-ci.yml'
+  - project: 'data-platform/infrastructure-base'
+    file: '/ci/templates/container-secure.gitlab-ci.yml'
     inputs:
       image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
       severity: HIGH
-
-variables:
-  SECURE_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
 ```
 
 ### Cluster admission (Kyverno)

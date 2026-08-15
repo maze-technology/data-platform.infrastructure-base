@@ -1,0 +1,146 @@
+# Dual-publish container images: GitLab registry is runtime SoT; Docker Hub optional.
+#
+# Build once, push to $CI_REGISTRY_IMAGE, optionally also to Docker Hub when
+# DOCKERHUB_USERNAME + DOCKERHUB_TOKEN (+ DOCKERHUB_REPOSITORY) are set.
+#
+# Include after (or instead of) a custom build job:
+#
+#   include:
+#     - project: 'data-platform/infrastructure-base'
+#       file: '/ci/templates/container-publish.gitlab-ci.yml'
+#       inputs:
+#         dockerfile: Dockerfile
+#         context: .
+#     - project: 'data-platform/infrastructure-base'
+#       file: '/ci/templates/container-secure.gitlab-ci.yml'
+#       inputs:
+#         image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+#
+# Optional CI/CD variables (project or group):
+#   DOCKERHUB_USERNAME    — Docker Hub user
+#   DOCKERHUB_TOKEN       — Docker Hub access token (masked)
+#   DOCKERHUB_REPOSITORY  — e.g. mazetechnology/java-hello-world-backend
+#                           default: $DOCKERHUB_USERNAME/$CI_PROJECT_NAME
+#
+# Tags pushed: $CI_COMMIT_SHA and, on default branch, latest.
+# SECURE_IMAGE is set for container-secure.gitlab-ci.yml consumers.
+
+spec:
+  inputs:
+    dockerfile:
+      description: Path to Dockerfile relative to context (ignored when build_script is set)
+      default: Dockerfile
+    context:
+      description: Docker build context directory (ignored when build_script is set)
+      default: "."
+    build_script:
+      description: >
+        Optional shell to produce the image already tagged as image_name:tag
+        (e.g. gradle bootBuildImage). Empty = docker build -f dockerfile.
+      default: ""
+    image_name:
+      description: GitLab registry image (runtime source of truth)
+      default: $CI_REGISTRY_IMAGE
+    tag:
+      description: Primary image tag
+      default: $CI_COMMIT_SHA
+    push_latest:
+      description: Also tag and push :latest on the default branch
+      default: "true"
+    dockerhub_enabled:
+      description: "auto = push when DOCKERHUB_* vars set; true/false to force"
+      default: "auto"
+    job_image:
+      description: CI job image (use a JDK image when build_script needs the toolchain)
+      default: docker:27.5.1
+
+---
+
+stages:
+  - build
+  - secure
+
+variables:
+  PUBLISH_IMAGE: $[[ inputs.image_name ]]
+  PUBLISH_TAG: $[[ inputs.tag ]]
+  PUBLISH_DOCKERFILE: $[[ inputs.dockerfile ]]
+  PUBLISH_CONTEXT: $[[ inputs.context ]]
+  PUBLISH_BUILD_SCRIPT: $[[ inputs.build_script ]]
+  PUBLISH_PUSH_LATEST: $[[ inputs.push_latest ]]
+  PUBLISH_DOCKERHUB: $[[ inputs.dockerhub_enabled ]]
+  # Runtime SoT for secure scan/sign jobs
+  SECURE_IMAGE: $[[ inputs.image_name ]]:$[[ inputs.tag ]]
+
+container_publish:
+  stage: build
+  image:
+    name: $[[ inputs.job_image ]]
+    entrypoint: [""]
+  services:
+    - name: docker:27.5.1-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - |
+      set -euo pipefail
+      if ! command -v docker >/dev/null 2>&1; then
+        echo "Fetching Docker CLI static binary"
+        curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz" \
+          | tar xz --strip-components=1 -C /usr/local/bin docker/docker
+      fi
+      echo "Logging into GitLab registry ${CI_REGISTRY}"
+      echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - |
+      set -euo pipefail
+      GITLAB_REF="${PUBLISH_IMAGE}:${PUBLISH_TAG}"
+
+      if [ -n "${PUBLISH_BUILD_SCRIPT}" ]; then
+        echo "Custom build → ${GITLAB_REF}"
+        eval "${PUBLISH_BUILD_SCRIPT}"
+      else
+        echo "Building ${GITLAB_REF} (Dockerfile=${PUBLISH_DOCKERFILE} context=${PUBLISH_CONTEXT})"
+        docker build -f "${PUBLISH_DOCKERFILE}" -t "${GITLAB_REF}" "${PUBLISH_CONTEXT}"
+      fi
+
+      echo "Pushing runtime SoT → ${GITLAB_REF}"
+      docker push "${GITLAB_REF}"
+
+      if [ "${PUBLISH_PUSH_LATEST}" = "true" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
+        LATEST_REF="${PUBLISH_IMAGE}:latest"
+        docker tag "${GITLAB_REF}" "${LATEST_REF}"
+        docker push "${LATEST_REF}"
+        echo "Pushed ${LATEST_REF}"
+      fi
+
+      # Optional Docker Hub mirror (same local image, second push)
+      DOCKERHUB_PUSH=false
+      if [ "${PUBLISH_DOCKERHUB}" = "true" ]; then
+        DOCKERHUB_PUSH=true
+      elif [ "${PUBLISH_DOCKERHUB}" = "auto" ] && [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+        DOCKERHUB_PUSH=true
+      fi
+
+      if [ "${DOCKERHUB_PUSH}" = "true" ]; then
+        test -n "${DOCKERHUB_USERNAME:-}" || { echo "DOCKERHUB_USERNAME required"; exit 1; }
+        test -n "${DOCKERHUB_TOKEN:-}" || { echo "DOCKERHUB_TOKEN required"; exit 1; }
+        HUB_REPO="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/${CI_PROJECT_NAME}}"
+        HUB_REF="${HUB_REPO}:${PUBLISH_TAG}"
+        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+        docker tag "${GITLAB_REF}" "${HUB_REF}"
+        docker push "${HUB_REF}"
+        echo "Pushed Docker Hub mirror → ${HUB_REF}"
+        if [ "${PUBLISH_PUSH_LATEST}" = "true" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
+          docker tag "${GITLAB_REF}" "${HUB_REPO}:latest"
+          docker push "${HUB_REPO}:latest"
+          echo "Pushed ${HUB_REPO}:latest"
+        fi
+      else
+        echo "Docker Hub push skipped (set DOCKERHUB_USERNAME + DOCKERHUB_TOKEN to enable)"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
