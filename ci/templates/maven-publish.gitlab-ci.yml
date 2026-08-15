@@ -14,9 +14,10 @@
 #   Job requests 2Gi/6Gi (runner default 1536Mi OOMs on Gradle).
 #
 # Auth:
-#   GITLAB_MAVEN_URL   (default: https://scm.maze.trading/api/v4/groups/6/-/packages/maven)
+#   Publish URL: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/maven (group URL returns 415 on PUT)
 #   GITLAB_MAVEN_USER  (default: gitlab-ci-token)
 #   CI_JOB_TOKEN for publish (write); group Deploy Token GITLAB_MAVEN_* for local/read
+#   Consumers resolve via group URL https://scm.maze.trading/api/v4/groups/6/-/packages/maven
 
 spec:
   inputs:
@@ -68,7 +69,8 @@ maven_publish:
     - |
       set -eu
       echo "=== maven_publish: env setup ==="
-      export GITLAB_MAVEN_URL="${GITLAB_MAVEN_URL:-https://scm.maze.trading/api/v4/groups/6/-/packages/maven}"
+      # Group Maven URL is read-only for resolution; PUT must target the project registry.
+      export GITLAB_MAVEN_URL="${GITLAB_MAVEN_PUBLISH_URL:-${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/maven}"
       # Publish needs write_package_registry — always prefer CI_JOB_TOKEN over read-only Deploy Token.
       if [ -n "${CI_JOB_TOKEN:-}" ]; then
         export GITLAB_MAVEN_USER=gitlab-ci-token
