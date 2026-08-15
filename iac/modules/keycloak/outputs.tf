@@ -38,6 +38,7 @@ output "client_ids" {
     gitlab  = "gitlab"
     argocd  = "argocd"
     grafana = "grafana"
+    kellnr  = "kellnr"
   }
 }
 
@@ -48,6 +49,7 @@ output "client_secrets" {
     gitlab  = random_password.gitlab_client_secret.result
     argocd  = random_password.argocd_client_secret.result
     grafana = random_password.grafana_client_secret.result
+    kellnr  = random_password.kellnr_client_secret.result
   }
 }
 

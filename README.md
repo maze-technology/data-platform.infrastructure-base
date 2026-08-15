@@ -119,13 +119,15 @@ Opt-in via `backup_enabled`. The composition repo supplies the object store (loc
 
 ## Identity and access
 
-Keycloak is the central IdP (SSO for GitLab, Grafana, Argo CD). Groups:
+Keycloak is the central IdP (SSO for GitLab, Grafana, Argo CD, Kellnr). Groups:
 
 | Group | Purpose |
 |-------|---------|
 | `vpn-users` | WireGuard peer name = Keycloak username |
-| `engineers` | GitLab SSO + shared `maze` group, Grafana Editor, Argo CD readonly |
-| `admins` | Full platform admin |
+| `engineers` | GitLab SSO, Grafana Editor, Argo CD readonly, Kellnr normal user |
+| `admins` | Full platform admin (incl. Kellnr admin) |
+
+Private Cargo registry: [docs/kellnr.md](docs/kellnr.md) (`crates.<domain>`).
 
 GitLab stays VPN-only via Envoy `SecurityPolicy`. Cosign + Kyverno enforce signed images on namespaces labeled `<cluster_domain>/require-signed-images=true`. Details: [docs/gitlab-container-security.md](docs/gitlab-container-security.md).
 

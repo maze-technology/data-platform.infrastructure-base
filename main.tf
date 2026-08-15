@@ -7,6 +7,7 @@ locals {
     auth     = "auth.${var.cluster_domain}"
     scm      = "scm.${var.cluster_domain}"
     registry = "registry.scm.${var.cluster_domain}"
+    crates   = "crates.${var.cluster_domain}"
     grafana  = "grafana.${var.cluster_domain}"
     argocd   = "argocd.${var.cluster_domain}"
     vault    = "vault.${var.cluster_domain}"
@@ -61,8 +62,10 @@ locals {
   gitlab_storage_class        = var.gitlab_storage_class != "" ? var.gitlab_storage_class : local.rook_storage_class
   gitaly_storage_class        = var.gitaly_storage_class != "" ? var.gitaly_storage_class : local.rook_encrypted_storage_class
 
-  loki_bucket_name   = var.loki_bucket_name != "" ? var.loki_bucket_name : "loki-logs-${var.environment}"
-  gitlab_bucket_name = var.gitlab_bucket_name != "" ? var.gitlab_bucket_name : "gitlab-storage-${var.environment}"
+  loki_bucket_name     = var.loki_bucket_name != "" ? var.loki_bucket_name : "loki-logs-${var.environment}"
+  gitlab_bucket_name   = var.gitlab_bucket_name != "" ? var.gitlab_bucket_name : "gitlab-storage-${var.environment}"
+  kellnr_bucket_name   = var.kellnr_bucket_name != "" ? var.kellnr_bucket_name : "kellnr-crates-${var.environment}"
+  kellnr_storage_class = var.kellnr_storage_class != "" ? var.kellnr_storage_class : local.rook_storage_class
 
   # kubernetes provider returns secret data already base64-decoded in .data
   maze_ca_pem = var.create_maze_ca ? try(data.kubernetes_secret.maze_ca[0].data["ca.crt"], "") : ""
@@ -289,6 +292,7 @@ module "keycloak" {
     gitlab_redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
     argocd_redirect_uri  = "https://${local.hosts.argocd}/auth/callback"
     grafana_redirect_uri = "https://${local.hosts.grafana}/login/generic_oauth"
+    kellnr_redirect_uri  = "https://${local.hosts.crates}/api/v1/oauth2/callback"
   }
 
   depends_on = [module.ingress, module.cert_manager]
@@ -462,6 +466,47 @@ module "gitlab" {
   ]
 }
 
+module "kellnr" {
+  count  = var.enable_kellnr ? 1 : 0
+  source = "./iac/modules/kellnr"
+
+  cluster_name            = var.cluster_name
+  environment             = var.environment
+  hostname                = local.hosts.crates
+  enable_tls              = true
+  tls_cluster_issuer      = module.cert_manager.cluster_issuer_name
+  vpn_cidr                = module.wireguard.vpn_subnet
+  restrict_to_vpn         = var.restrict_to_vpn
+  storage_class           = local.kellnr_storage_class
+  postgresql_storage_size = var.kellnr_postgresql_storage_size
+  replica_count           = var.kellnr_replica_count
+
+  object_storage = {
+    endpoint         = module.rook_ceph.rgw_endpoint
+    region           = "us-east-1"
+    access_key       = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key       = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style = true
+    crates_bucket    = local.kellnr_bucket_name
+  }
+
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.kellnr
+    client_secret = module.keycloak.client_secrets.kellnr
+  }
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.keycloak,
+    module.cert_manager,
+    module.cluster_dns,
+    aws_s3_bucket.kellnr_crates,
+  ]
+}
+
 # GitLab Envoy Gateway path: override scm + registry DNS → Envoy ClusterIP.
 # Skipped when Gateway API is disabled (nginx ingress serves scm/registry).
 resource "null_resource" "coredns_gitlab_envoy" {
@@ -579,6 +624,23 @@ resource "aws_s3_bucket" "gitlab_storage" {
   depends_on = [module.rgw_bootstrap]
 }
 
+resource "aws_s3_bucket" "kellnr_crates" {
+  count = var.enable_kellnr ? 1 : 0
+
+  provider      = aws.rgw
+  bucket        = local.kellnr_bucket_name
+  force_destroy = var.s3_force_destroy
+
+  tags = {
+    Name        = local.kellnr_bucket_name
+    Environment = var.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "kellnr-crates"
+  }
+
+  depends_on = [module.rgw_bootstrap]
+}
+
 resource "aws_s3_bucket_versioning" "loki_logs" {
   provider = aws.rgw
   bucket   = aws_s3_bucket.loki_logs.id
@@ -604,28 +666,42 @@ resource "aws_s3_bucket_versioning" "gitlab_storage" {
 locals {
   backup_rgw_insecure = startswith(module.rook_ceph.rgw_endpoint, "http://")
 
-  backup_object_sync_sources = var.backup_enabled && var.backup_object_sync_enabled ? [
-    {
-      name                     = "gitlab-storage"
-      bucket                   = aws_s3_bucket.gitlab_storage.id
-      endpoint                 = module.rook_ceph.rgw_endpoint
-      region                   = "us-east-1"
-      force_path_style         = true
-      insecure_skip_tls_verify = local.backup_rgw_insecure
-      access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
-      secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
-    },
-    {
-      name                     = "loki-logs"
-      bucket                   = aws_s3_bucket.loki_logs.id
-      endpoint                 = module.rook_ceph.rgw_endpoint
-      region                   = "us-east-1"
-      force_path_style         = true
-      insecure_skip_tls_verify = local.backup_rgw_insecure
-      access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
-      secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
-    },
-  ] : []
+  backup_object_sync_sources = var.backup_enabled && var.backup_object_sync_enabled ? concat(
+    [
+      {
+        name                     = "gitlab-storage"
+        bucket                   = aws_s3_bucket.gitlab_storage.id
+        endpoint                 = module.rook_ceph.rgw_endpoint
+        region                   = "us-east-1"
+        force_path_style         = true
+        insecure_skip_tls_verify = local.backup_rgw_insecure
+        access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+        secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+      },
+      {
+        name                     = "loki-logs"
+        bucket                   = aws_s3_bucket.loki_logs.id
+        endpoint                 = module.rook_ceph.rgw_endpoint
+        region                   = "us-east-1"
+        force_path_style         = true
+        insecure_skip_tls_verify = local.backup_rgw_insecure
+        access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+        secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+      },
+    ],
+    var.enable_kellnr ? [
+      {
+        name                     = "kellnr-crates"
+        bucket                   = aws_s3_bucket.kellnr_crates[0].id
+        endpoint                 = module.rook_ceph.rgw_endpoint
+        region                   = "us-east-1"
+        force_path_style         = true
+        insecure_skip_tls_verify = local.backup_rgw_insecure
+        access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+        secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+      },
+    ] : [],
+  ) : []
 }
 
 module "backup" {
