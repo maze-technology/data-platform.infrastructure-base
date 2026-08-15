@@ -145,5 +145,8 @@ cargo_publish:
         sed -i -E "s/^version = \".*\"/version = \"${VER}\"/" "${CRATE_DIR}/Cargo.toml"
       fi
       echo "=== cargo_publish: publish ${CRATE_DIR} → ${REGISTRY_NAME} ==="
+      SUFFIX="$(echo "${REGISTRY_NAME}" | tr '[:lower:]-' '[:upper:]_')"
+      TOKEN_VAR="CARGO_REGISTRIES_${SUFFIX}_TOKEN"
+      eval "TOKEN_VAL=\${${TOKEN_VAR}:-}"
       # shellcheck disable=SC2086
-      (cd "${CRATE_DIR}" && cargo publish --registry "${REGISTRY_NAME}" ${PKG_ARGS})
+      (cd "${CRATE_DIR}" && cargo publish --registry "${REGISTRY_NAME}" --token "${TOKEN_VAL}" ${PKG_ARGS})
