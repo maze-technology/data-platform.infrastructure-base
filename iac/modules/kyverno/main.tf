@@ -111,6 +111,19 @@ resource "helm_release" "kyverno" {
           }
         }
       }
+      # Chart defaults bitnami/kubectl (Docker Hub 404 after Bitnami relocation).
+      webhooksCleanup = {
+        image = {
+          repository = "bitnamilegacy/kubectl"
+          tag        = "1.30.2"
+        }
+      }
+      policyReportsCleanup = {
+        image = {
+          repository = "bitnamilegacy/kubectl"
+          tag        = "1.30.2"
+        }
+      }
     })
   ]
 

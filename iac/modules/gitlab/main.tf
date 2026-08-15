@@ -635,6 +635,13 @@ resource "null_resource" "gitlab_sso_only" {
           sleep 20
           continue
         fi
+        # Surface DB auth/config drift early (toolbox vs PVC-initialized role).
+        if ! kubectl -n "$NS" exec "$POD" -- bash -lc 'gitlab-rails runner "ActiveRecord::Base.connection.execute(%q{select 1})"' >/tmp/gitlab_sso_db_check.out 2>&1; then
+          echo "gitlab_sso_only: toolbox DB check failed on $POD (attempt $i/30):" >&2
+          tail -n 40 /tmp/gitlab_sso_db_check.out >&2 || true
+          sleep 20
+          continue
+        fi
         if kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "$(cat <<'RUBY'
 # SSO-only + instance hardening (ApplicationSetting is DB-backed, not helm).
 # Keycloak username "admin" is reserved in GitLab — link SSO via root email.
