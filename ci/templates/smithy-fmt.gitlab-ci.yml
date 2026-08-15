@@ -39,14 +39,18 @@ smithy_fmt:
       apt-get update -qq
       apt-get install -y -qq curl unzip ca-certificates >/dev/null
       SMITHY_VERSION="$[[ inputs.smithy_version ]]"
+      SMITHY_TMP="$(mktemp -d)"
       curl -fsSL "https://github.com/smithy-lang/smithy/releases/download/${SMITHY_VERSION}/smithy-cli-linux-x86_64.zip" \
-        -o /tmp/smithy-cli.zip
-      unzip -qo /tmp/smithy-cli.zip -d /opt/smithy
-      ln -sf /opt/smithy/bin/smithy /usr/local/bin/smithy
+        -o "${SMITHY_TMP}/smithy-cli.zip"
+      unzip -qo "${SMITHY_TMP}/smithy-cli.zip" -d "${SMITHY_TMP}"
+      "${SMITHY_TMP}/smithy-cli-linux-x86_64/install"
+      export PATH="${HOME}/.local/bin:${PATH}"
+      hash -r || true
+      command -v smithy
       smithy --version
   script:
     - |
       set -euo pipefail
+      export PATH="${HOME}/.local/bin:${PATH}"
       echo "=== smithy format --check $[[ inputs.paths ]] ==="
-      # smithy format --check exits non-zero when files need formatting
       smithy format --check $[[ inputs.paths ]]

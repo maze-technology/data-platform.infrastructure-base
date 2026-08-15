@@ -20,6 +20,15 @@ spec:
     use_sdkman:
       description: If "true", sdk env install when .sdkmanrc is present
       default: "false"
+    install_smithy_tools:
+      description: If "true", install Smithy CLI / coursier / smithytranslate / buf (needed for specs make build)
+      default: "false"
+    smithy_version:
+      default: "1.72.1"
+    smithytranslate_version:
+      default: "0.7.6"
+    buf_version:
+      default: "1.55.1"
 
 ---
 
@@ -58,8 +67,28 @@ java_build:
         sdk env install
         export JAVA_HOME="$SDKMAN_DIR/candidates/java/current"
       fi
+      if [ "$[[ inputs.install_smithy_tools ]]" = "true" ]; then
+        SMITHY_TMP="$(mktemp -d)"
+        curl -fsSL "https://github.com/smithy-lang/smithy/releases/download/$[[ inputs.smithy_version ]]/smithy-cli-linux-x86_64.zip" \
+          -o "${SMITHY_TMP}/smithy-cli.zip"
+        unzip -qo "${SMITHY_TMP}/smithy-cli.zip" -d "${SMITHY_TMP}"
+        "${SMITHY_TMP}/smithy-cli-linux-x86_64/install"
+        export PATH="${HOME}/.local/bin:${PATH}"
+        mkdir -p "${HOME}/.local/bin"
+        if ! command -v cs >/dev/null 2>&1; then
+          curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > "${HOME}/.local/bin/cs"
+          chmod +x "${HOME}/.local/bin/cs"
+        fi
+        cs install --channel https://disneystreaming.github.io/coursier.json "smithytranslate:$[[ inputs.smithytranslate_version ]]"
+        curl -fsSL "https://github.com/bufbuild/buf/releases/download/v$[[ inputs.buf_version ]]/buf-Linux-x86_64" -o /usr/local/bin/buf
+        chmod +x /usr/local/bin/buf
+        hash -r || true
+        smithy --version
+        buf --version
+      fi
   script:
     - |
       set -euo pipefail
+      export PATH="${HOME}/.local/bin:${PATH}"
       echo "=== java_build: $[[ inputs.build_script ]] ==="
       eval "$[[ inputs.build_script ]]"
