@@ -10,7 +10,8 @@
 #         job_image: eclipse-temurin:21-jdk
 #
 # Flow (matches former GitHub commons publish):
-#   apt deps → optional SDKMAN (.sdkmanrc) → optional smithy tools → pre_publish → ./gradlew publish
+#   apt deps → optional SDKMAN (.sdkmanrc) → optional smithy tools → pre_publish (codegen) → ./gradlew publish
+#   Job requests 2Gi/6Gi (runner default 1536Mi OOMs on Gradle).
 #
 # Auth:
 #   GITLAB_MAVEN_URL   (default: https://scm.maze.trading/api/v4/groups/6/-/packages/maven)
@@ -23,8 +24,8 @@ spec:
       description: CI job image with JDK (temurin + apt-get for tooling)
       default: eclipse-temurin:21-jdk
     pre_publish:
-      description: Shell command run before ./gradlew publish (empty skips). Default make build; skipped automatically when there is no Makefile.
-      default: "make build"
+      description: Shell command run before ./gradlew publish (empty skips). Default make pre-build (codegen); skipped automatically when there is no Makefile. Use "make build" only if you need full verify and have raised KUBERNETES_MEMORY_LIMIT.
+      default: "make pre-build"
     use_sdkman:
       description: If "true", install SDKMAN and sdk env install when .sdkmanrc is present
       default: "true"
@@ -50,10 +51,15 @@ maven_publish:
     entrypoint: [""]
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
-    # Submodules use git@github.com URLs; init manually with HTTPS rewrite in before_script.
+    # Submodules use git@scm / git@github.com URLs; init manually with HTTPS rewrite in before_script.
     GIT_SUBMODULE_STRATEGY: "none"
     SMITHYTRANSLATE_VERSION: "0.5.7"
     BUF_VERSION: "1.55.1"
+    # Runner chart default is 1536Mi — too small for Gradle/SDKMAN/smithy tooling.
+    KUBERNETES_MEMORY_REQUEST: "2Gi"
+    KUBERNETES_MEMORY_LIMIT: "6Gi"
+    KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
+    KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == "main"
@@ -174,8 +180,8 @@ maven_publish:
       # Trim accidental whitespace from input interpolation
       PRE_PUBLISH=$(printf '%s' "$PRE_PUBLISH" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       if [ -n "$PRE_PUBLISH" ]; then
-        if [ "$PRE_PUBLISH" = "make build" ] && [ ! -f Makefile ]; then
-          echo "=== maven_publish: skipping pre_publish 'make build' (no Makefile) ==="
+        if { [ "$PRE_PUBLISH" = "make build" ] || [ "$PRE_PUBLISH" = "make pre-build" ]; } && [ ! -f Makefile ]; then
+          echo "=== maven_publish: skipping pre_publish '${PRE_PUBLISH}' (no Makefile) ==="
         else
           echo "=== maven_publish: pre_publish: ${PRE_PUBLISH} ==="
           eval "$PRE_PUBLISH"
