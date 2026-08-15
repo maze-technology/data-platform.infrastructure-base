@@ -57,7 +57,12 @@ locals {
     aws_signature_version = 4
   })
 
+  # Disable S3 redirects: RGW endpoint is cluster-internal; docker clients that
+  # follow 307 Location to http://rgw-service... get empty "denied:" on push.
   registry_storage_config = yamlencode({
+    redirect = {
+      disable = true
+    }
     s3 = {
       bucket         = var.object_storage.bucket
       region         = var.object_storage.region
