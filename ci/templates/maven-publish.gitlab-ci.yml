@@ -50,6 +50,7 @@ maven_publish:
     entrypoint: [""]
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+    GIT_SUBMODULE_STRATEGY: recursive
     SMITHYTRANSLATE_VERSION: "0.5.7"
     BUF_VERSION: "1.55.1"
   rules:
