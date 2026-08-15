@@ -50,6 +50,9 @@ spec:
     dockerhub_enabled:
       description: "auto = push when DOCKERHUB_* vars set; true/false to force"
       default: "auto"
+    job_image:
+      description: CI job image (use a JDK image when build_script needs the toolchain)
+      default: docker:27.5.1
 
 ---
 
@@ -71,7 +74,7 @@ variables:
 container_publish:
   stage: build
   image:
-    name: docker:27.5.1
+    name: $[[ inputs.job_image ]]
     entrypoint: [""]
   services:
     - name: docker:27.5.1-dind
@@ -83,6 +86,11 @@ container_publish:
   before_script:
     - |
       set -euo pipefail
+      if ! command -v docker >/dev/null 2>&1; then
+        echo "Fetching Docker CLI static binary"
+        curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz" \
+          | tar xz --strip-components=1 -C /usr/local/bin docker/docker
+      fi
       echo "Logging into GitLab registry ${CI_REGISTRY}"
       echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
