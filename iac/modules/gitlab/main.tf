@@ -281,10 +281,17 @@ locals {
                 privileged = true
                 poll_timeout = 180
                 cpu_request = "100m"
-                memory_request = "128Mi"
-                memory_limit = "1536Mi"
-                service_cpu_request = "50m"
-                service_memory_request = "64Mi"
+                memory_request = "512Mi"
+                memory_limit = "2Gi"
+                # Allow CI templates to raise via KUBERNETES_MEMORY_* (SDKMAN+Gradle+dind).
+                memory_request_overwrite_max_allowed = "8Gi"
+                memory_limit_overwrite_max_allowed = "8Gi"
+                service_cpu_request = "100m"
+                service_memory_request = "256Mi"
+                service_memory_limit = "2Gi"
+                service_memory_request_overwrite_max_allowed = "8Gi"
+                service_memory_limit_overwrite_max_allowed = "8Gi"
+                helper_memory_limit_overwrite_max_allowed = "1Gi"
           EOT
         }
         resources = {
@@ -305,12 +312,12 @@ locals {
           workerProcesses = var.webservice_worker_processes
           resources = {
             requests = {
-              cpu    = "250m"
-              memory = "1Gi"
+              cpu    = "500m"
+              memory = "2Gi"
             }
             limits = {
-              cpu    = "1"
-              memory = "2Gi"
+              cpu    = "2"
+              memory = "4Gi"
             }
           }
         }
@@ -619,6 +626,8 @@ resource "null_resource" "gitlab_sso_only" {
     admin_email = var.sso_admin_email
     oidc_issuer = var.oidc.issuer_url
     harden_v2   = "signup-off-webide-fallback-off-git-password-off"
+    # Bump to re-run after webservice memory / DB identity fixes.
+    harden_v3   = "webservice-4gi-db-gitlab-prod"
   }
 
   provisioner "local-exec" {

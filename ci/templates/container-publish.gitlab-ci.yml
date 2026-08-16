@@ -55,6 +55,9 @@ spec:
     job_image:
       description: CI job image (use a JDK image when build_script needs the toolchain)
       default: docker:27.5.1
+    use_sdkman:
+      description: If "true", install SDKMAN and sdk env install when .sdkmanrc is present
+      default: "true"
 
 ---
 
@@ -87,9 +90,9 @@ container_publish:
     # Attach strategy (default) — legacy exec was ending jobs mid-docker-build
     # with a false "success" before push.
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
-    # Runner chart default is 1536Mi — too small for JDK + dind + image build.
-    KUBERNETES_MEMORY_REQUEST: "2Gi"
-    KUBERNETES_MEMORY_LIMIT: "6Gi"
+    # Needs runner memory_*_overwrite_max_allowed >= these (see gitlab module).
+    KUBERNETES_MEMORY_REQUEST: "4Gi"
+    KUBERNETES_MEMORY_LIMIT: "8Gi"
     KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
     KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
     KUBERNETES_SERVICE_MEMORY_REQUEST: "1Gi"
@@ -97,10 +100,49 @@ container_publish:
   before_script:
     - |
       set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
       if ! command -v docker >/dev/null 2>&1; then
         echo "Fetching Docker CLI static binary"
         curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz" \
           | tar xz --strip-components=1 -C /usr/local/bin docker/docker
+      fi
+      # SDKMAN + zip/unzip for .sdkmanrc parity (skipped when use_sdkman=false or no .sdkmanrc).
+      if [ "$[[ inputs.use_sdkman ]]" = "true" ] && [ -f .sdkmanrc ]; then
+        if command -v apt-get >/dev/null 2>&1; then
+          apt-get update -qq
+          apt-get install -y -qq curl unzip zip ca-certificates >/dev/null
+        fi
+        echo "=== container_publish: SDKMAN (.sdkmanrc present) ==="
+        export SDKMAN_DIR="${SDKMAN_DIR:-$HOME/.sdkman}"
+        if [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            echo "SDKMAN install attempt ${attempt}/5"
+            if curl -fsS --retry 3 --retry-delay 2 "https://get.sdkman.io" | bash; then
+              ok=1
+              break
+            fi
+            sleep $((attempt * 3))
+          done
+          if [ "$ok" != "1" ] || [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+            echo "WARN: SDKMAN install failed; falling back to image JDK" >&2
+          fi
+        fi
+        if [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+          set +eu
+          # shellcheck disable=SC1091
+          . "$SDKMAN_DIR/bin/sdkman-init.sh"
+          sdk env install || echo "WARN: sdk env install failed; falling back to image JDK" >&2
+          set -eu
+          if [ -x "${SDKMAN_DIR}/candidates/java/current/bin/java" ]; then
+            export JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"
+            export PATH="${JAVA_HOME}/bin:${PATH}"
+            echo "JAVA_HOME=${JAVA_HOME}"
+          fi
+        fi
+      fi
+      if command -v java >/dev/null 2>&1; then
+        java -version
       fi
       echo "Waiting for docker daemon at ${DOCKER_HOST}"
       for i in $(seq 1 60); do
