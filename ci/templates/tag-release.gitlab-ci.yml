@@ -94,12 +94,33 @@ tag_release:
       if [ "${HTTP}" = "201" ] || [ "${HTTP}" = "200" ]; then
         echo "Created ${TAG}"
         cat /tmp/tag_resp.json | jq -r '.name // .'
+        # API tag create does not reliably start a CI pipeline on this GitLab CE.
+        # Explicitly trigger so container_publish can push :${TAG} (and secure jobs).
+        PIPE_HTTP="$(curl -sS -o /tmp/tag_pipe.json -w '%{http_code}' --request POST \
+          --header "${AUTH_HEADER}" \
+          --header "Content-Type: application/json" \
+          --data "{\"ref\":\"${TAG}\"}" \
+          "${API}/pipeline")"
+        if [ "${PIPE_HTTP}" = "201" ] || [ "${PIPE_HTTP}" = "200" ]; then
+          echo "Triggered pipeline for ${TAG}: $(jq -r '.id // .' /tmp/tag_pipe.json)"
+        else
+          echo "WARN: create tag ok but pipeline trigger HTTP ${PIPE_HTTP}" >&2
+          cat /tmp/tag_pipe.json >&2 || true
+        fi
         exit 0
       fi
 
       # Race: another pipeline created the same tag
       if [ "${HTTP}" = "400" ] && grep -qi 'already exists' /tmp/tag_resp.json; then
         echo "Tag ${TAG} already exists — ok"
+        # Still ensure a tag pipeline exists / can be triggered
+        PIPE_HTTP="$(curl -sS -o /tmp/tag_pipe.json -w '%{http_code}' --request POST \
+          --header "${AUTH_HEADER}" \
+          --header "Content-Type: application/json" \
+          --data "{\"ref\":\"${TAG}\"}" \
+          "${API}/pipeline")"
+        echo "Pipeline trigger for existing ${TAG}: HTTP ${PIPE_HTTP}"
+        cat /tmp/tag_pipe.json | jq -r '.id // .' 2>/dev/null || true
         exit 0
       fi
 
