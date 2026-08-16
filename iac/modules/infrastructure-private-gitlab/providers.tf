@@ -4,7 +4,7 @@ terraform {
   required_providers {
     ovh = {
       source  = "ovh/ovh"
-      version = "~> 0.47"
+      version = "~> 0.51"
     }
     null = {
       source  = "hashicorp/null"
@@ -12,7 +12,7 @@ terraform {
     }
     time = {
       source  = "hashicorp/time"
-      version = "~> 0.9"
+      version = "~> 0.14"
     }
   }
 }
