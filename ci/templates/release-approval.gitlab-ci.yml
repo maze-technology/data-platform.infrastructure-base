@@ -1,0 +1,38 @@
+# Gate merges into main (GitHub release-approval.yaml / environment: release parity).
+#
+# GitLab CE has no MR approval-rules API and no protected-environment reviewers
+# (those are Premium). This job is the CE-compatible substitute:
+#   - runs only on MRs targeting main
+#   - is manual — a Maintainer (ideally in engineers/release-engineers) clicks Play
+#   - fails the pipeline until played, so enable
+#     Settings → Merge requests → "Pipelines must succeed"
+#
+# Pair with protected branch main: push = No one, merge = Maintainers
+# (already the live default on product repos).
+#
+# Include:
+#   include:
+#     - project: "data-platform/infrastructure-base"
+#       ref: "develop"
+#       file: "/ci/templates/release-approval.gitlab-ci.yml"
+
+spec:
+  inputs:
+    job_stage:
+      description: Stage for the approval gate
+      default: .pre
+
+---
+
+release_approval:
+  stage: $[[ inputs.job_stage ]]
+  image:
+    name: alpine:3.24
+    entrypoint: [""]
+  script:
+    - echo "Release approval granted for MR !${CI_MERGE_REQUEST_IID} → ${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+      when: manual
+      allow_failure: false
+    - when: never

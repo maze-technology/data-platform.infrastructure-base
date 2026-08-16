@@ -3,3 +3,4 @@ stages: [publish]
 
 include:
   - local: "/ci/templates/tag-release.gitlab-ci.yml"
+  - local: "/ci/templates/release-approval.gitlab-ci.yml"

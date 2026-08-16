@@ -3,11 +3,29 @@
 ## Releases (auto-tag on main)
 
 GitHub used to bump a patch tag on every push to `main` (`publish.yaml` /
-`tag-release.yaml`). That was not initially ported.
+`tag-release.yaml`).
 
-GitLab equivalent: include `ci/templates/tag-release.gitlab-ci.yml`. It creates
-the next `vX.Y.Z` tag on `main` via `GITLAB_TAG_TOKEN` (group access token:
-`api` + `write_repository`). Tag pipelines then run maven/cargo/container publish.
+GitLab equivalent: include `ci/templates/tag-release.gitlab-ci.yml`. On `main` it
+creates the next `vX.Y.Z` tag via `GITLAB_TAG_TOKEN` (group access token:
+`api` + `write_repository`) and triggers the tag pipeline. On the tag pipeline,
+`gitlab_release` (same template) creates a **GitLab Release** with notes from the
+changelog API, falling back to commit titles between the previous semver tag and
+this one when no `Changelog:` trailers are present.
+
+## Release approval / protecting `main`
+
+GitHub used `.github/workflows/release-approval.yaml` + a `release` environment
+reviewed by `release-engineers`. GitLab CE has **no** MR approval-rules API and
+**no** protected-environment reviewers (Premium).
+
+CE parity:
+
+1. **Protected branch `main`**: push = No one, merge = Maintainers (already live).
+2. **Manual gate**: include `ci/templates/release-approval.gitlab-ci.yml` and enable
+   **Settings → Merge requests → Pipelines must succeed**. MRs into `main` stay
+   blocked until a Maintainer plays the `release_approval` job.
+3. **Roster**: keep people who may merge releases in `engineers/release-engineers`
+   (and as project Maintainers).
 
 ## Resolve (read)
 

@@ -1,7 +1,8 @@
-# Auto patch-tag on push to main (GitHub publish.yaml parity).
+# Auto patch-tag on push to main (GitHub publish.yaml parity) + GitLab Release notes.
 #
 # Old GitHub flow: push to main → bump patch tag → publish used that version.
-# GitLab publish jobs already run on $CI_COMMIT_TAG; this job only creates the tag.
+# GitLab publish jobs already run on $CI_COMMIT_TAG; tag_release only creates the tag
+# and triggers the tag pipeline. gitlab_release (same include) creates the Release.
 #
 # Include:
 #   include:
@@ -13,8 +14,8 @@
 #   GITLAB_TAG_TOKEN — Group/Project Access Token with api + write_repository
 #   (CI_JOB_TOKEN is tried as fallback but often cannot create tags on CE.)
 #
-# Loop-safe: never runs on tag pipelines. Creating a tag starts a separate pipeline
-# that runs maven/cargo/container publish — this job does not.
+# Loop-safe: tag_release never runs on tag pipelines. Creating a tag starts a
+# separate pipeline that runs publish + gitlab_release.
 
 spec:
   inputs:
@@ -126,4 +127,103 @@ tag_release:
 
       echo "ERROR: create tag HTTP ${HTTP}" >&2
       cat /tmp/tag_resp.json >&2 || true
+      exit 1
+
+# GitLab Release with changelog notes (runs on the tag pipeline).
+gitlab_release:
+  stage: .post
+  image:
+    name: alpine:3.24
+    entrypoint: [""]
+  variables:
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - |
+      set -euo pipefail
+      apk add --no-cache curl jq >/dev/null
+
+      TOKEN="${GITLAB_TAG_TOKEN:-${CI_JOB_TOKEN:-}}"
+      if [ -z "${TOKEN}" ]; then
+        echo "ERROR: set GITLAB_TAG_TOKEN (or rely on CI_JOB_TOKEN) for gitlab_release" >&2
+        exit 1
+      fi
+
+      API="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}"
+      if [ -n "${GITLAB_TAG_TOKEN:-}" ]; then
+        AUTH_HEADER="PRIVATE-TOKEN: ${TOKEN}"
+      else
+        AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN}"
+      fi
+
+      TAG="${CI_COMMIT_TAG}"
+      VER="${TAG#v}"
+
+      # Prefer trailer-based changelog; fall back to commit titles between tags.
+      NOTES="$(curl -fsS --header "${AUTH_HEADER}" \
+        "${API}/repository/changelog?version=${VER}" \
+        | jq -r '.notes // empty' || true)"
+
+      if [ -z "${NOTES}" ] || printf '%s' "${NOTES}" | grep -qi 'No changes'; then
+        PREV_TAG="$(curl -fsS --header "${AUTH_HEADER}" \
+          "${API}/repository/tags?per_page=100" \
+          | jq -r '.[].name' \
+          | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+          | grep -vxF "${TAG}" \
+          | sed 's/^v//' | sort -V | tail -1 || true)"
+        if [ -n "${PREV_TAG}" ]; then
+          # Match actual tag spelling (with or without v)
+          PREV_REF="$(curl -fsS --header "${AUTH_HEADER}" \
+            "${API}/repository/tags?per_page=100" \
+            | jq -r '.[].name' \
+            | grep -E "^v?${PREV_TAG}$" | head -1 || true)"
+          PREV_REF="${PREV_REF:-${PREV_TAG}}"
+          COMMITS="$(curl -fsS -G --header "${AUTH_HEADER}" \
+            --data-urlencode "from=${PREV_REF}" \
+            --data-urlencode "to=${TAG}" \
+            "${API}/repository/compare" \
+            | jq -r '.commits // [] | reverse | .[] | "- \(.title)"' || true)"
+        else
+          COMMITS=""
+        fi
+        if [ -n "${COMMITS}" ]; then
+          NOTES="$(printf '## %s\n\n%s\n' "${VER}" "${COMMITS}")"
+        else
+          NOTES="$(printf '## %s\n\nRelease %s.\n' "${VER}" "${TAG}")"
+        fi
+      fi
+
+      echo "Creating GitLab Release ${TAG}"
+      echo "${NOTES}"
+
+      BODY="$(jq -n --arg tag "${TAG}" --arg name "${TAG}" --arg desc "${NOTES}" \
+        '{tag_name:$tag, name:$name, description:$desc}')"
+
+      HTTP="$(curl -sS -o /tmp/release_resp.json -w '%{http_code}' --request POST \
+        --header "${AUTH_HEADER}" \
+        --header "Content-Type: application/json" \
+        --data "${BODY}" \
+        "${API}/releases")"
+
+      if [ "${HTTP}" = "201" ] || [ "${HTTP}" = "200" ]; then
+        echo "Created release ${TAG}"
+        jq -r '.tag_name // .message // .' /tmp/release_resp.json
+        exit 0
+      fi
+
+      if [ "${HTTP}" = "409" ] || grep -qiE 'already been taken|already exists' /tmp/release_resp.json; then
+        echo "Release ${TAG} already exists — updating description"
+        HTTP2="$(curl -sS -o /tmp/release_upd.json -w '%{http_code}' --request PUT \
+          --header "${AUTH_HEADER}" \
+          --header "Content-Type: application/json" \
+          --data "$(jq -n --arg desc "${NOTES}" '{description:$desc}')" \
+          "${API}/releases/$(printf '%s' "${TAG}" | sed 's|/|%2F|g')")"
+        echo "Update HTTP ${HTTP2}"
+        jq -r '.tag_name // .message // .' /tmp/release_upd.json 2>/dev/null || cat /tmp/release_upd.json
+        exit 0
+      fi
+
+      echo "ERROR: create release HTTP ${HTTP}" >&2
+      cat /tmp/release_resp.json >&2 || true
       exit 1
