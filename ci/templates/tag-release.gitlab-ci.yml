@@ -12,7 +12,13 @@
 #
 # Auth (group/project CI variable, masked):
 #   GITLAB_TAG_TOKEN — Group/Project Access Token with api + write_repository
-#   (CI_JOB_TOKEN is tried as fallback but often cannot create tags on CE.)
+#   scoped to the same group as the project (do NOT use a personal PAT that can
+#   read other groups — algorithms CI must not hold dual-group credentials).
+#   (CI_JOB_TOKEN is tried as fallback for tags but often cannot create tags on CE.)
+#
+# Pipeline trigger after tag create uses CI_JOB_TOKEN (not GITLAB_TAG_TOKEN) so
+# private CI includes (e.g. data-platform/infrastructure-base) resolve via the
+# project's job-token allowlist, not a cross-group PAT.
 #
 # Loop-safe: tag_release never runs on tag pipelines. Creating a tag starts a
 # separate pipeline that runs publish + gitlab_release.
@@ -92,36 +98,36 @@ tag_release:
         --data "{\"tag_name\":\"${TAG}\",\"ref\":\"${CI_COMMIT_SHA}\",\"message\":\"Release ${TAG}\"}" \
         "${API}/repository/tags")"
 
+      trigger_tag_pipeline() {
+        # Prefer job token so CI includes resolve as this project (allowlist),
+        # not as GITLAB_TAG_TOKEN (must stay group-scoped / no cross-group PAT).
+        local pipe_http
+        pipe_http="$(curl -sS -o /tmp/tag_pipe.json -w '%{http_code}' --request POST \
+          --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+          --header "Content-Type: application/json" \
+          --data "{\"ref\":\"${1}\"}" \
+          "${API}/pipeline")"
+        if [ "${pipe_http}" = "201" ] || [ "${pipe_http}" = "200" ]; then
+          echo "Triggered pipeline for ${1}: $(jq -r '.id // .' /tmp/tag_pipe.json)"
+          return 0
+        fi
+        echo "WARN: pipeline trigger via CI_JOB_TOKEN HTTP ${pipe_http}" >&2
+        cat /tmp/tag_pipe.json >&2 || true
+        return 0
+      }
+
       if [ "${HTTP}" = "201" ] || [ "${HTTP}" = "200" ]; then
         echo "Created ${TAG}"
         cat /tmp/tag_resp.json | jq -r '.name // .'
         # API tag create does not reliably start a CI pipeline on this GitLab CE.
-        # Explicitly trigger so container_publish can push :${TAG} (and secure jobs).
-        PIPE_HTTP="$(curl -sS -o /tmp/tag_pipe.json -w '%{http_code}' --request POST \
-          --header "${AUTH_HEADER}" \
-          --header "Content-Type: application/json" \
-          --data "{\"ref\":\"${TAG}\"}" \
-          "${API}/pipeline")"
-        if [ "${PIPE_HTTP}" = "201" ] || [ "${PIPE_HTTP}" = "200" ]; then
-          echo "Triggered pipeline for ${TAG}: $(jq -r '.id // .' /tmp/tag_pipe.json)"
-        else
-          echo "WARN: create tag ok but pipeline trigger HTTP ${PIPE_HTTP}" >&2
-          cat /tmp/tag_pipe.json >&2 || true
-        fi
+        trigger_tag_pipeline "${TAG}"
         exit 0
       fi
 
       # Race: another pipeline created the same tag
       if [ "${HTTP}" = "400" ] && grep -qi 'already exists' /tmp/tag_resp.json; then
         echo "Tag ${TAG} already exists — ok"
-        # Still ensure a tag pipeline exists / can be triggered
-        PIPE_HTTP="$(curl -sS -o /tmp/tag_pipe.json -w '%{http_code}' --request POST \
-          --header "${AUTH_HEADER}" \
-          --header "Content-Type: application/json" \
-          --data "{\"ref\":\"${TAG}\"}" \
-          "${API}/pipeline")"
-        echo "Pipeline trigger for existing ${TAG}: HTTP ${PIPE_HTTP}"
-        cat /tmp/tag_pipe.json | jq -r '.id // .' 2>/dev/null || true
+        trigger_tag_pipeline "${TAG}"
         exit 0
       fi
 
