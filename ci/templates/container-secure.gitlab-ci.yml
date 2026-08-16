@@ -71,7 +71,7 @@ trivy:
 cosign_sign:
   stage: secure
   image:
-    name: gcr.io/projectsigstore/cosign:v2.6.5
+    name: gcr.io/projectsigstore/cosign:v3.1.3
     entrypoint: [""]
   needs:
     - job: trivy
@@ -108,7 +108,7 @@ cosign_sign:
 cosign_verify:
   stage: secure
   image:
-    name: gcr.io/projectsigstore/cosign:v2.6.5
+    name: gcr.io/projectsigstore/cosign:v3.1.3
     entrypoint: [""]
   needs:
     - job: cosign_sign
