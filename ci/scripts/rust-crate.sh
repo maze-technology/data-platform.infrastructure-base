@@ -7,7 +7,19 @@ SRC_RS="${OUT}/src"
 mkdir -p "${SRC_RS}"
 
 ROOT_NAME="$(grep -E 'rootProject.name' settings.gradle | sed -E 's/.*"([^"]+)".*/\1/')"
-CRATE_NAME="$(echo "${ROOT_NAME}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')"
+# Maven group (e.g. tech.maze.dtos.dataplatform) → crate prefix dtos-dataplatform-<artifact>
+GROUP="$(grep -E '^group\s*=' build.gradle | head -1 | sed -E 's/^group\s*=\s*"([^"]+)".*/\1/' || true)"
+if [[ "${GROUP}" =~ ^tech\.maze\.dtos\.([a-z0-9]+)$ ]]; then
+  DOMAIN="${BASH_REMATCH[1]}"
+  CRATE_NAME="dtos-${DOMAIN}-${ROOT_NAME}"
+elif [[ "${ROOT_NAME}" == *.* ]]; then
+  # Legacy: rootProject.name was the full artifact (dtos.ohlcvs)
+  CRATE_NAME="$(echo "${ROOT_NAME}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')"
+else
+  CRATE_NAME="$(echo "${ROOT_NAME}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')"
+fi
+CRATE_NAME="$(echo "${CRATE_NAME}" | tr '[:upper:]' '[:lower:]')"
+
 VERSION="$(grep -E '^version' gradle.properties | head -1 | sed -E 's/.*=\s*//' | tr -d '[:space:]' | sed 's/-SNAPSHOT//')"
 VERSION="${VERSION:-0.1.0}"
 if [ -n "${CI_COMMIT_TAG:-}" ]; then
@@ -35,30 +47,28 @@ fi
     echo "pub const CRATE_NAME: &str = \"${CRATE_NAME}\";"
     echo "pub const CRATE_VERSION: &str = env!(\"CARGO_PKG_VERSION\");"
   else
-    # Group by package prefix (everything before the last dotted segment).
-    declare -A GROUPS=()
+    # Flat crate-root modules so cargo package verification works (empty nested
+    # dirs are omitted from the publish tarball and break #[path = "../…"]).
+    # Do not name the assoc array GROUPS — bash reserves that name.
+    declare -A MOD_GROUPS=()
     for f in "${files[@]}"; do
       rel="${f#${SRC_RS}/}"
       base="${rel%.rs}"
       leaf="${base##*.}"
       prefix="${base%.*}"
-      GROUPS["${prefix}"]+="${leaf}|"
+      MOD_GROUPS["${prefix}"]="${MOD_GROUPS[${prefix}]:-}${leaf}|"
     done
 
-    for prefix in $(printf '%s\n' "${!GROUPS[@]}" | sort); do
-      mod_path="$(echo "${prefix}" | tr '.' '_' | tr '[:upper:]' '[:lower:]')"
-      echo "pub mod ${mod_path} {"
-      IFS='|' read -r -a leaves <<< "${GROUPS[$prefix]}"
+    for prefix in $(printf '%s\n' "${!MOD_GROUPS[@]}" | sort); do
+      IFS='|' read -r -a leaves <<< "${MOD_GROUPS[$prefix]}"
       for leaf in "${leaves[@]}"; do
         [ -n "${leaf}" ] || continue
         rel="${prefix}.${leaf}.rs"
-        echo "    #[path = \"${rel}\"]"
-        echo "    pub mod ${leaf};"
-        echo "    pub use ${leaf}::*;"
+        echo "#[path = \"${rel}\"]"
+        echo "pub mod ${leaf};"
+        echo "pub use ${leaf}::*;"
+        echo
       done
-      echo "}"
-      echo "pub use ${mod_path}::*;"
-      echo
     done
   fi
 } > "${SRC_RS}/lib.rs"
@@ -73,7 +83,7 @@ cat > "${OUT}/Cargo.toml" <<TOML
 name = "${CRATE_NAME}"
 version = "${VERSION}"
 edition = "2021"
-description = "Maze DTO crate generated from ${ROOT_NAME} specs"
+description = "Maze DTO crate generated from ${GROUP:-tech.maze}:${ROOT_NAME} specs"
 license = "MIT"
 publish = ["maze"]
 
@@ -84,4 +94,4 @@ ${DEPS}
 all-features = true
 TOML
 
-echo "rust crate ready: ${OUT} name=${CRATE_NAME} version=${VERSION} modules=${#files[@]} tonic=${NEED_TONIC}"
+echo "rust crate ready: ${OUT} name=${CRATE_NAME} version=${VERSION} modules=${#files[@]} tonic=${NEED_TONIC} group=${GROUP:-}"
