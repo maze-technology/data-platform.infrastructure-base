@@ -84,6 +84,12 @@ container_publish:
     - name: docker:27.5.1-dind
       alias: docker
       command: ["--tls=false"]
+  # Same class of k8s/etcd runner flakes that skip Trivy before it starts.
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""

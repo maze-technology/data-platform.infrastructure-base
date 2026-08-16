@@ -53,6 +53,13 @@ trivy:
   variables:
     TRIVY_USERNAME: $CI_REGISTRY_USER
     TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+  # Control-plane / runner flakes (etcd leader changed, pod watcher not synced)
+  # are runner_system_failure — retry without waiting for a human.
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
   script:
     - |
       set -euo pipefail
