@@ -34,7 +34,7 @@ Group Maven URL (data-platform): `https://scm.maze.trading/api/v4/groups/6/-/pac
 CI/local read: group CI vars `GITLAB_MAVEN_USER` / `GITLAB_MAVEN_PASSWORD` (Deploy Token with `read_package_registry`),
 or `GITLAB_TOKEN` with `read_api` + `read_package_registry`.
 
-Templates specs (e.g. `dtos.helloworld`) publish under the **templates** group. Consumers there also need:
+Templates specs (e.g. `tech.maze.dtos.templates:helloworld`, Kellnr `dtos-templates-helloworld`) publish under the **templates** group. Consumers there also need:
 
 - `GITLAB_TEMPLATES_MAVEN_URL` = `https://scm.maze.trading/api/v4/groups/7/-/packages/maven`
 - `GITLAB_TEMPLATES_MAVEN_USER` / `GITLAB_TEMPLATES_MAVEN_PASSWORD` (group-7 Deploy Token with `read_package_registry`)
