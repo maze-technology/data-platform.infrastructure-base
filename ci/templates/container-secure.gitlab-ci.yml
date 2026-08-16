@@ -48,7 +48,7 @@ variables:
 trivy:
   stage: secure
   image:
-    name: aquasec/trivy:0.58.1
+    name: aquasec/trivy:0.74.0
     entrypoint: [""]
   variables:
     TRIVY_USERNAME: $CI_REGISTRY_USER
