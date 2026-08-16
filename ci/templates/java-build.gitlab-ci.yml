@@ -19,7 +19,7 @@ spec:
       default: "make build"
     use_sdkman:
       description: If "true", sdk env install when .sdkmanrc is present
-      default: "false"
+      default: "true"
     install_smithy_tools:
       description: If "true", install Smithy CLI / coursier / smithytranslate / buf (needed for specs make build)
       default: "false"
@@ -43,8 +43,8 @@ java_build:
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
     GIT_SUBMODULE_STRATEGY: "none"
-    KUBERNETES_MEMORY_REQUEST: "2Gi"
-    KUBERNETES_MEMORY_LIMIT: "6Gi"
+    KUBERNETES_MEMORY_REQUEST: "3Gi"
+    KUBERNETES_MEMORY_LIMIT: "8Gi"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "develop"
@@ -61,12 +61,38 @@ java_build:
         git submodule update --init --recursive
       fi
       if [ "$[[ inputs.use_sdkman ]]" = "true" ] && [ -f .sdkmanrc ]; then
-        curl -s "https://get.sdkman.io" | bash >/dev/null
-        # shellcheck disable=SC1091
-        source "$HOME/.sdkman/bin/sdkman-init.sh"
-        sdk env install
-        export JAVA_HOME="$SDKMAN_DIR/candidates/java/current"
+        echo "=== java_build: SDKMAN (.sdkmanrc present) ==="
+        export SDKMAN_DIR="${SDKMAN_DIR:-$HOME/.sdkman}"
+        if [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            echo "SDKMAN install attempt ${attempt}/5"
+            if curl -fsS --retry 3 --retry-delay 2 "https://get.sdkman.io" | bash; then
+              ok=1
+              break
+            fi
+            sleep $((attempt * 3))
+          done
+          if [ "$ok" != "1" ] || [ ! -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+            echo "WARN: SDKMAN install failed; falling back to image JDK" >&2
+          fi
+        fi
+        if [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+          set +eu
+          # shellcheck disable=SC1091
+          . "$SDKMAN_DIR/bin/sdkman-init.sh"
+          sdk env install || echo "WARN: sdk env install failed; falling back to image JDK" >&2
+          set -eu
+          if [ -x "${SDKMAN_DIR}/candidates/java/current/bin/java" ]; then
+            export JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"
+            export PATH="${JAVA_HOME}/bin:${PATH}"
+            echo "JAVA_HOME=${JAVA_HOME}"
+          fi
+        fi
+      else
+        echo "=== java_build: using image JDK ==="
       fi
+      java -version
       if [ "$[[ inputs.install_smithy_tools ]]" = "true" ]; then
         SMITHY_TMP="$(mktemp -d)"
         curl -fsSL "https://github.com/smithy-lang/smithy/releases/download/$[[ inputs.smithy_version ]]/smithy-cli-linux-x86_64.zip" \
