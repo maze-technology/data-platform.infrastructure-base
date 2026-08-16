@@ -626,8 +626,8 @@ resource "null_resource" "gitlab_sso_only" {
     admin_email = var.sso_admin_email
     oidc_issuer = var.oidc.issuer_url
     harden_v2   = "signup-off-webide-fallback-off-git-password-off"
-    # Bump to re-run after webservice memory / DB identity fixes.
-    harden_v3   = "webservice-4gi-db-gitlab-prod"
+    # File-based rails runner; resolve admin without assuming username "root".
+    harden_v4   = "sso-admin-by-email-or-id1"
   }
 
   provisioner "local-exec" {
@@ -635,47 +635,51 @@ resource "null_resource" "gitlab_sso_only" {
     command     = <<-EOT
       set -uo pipefail
       NS='${kubernetes_namespace.gitlab.metadata[0].name}'
-      kubectl -n "$NS" wait --for=condition=available deploy/gitlab-webservice-default --timeout=900s
-      kubectl -n "$NS" wait --for=condition=ready pod -l app=toolbox --timeout=300s
-      for i in $(seq 1 30); do
-        POD="$(kubectl -n "$NS" get pod -l app=toolbox --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-        if [ -z "$POD" ]; then
-          echo "gitlab_sso_only: no running toolbox pod yet (attempt $i/30)"
-          sleep 20
-          continue
-        fi
-        # Surface DB auth/config drift early (toolbox vs PVC-initialized role).
-        if ! kubectl -n "$NS" exec "$POD" -- bash -lc 'gitlab-rails runner "ActiveRecord::Base.connection.execute(%q{select 1})"' >/tmp/gitlab_sso_db_check.out 2>&1; then
-          echo "gitlab_sso_only: toolbox DB check failed on $POD (attempt $i/30):" >&2
-          tail -n 40 /tmp/gitlab_sso_db_check.out >&2 || true
-          sleep 20
-          continue
-        fi
-        if kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "$(cat <<'RUBY'
-# SSO-only + instance hardening (ApplicationSetting is DB-backed, not helm).
-# Keycloak username "admin" is reserved in GitLab — link SSO via root email.
-# Git over HTTP(S): no account passwords (SSH keys or personal access tokens).
+      ADMIN_EMAIL='${var.sso_admin_email}'
+      ADMIN_USER='${var.sso_admin_username}'
+      SCRIPT="$(mktemp /tmp/gitlab-sso-XXXXXX.rb)"
+      trap 'rm -f "$SCRIPT"' EXIT
+      cat > "$SCRIPT" <<'RUBY'
+ActiveRecord::Base.connection.execute("select 1")
 ApplicationSetting.current.update!(
   password_authentication_enabled_for_web: false,
   password_authentication_enabled_for_git: false,
   signup_enabled: false,
   vscode_extension_marketplace_single_origin_fallback_enabled: false
 )
-admin_email = '${var.sso_admin_email}'
-root = User.find_by_username('root')
-raise 'root user missing' if root.nil?
-root.skip_reconfirmation! if root.respond_to?(:skip_reconfirmation!)
-root.email = admin_email
-root.confirmed_at ||= Time.current
-root.save!
+email = ENV.fetch("GITLAB_SSO_ADMIN_EMAIL")
+uname = ENV.fetch("GITLAB_SSO_ADMIN_USER")
+admin = User.find_by_username(uname) ||
+        User.find_by_username("root") ||
+        User.find_by_email(email) ||
+        User.admins.order(:id).first ||
+        User.order(:id).first
+raise "no admin user found" if admin.nil?
+admin.skip_reconfirmation! if admin.respond_to?(:skip_reconfirmation!)
+admin.email = email
+admin.admin = true
+admin.confirmed_at ||= Time.current
+admin.save!
 s = ApplicationSetting.current
-puts "root email=#{root.email} admin=#{root.admin?} password_auth_web=#{s.password_authentication_enabled_for_web} password_auth_git=#{s.password_authentication_enabled_for_git} signup=#{s.signup_enabled} webide_fallback=#{s.vscode_extension_marketplace_single_origin_fallback_enabled}"
+puts "gitlab_sso_only ok user=#{admin.username} admin=#{admin.admin?} web=#{s.password_authentication_enabled_for_web} git=#{s.password_authentication_enabled_for_git} signup=#{s.signup_enabled}"
 RUBY
-)"; then
+      kubectl -n "$NS" wait --for=condition=available deploy/gitlab-webservice-default --timeout=900s
+      kubectl -n "$NS" wait --for=condition=ready pod -l app=toolbox --timeout=300s
+      for i in $(seq 1 8); do
+        POD="$(kubectl -n "$NS" get pod -l app=toolbox --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+        if [ -z "$POD" ]; then
+          echo "gitlab_sso_only: no running toolbox pod yet (attempt $i/8)"
+          sleep 15
+          continue
+        fi
+        if kubectl -n "$NS" cp "$SCRIPT" "$POD":/tmp/gitlab-sso.rb -c toolbox \
+          && kubectl -n "$NS" exec "$POD" -c toolbox -- \
+               env GITLAB_SSO_ADMIN_EMAIL="$ADMIN_EMAIL" GITLAB_SSO_ADMIN_USER="$ADMIN_USER" \
+               timeout 240 gitlab-rails runner /tmp/gitlab-sso.rb; then
           exit 0
         fi
-        echo "gitlab_sso_only: attempt $i/30 failed on pod $POD, retrying in 20s..."
-        sleep 20
+        echo "gitlab_sso_only: attempt $i/8 failed on pod $POD, retrying in 15s..." >&2
+        sleep 15
       done
       echo "gitlab_sso_only: failed after retries" >&2
       exit 1
