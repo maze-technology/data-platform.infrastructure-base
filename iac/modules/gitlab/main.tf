@@ -617,52 +617,58 @@ resource "kubernetes_secret" "gitlab_oidc" {
 
 # Enforce SSO-only web login and ensure the platform admin is a GitLab administrator.
 # ApplicationSetting lives in the DB (not helm values), so this runs via toolbox.
+locals {
+  gitlab_sso_rails = <<-RUBY
+    ActiveRecord::Base.connection.execute("select 1")
+    ApplicationSetting.current.update!(
+      password_authentication_enabled_for_web: false,
+      password_authentication_enabled_for_git: false,
+      signup_enabled: false,
+      vscode_extension_marketplace_single_origin_fallback_enabled: false
+    )
+    email = ENV.fetch("GITLAB_SSO_ADMIN_EMAIL")
+    uname = ENV.fetch("GITLAB_SSO_ADMIN_USER")
+    admin = User.find_by_username(uname) ||
+            User.find_by_username("root") ||
+            User.find_by_email(email) ||
+            User.admins.order(:id).first ||
+            User.order(:id).first
+    raise "no admin user found" if admin.nil?
+    admin.skip_reconfirmation! if admin.respond_to?(:skip_reconfirmation!)
+    admin.email = email
+    admin.admin = true
+    admin.confirmed_at ||= Time.current
+    admin.save!
+    s = ApplicationSetting.current
+    puts "gitlab_sso_only ok user=#{admin.username} admin=#{admin.admin?} web=#{s.password_authentication_enabled_for_web} git=#{s.password_authentication_enabled_for_git} signup=#{s.signup_enabled}"
+  RUBY
+}
+
 resource "null_resource" "gitlab_sso_only" {
   count = var.oidc != null ? 1 : 0
 
   triggers = {
-    namespace   = kubernetes_namespace.gitlab.metadata[0].name
+    namespace    = kubernetes_namespace.gitlab.metadata[0].name
     admin_user  = var.sso_admin_username
     admin_email = var.sso_admin_email
     oidc_issuer = var.oidc.issuer_url
-    harden_v2   = "signup-off-webide-fallback-off-git-password-off"
-    # File-based rails runner; resolve admin without assuming username "root".
-    harden_v4   = "sso-admin-by-email-or-id1"
+    # Re-run when the rails policy script changes (replaces harden_v* bump keys).
+    policy_sha  = sha256(local.gitlab_sso_rails)
   }
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
-    command     = <<-EOT
+    environment = {
+      GITLAB_SSO_RAILS = local.gitlab_sso_rails
+    }
+    command = <<-EOT
       set -uo pipefail
       NS='${kubernetes_namespace.gitlab.metadata[0].name}'
       ADMIN_EMAIL='${var.sso_admin_email}'
       ADMIN_USER='${var.sso_admin_username}'
       SCRIPT="$(mktemp /tmp/gitlab-sso-XXXXXX.rb)"
       trap 'rm -f "$SCRIPT"' EXIT
-      cat > "$SCRIPT" <<'RUBY'
-ActiveRecord::Base.connection.execute("select 1")
-ApplicationSetting.current.update!(
-  password_authentication_enabled_for_web: false,
-  password_authentication_enabled_for_git: false,
-  signup_enabled: false,
-  vscode_extension_marketplace_single_origin_fallback_enabled: false
-)
-email = ENV.fetch("GITLAB_SSO_ADMIN_EMAIL")
-uname = ENV.fetch("GITLAB_SSO_ADMIN_USER")
-admin = User.find_by_username(uname) ||
-        User.find_by_username("root") ||
-        User.find_by_email(email) ||
-        User.admins.order(:id).first ||
-        User.order(:id).first
-raise "no admin user found" if admin.nil?
-admin.skip_reconfirmation! if admin.respond_to?(:skip_reconfirmation!)
-admin.email = email
-admin.admin = true
-admin.confirmed_at ||= Time.current
-admin.save!
-s = ApplicationSetting.current
-puts "gitlab_sso_only ok user=#{admin.username} admin=#{admin.admin?} web=#{s.password_authentication_enabled_for_web} git=#{s.password_authentication_enabled_for_git} signup=#{s.signup_enabled}"
-RUBY
+      printf '%s\n' "$GITLAB_SSO_RAILS" > "$SCRIPT"
       kubectl -n "$NS" wait --for=condition=available deploy/gitlab-webservice-default --timeout=900s
       kubectl -n "$NS" wait --for=condition=ready pod -l app=toolbox --timeout=300s
       for i in $(seq 1 8); do
