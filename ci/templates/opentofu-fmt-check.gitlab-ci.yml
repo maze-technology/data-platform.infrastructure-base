@@ -4,7 +4,7 @@
 #   include:
 #     - project: "data-platform/infrastructure-base"
 #       ref: "develop"
-#       file: "/ci/templates/opentofu-fmt.gitlab-ci.yml"
+#       file: "/ci/templates/opentofu-fmt-check.gitlab-ci.yml"
 #     # optional inputs:
 #     # - inputs:
 #     #     tofu_version: "1.9.0"
@@ -27,7 +27,7 @@ spec:
 stages:
   - $[[ inputs.job_stage ]]
 
-opentofu_fmt:
+opentofu_fmt_check:
   stage: $[[ inputs.job_stage ]]
   image:
     name: alpine:3.24

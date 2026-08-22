@@ -19,6 +19,6 @@ stages:
   - publish
 
 include:
-  - local: "/ci/templates/opentofu-fmt.gitlab-ci.yml"
+  - local: "/ci/templates/opentofu-fmt-check.gitlab-ci.yml"
   - local: "/ci/templates/release-approval.gitlab-ci.yml"
   - local: "/ci/templates/tag-release.gitlab-ci.yml"
