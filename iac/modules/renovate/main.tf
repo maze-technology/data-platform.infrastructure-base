@@ -22,8 +22,8 @@ locals {
     autodiscover       = true
     autodiscoverFilter = var.autodiscover_filters
     # Match GitHub product repos: integration branch is develop (main is release-only).
-    baseBranches       = ["develop"]
-    onboarding         = true
+    baseBranches = ["develop"]
+    onboarding   = true
     onboardingConfig = {
       extends      = ["config:recommended"]
       baseBranches = ["develop"]

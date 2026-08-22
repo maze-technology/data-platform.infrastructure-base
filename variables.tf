@@ -690,6 +690,24 @@ variable "kellnr_replica_count" {
   default     = 1
 }
 
+variable "enable_kellnr_keycloak_sync" {
+  description = "Deploy Keycloak event webhook listener + Kellnr group membership sync service"
+  type        = bool
+  default     = true
+}
+
+variable "kellnr_keycloak_sync_groups" {
+  description = "Keycloak/Kellnr group names kept in sync (maze-specific; set in production tfvars)"
+  type        = list(string)
+  default     = []
+}
+
+variable "gitlab_oidc_extra_required_groups" {
+  description = "Extra Keycloak groups allowed to sign in to GitLab OIDC (direct membership only)"
+  type        = list(string)
+  default     = []
+}
+
 variable "s3_force_destroy" {
   description = "Allow OpenTofu to destroy non-empty S3 buckets (local only)"
   type        = bool

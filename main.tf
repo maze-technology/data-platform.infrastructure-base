@@ -67,8 +67,16 @@ locals {
   kellnr_bucket_name   = var.kellnr_bucket_name != "" ? var.kellnr_bucket_name : "kellnr-crates-${var.environment}"
   kellnr_storage_class = var.kellnr_storage_class != "" ? var.kellnr_storage_class : local.rook_storage_class
 
+  kellnr_keycloak_sync_webhook_url = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? "http://kellnr-keycloak-sync.kellnr.svc.cluster.local:8080/webhook" : ""
+
   # kubernetes provider returns secret data already base64-decoded in .data
   maze_ca_pem = var.create_maze_ca ? try(data.kubernetes_secret.maze_ca[0].data["ca.crt"], "") : ""
+}
+
+resource "random_password" "kellnr_keycloak_sync_webhook" {
+  count   = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? 1 : 0
+  length  = 32
+  special = false
 }
 
 # ============================================================================
@@ -298,6 +306,9 @@ module "keycloak" {
     kellnr_redirect_uri  = "https://${local.hosts.crates}/api/v1/oauth2/callback"
   }
 
+  event_webhook_uri    = local.kellnr_keycloak_sync_webhook_url
+  event_webhook_secret = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? random_password.kellnr_keycloak_sync_webhook[0].result : ""
+
   depends_on = [module.ingress, module.cert_manager]
 }
 
@@ -307,15 +318,15 @@ module "wireguard" {
   cluster_name = var.cluster_name
   environment  = var.environment
 
-  server_url       = local.wireguard_server
-  service_type     = var.wireguard_service_type
-  node_port        = var.wireguard_node_port
-  vpn_subnet       = var.vpn_subnet
-  allowed_ips      = var.wireguard_allowed_ips
-  peers            = local.wireguard_peers
-  storage_class    = local.wireguard_storage_class
-  storage_size     = var.wireguard_storage_size
-  peer_dns_domain  = var.cluster_domain
+  server_url      = local.wireguard_server
+  service_type    = var.wireguard_service_type
+  node_port       = var.wireguard_node_port
+  vpn_subnet      = var.vpn_subnet
+  allowed_ips     = var.wireguard_allowed_ips
+  peers           = local.wireguard_peers
+  storage_class   = local.wireguard_storage_class
+  storage_size    = var.wireguard_storage_size
+  peer_dns_domain = var.cluster_domain
 
   depends_on = [module.rook_ceph]
 }
@@ -456,9 +467,10 @@ module "gitlab" {
     client_secret = module.keycloak.client_secrets.gitlab
     redirect_uri  = "https://${local.hosts.scm}/users/auth/openid_connect/callback"
   }
-  sso_admin_username = var.bootstrap_admin.username
-  sso_admin_email    = var.bootstrap_admin.email
-  custom_ca_pem      = local.maze_ca_pem
+  oidc_extra_required_groups = var.gitlab_oidc_extra_required_groups
+  sso_admin_username         = var.bootstrap_admin.username
+  sso_admin_email            = var.bootstrap_admin.email
+  custom_ca_pem              = local.maze_ca_pem
 
   depends_on = [
     module.rook_ceph,
@@ -509,6 +521,26 @@ module "kellnr" {
     module.cluster_dns,
     aws_s3_bucket.kellnr_crates,
   ]
+}
+
+module "kellnr_keycloak_sync" {
+  count  = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? 1 : 0
+  source = "./iac/modules/kellnr-keycloak-sync"
+
+  environment                = var.environment
+  namespace                  = module.kellnr[0].namespace
+  keycloak_realm             = module.keycloak.realm
+  keycloak_admin_base_url    = "http://keycloak.${module.keycloak.namespace}.svc.cluster.local"
+  keycloak_admin_username    = var.keycloak_admin_username
+  keycloak_admin_password    = var.keycloak_admin_password
+  kellnr_postgresql_host     = module.kellnr[0].postgresql_host
+  kellnr_postgresql_database = module.kellnr[0].postgresql_database
+  kellnr_postgresql_username = module.kellnr[0].postgresql_username
+  kellnr_postgresql_password = module.kellnr[0].postgresql_password
+  sync_group_names           = var.kellnr_keycloak_sync_groups
+  webhook_secret             = random_password.kellnr_keycloak_sync_webhook[0].result
+
+  depends_on = [module.kellnr, module.keycloak]
 }
 
 # GitLab Envoy Gateway path: override scm + registry DNS → Envoy ClusterIP.

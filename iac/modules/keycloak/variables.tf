@@ -180,3 +180,22 @@ variable "postgresql_storage_size" {
   type        = string
   default     = "8Gi"
 }
+
+variable "event_webhook_uri" {
+  description = "Optional catch-all Keycloak event webhook URL (p2-inc/keycloak-events WEBHOOK_URI). Empty disables."
+  type        = string
+  default     = ""
+}
+
+variable "event_webhook_secret" {
+  description = "HMAC secret for Keycloak event webhook (WEBHOOK_SECRET)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "keycloak_events_jar_url" {
+  description = "Download URL for p2-inc/keycloak-events provider JAR when event_webhook_uri is set"
+  type        = string
+  default     = "https://github.com/p2-inc/keycloak-events/releases/download/v0.37.0/keycloak-events-0.37.0.jar"
+}

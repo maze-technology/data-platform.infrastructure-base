@@ -97,6 +97,8 @@ ${join("\n", [for g in user.groups : "      - ${g}"])}
     kellnr_redirect_uri   = var.oidc_clients.kellnr_redirect_uri
     realm_users_yaml      = local.realm_users_yaml
   })
+
+  event_webhook_enabled = var.event_webhook_uri != "" && var.event_webhook_secret != ""
 }
 
 resource "helm_release" "keycloak" {
@@ -225,8 +227,37 @@ resource "helm_release" "keycloak" {
           { name = "KEYCLOAK_DATABASE_NAME", value = "bitnami_keycloak" },
           { name = "KEYCLOAK_DATABASE_PASSWORD", value = random_password.postgresql_password[0].result },
           { name = "KC_DB_PASSWORD", value = random_password.postgresql_password[0].result },
-        ]
+        ],
+        local.event_webhook_enabled ? [
+          { name = "WEBHOOK_URI", value = var.event_webhook_uri },
+          { name = "WEBHOOK_SECRET", value = var.event_webhook_secret },
+        ] : [],
       )
+
+      initContainers = local.event_webhook_enabled ? [{
+        name  = "keycloak-events-provider"
+        image = "curlimages/curl:8.12.1"
+        command = ["/bin/sh", "-c", <<-EOT
+          set -euo pipefail
+          mkdir -p /providers
+          curl -fsSL -o /providers/keycloak-events.jar "${var.keycloak_events_jar_url}"
+        EOT
+        ]
+        volumeMounts = [{
+          name      = "keycloak-providers"
+          mountPath = "/providers"
+        }]
+      }] : []
+
+      extraVolumes = local.event_webhook_enabled ? [{
+        name     = "keycloak-providers"
+        emptyDir = {}
+      }] : []
+
+      extraVolumeMounts = local.event_webhook_enabled ? [{
+        name      = "keycloak-providers"
+        mountPath = "/opt/bitnami/keycloak/providers"
+      }] : []
 
       resources = {
         requests = {

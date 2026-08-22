@@ -14,6 +14,21 @@
   "packageRules": [
     {
       "matchManagers": [
+        "regex"
+      ],
+      "matchFileNames": [
+        "iac/modules/gitlab/variables.tf"
+      ],
+      "matchStrings": [
+        "variable \"helm_chart_version\"[\\s\\S]*?default\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "gitlab",
+      "datasourceTemplate": "helm",
+      "registryUrlTemplate": "https://charts.gitlab.io",
+      "groupName": "GitLab Helm chart"
+    },
+    {
+      "matchManagers": [
         "github-actions"
       ],
       "groupName": "GitHub Actions",

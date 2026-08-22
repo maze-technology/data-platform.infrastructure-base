@@ -17,7 +17,7 @@ variable "namespace" {
 variable "helm_chart_version" {
   description = "Version of the GitLab Helm chart"
   type        = string
-  default     = "10.1.2"
+  default     = "10.1.6"
 }
 
 variable "gitlab_domain" {
@@ -226,6 +226,12 @@ variable "oidc" {
   })
   default   = null
   sensitive = true
+}
+
+variable "oidc_extra_required_groups" {
+  description = "Additional Keycloak group names allowed to sign in via GitLab OIDC (e.g. maze-specific algorithm subgroups under engineers). OIDC tokens include direct membership only — parent engineers is not inferred."
+  type        = list(string)
+  default     = []
 }
 
 variable "sso_admin_username" {

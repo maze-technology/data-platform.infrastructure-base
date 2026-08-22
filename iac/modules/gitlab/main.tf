@@ -607,6 +607,9 @@ resource "kubernetes_secret" "gitlab_oidc" {
             required_groups:
               - admins
               - engineers
+%{for group in var.oidc_extra_required_groups~}
+              - ${group}
+%{endfor~}
             admin_groups:
               - admins
     EOT
@@ -648,12 +651,12 @@ resource "null_resource" "gitlab_sso_only" {
   count = var.oidc != null ? 1 : 0
 
   triggers = {
-    namespace    = kubernetes_namespace.gitlab.metadata[0].name
+    namespace   = kubernetes_namespace.gitlab.metadata[0].name
     admin_user  = var.sso_admin_username
     admin_email = var.sso_admin_email
     oidc_issuer = var.oidc.issuer_url
     # Re-run when the rails policy script changes (replaces harden_v* bump keys).
-    policy_sha  = sha256(local.gitlab_sso_rails)
+    policy_sha = sha256(local.gitlab_sso_rails)
   }
 
   provisioner "local-exec" {

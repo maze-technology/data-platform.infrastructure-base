@@ -171,8 +171,8 @@ resource "kubernetes_manifest" "letsencrypt_cluster_issuer_dns01" {
               groupName  = local.ovh_webhook_group
               solverName = "ovh"
               config = {
-                endpoint              = var.ovh_endpoint_name
-                authenticationMethod  = "application"
+                endpoint             = var.ovh_endpoint_name
+                authenticationMethod = "application"
                 applicationKeyRef = {
                   name = kubernetes_secret.ovh_dns_credentials[0].metadata[0].name
                   key  = "applicationKey"
