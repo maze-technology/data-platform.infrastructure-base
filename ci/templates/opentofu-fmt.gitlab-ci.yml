@@ -1,0 +1,60 @@
+# OpenTofu format check (GitHub opentofu-fmt-check.yaml parity).
+#
+# Include:
+#   include:
+#     - project: "data-platform/infrastructure-base"
+#       ref: "develop"
+#       file: "/ci/templates/opentofu-fmt.gitlab-ci.yml"
+#     # optional inputs:
+#     # - inputs:
+#     #     tofu_version: "1.9.0"
+#     #     check_path: "."
+
+spec:
+  inputs:
+    tofu_version:
+      description: OpenTofu version to install
+      default: "1.9.0"
+    check_path:
+      description: Directory passed to tofu fmt -check -recursive
+      default: "."
+    job_stage:
+      description: Stage for the fmt job
+      default: validate
+
+---
+
+stages:
+  - $[[ inputs.job_stage ]]
+
+opentofu_fmt:
+  stage: $[[ inputs.job_stage ]]
+  image:
+    name: alpine:3.24
+    entrypoint: [""]
+  variables:
+    # Prefer exec over attach on maze Kubernetes runners.
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+  # Same as GitHub: skip fmt on MRs targeting main (release-approval covers those).
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "api"
+    - when: never
+  before_script:
+    - |
+      set -euo pipefail
+      apk add --no-cache bash curl unzip ca-certificates >/dev/null
+      TOFU_VERSION="$[[ inputs.tofu_version ]]"
+      curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip" \
+        -o /tmp/tofu.zip
+      unzip -qo /tmp/tofu.zip -d /usr/local/bin tofu
+      chmod +x /usr/local/bin/tofu
+      tofu version
+  script:
+    - |
+      set -euo pipefail
+      cd "$[[ inputs.check_path ]]"
+      echo "=== tofu fmt -check -recursive (in $(pwd)) ==="
+      tofu fmt -check -recursive
