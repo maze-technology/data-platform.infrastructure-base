@@ -58,11 +58,8 @@ resource "kubernetes_config_map" "sync_app" {
       try:
           import psycopg2
           import psycopg2.extras
-      except ImportError:
-          import subprocess, sys
-          subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "psycopg2-binary"])
-          import psycopg2
-          import psycopg2.extras
+      except ImportError as exc:
+          raise SystemExit(f"psycopg2 required (install into PYTHONPATH): {exc}") from exc
 
       _token = {"value": None, "exp": 0}
 
@@ -284,8 +281,9 @@ resource "kubernetes_deployment" "sync" {
           name  = "sync"
           image = var.image
           command = [
-            "python3",
-            "/app/sync.py",
+            "/bin/sh",
+            "-c",
+            "pip install --target=/tmp/deps -q psycopg2-binary && PYTHONPATH=/tmp/deps exec python3 /app/sync.py",
           ]
 
           port {
@@ -305,12 +303,17 @@ resource "kubernetes_deployment" "sync" {
             read_only  = true
           }
 
+          volume_mount {
+            name       = "tmp"
+            mount_path = "/tmp"
+          }
+
           readiness_probe {
             http_get {
               path = "/healthz"
               port = 8080
             }
-            initial_delay_seconds = 10
+            initial_delay_seconds = 30
             period_seconds        = 10
           }
 
@@ -319,7 +322,7 @@ resource "kubernetes_deployment" "sync" {
               path = "/healthz"
               port = 8080
             }
-            initial_delay_seconds = 30
+            initial_delay_seconds = 60
             period_seconds        = 30
           }
 
@@ -339,6 +342,9 @@ resource "kubernetes_deployment" "sync" {
             read_only_root_filesystem  = true
             run_as_non_root            = true
             run_as_user                = 65534
+            capabilities {
+              drop = ["ALL"]
+            }
           }
         }
 
@@ -350,8 +356,14 @@ resource "kubernetes_deployment" "sync" {
           }
         }
 
+        volume {
+          name = "tmp"
+          empty_dir {}
+        }
+
         security_context {
           run_as_non_root = true
+          fs_group        = 65534
           seccomp_profile {
             type = "RuntimeDefault"
           }

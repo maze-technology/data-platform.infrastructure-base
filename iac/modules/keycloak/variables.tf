@@ -195,7 +195,7 @@ variable "event_webhook_secret" {
 }
 
 variable "keycloak_events_jar_url" {
-  description = "Download URL for p2-inc/keycloak-events provider JAR when event_webhook_uri is set"
+  description = "Download URL for p2-inc/keycloak-events provider JAR when event_webhook_uri is set (Maven Central; GitHub releases have no assets)"
   type        = string
-  default     = "https://github.com/p2-inc/keycloak-events/releases/download/v0.37.0/keycloak-events-0.37.0.jar"
+  default     = "https://repo1.maven.org/maven2/io/phasetwo/keycloak/keycloak-events/0.50/keycloak-events-0.50.jar"
 }

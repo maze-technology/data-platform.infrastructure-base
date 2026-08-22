@@ -234,29 +234,22 @@ resource "helm_release" "keycloak" {
         ] : [],
       )
 
+      # Drop JAR into Bitnami's writable providers emptydir (subPath app-providers-dir),
+      # after prepare-write-dirs. A separate volume would fight Bitnami's empty-dir mount.
       initContainers = local.event_webhook_enabled ? [{
         name  = "keycloak-events-provider"
         image = "curlimages/curl:8.12.1"
         command = ["/bin/sh", "-c", <<-EOT
           set -euo pipefail
-          mkdir -p /providers
           curl -fsSL -o /providers/keycloak-events.jar "${var.keycloak_events_jar_url}"
+          ls -la /providers/keycloak-events.jar
         EOT
         ]
         volumeMounts = [{
-          name      = "keycloak-providers"
+          name      = "empty-dir"
           mountPath = "/providers"
+          subPath   = "app-providers-dir"
         }]
-      }] : []
-
-      extraVolumes = local.event_webhook_enabled ? [{
-        name     = "keycloak-providers"
-        emptyDir = {}
-      }] : []
-
-      extraVolumeMounts = local.event_webhook_enabled ? [{
-        name      = "keycloak-providers"
-        mountPath = "/opt/bitnami/keycloak/providers"
       }] : []
 
       resources = {
