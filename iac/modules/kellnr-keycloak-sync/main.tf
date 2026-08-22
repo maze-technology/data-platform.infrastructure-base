@@ -93,9 +93,35 @@ resource "kubernetes_config_map" "sync_app" {
               raw = resp.read().decode()
               return json.loads(raw) if raw else {}
 
+      def kc_find_group(group_name):
+          # Keycloak search returns ancestors with matching descendants nested under subGroups.
+          groups = kc_get(
+              f"/realms/{REALM}/groups?search={urllib.parse.quote(group_name)}&exact=true&max=50"
+          )
+
+          def walk(nodes):
+              for g in nodes or []:
+                  if g.get("name") == group_name:
+                      return g
+                  found = walk(g.get("subGroups") or [])
+                  if found:
+                      return found
+              return None
+
+          match = walk(groups)
+          if match:
+              return match
+          # Fallback: scan top-level children (nested groups often omitted from brief search).
+          tops = kc_get(f"/realms/{REALM}/groups?max=200")
+          for top in tops:
+              children = kc_get(f"/realms/{REALM}/groups/{top['id']}/children?max=200")
+              for g in children:
+                  if g.get("name") == group_name:
+                      return g
+          return None
+
       def kc_group_members(group_name):
-          groups = kc_get(f"/realms/{REALM}/groups?search={urllib.parse.quote(group_name)}&max=20")
-          match = next((g for g in groups if g.get("name") == group_name), None)
+          match = kc_find_group(group_name)
           if not match:
               log.warning("keycloak group missing: %s", group_name)
               return []
