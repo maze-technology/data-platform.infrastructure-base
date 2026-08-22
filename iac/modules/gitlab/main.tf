@@ -321,17 +321,20 @@ locals {
             }
           }
         }
+        # Sidekiq schedules CI / post-receive / renovate work. 1Gi OOMs under a
+        # backlog (jobs stay pending forever even for tiny fmt checks — that is
+        # not the runner job limit; KUBERNETES_MEMORY_* covers build pods).
         sidekiq = {
           minReplicas = 1
           maxReplicas = 1
           resources = {
             requests = {
               cpu    = "100m"
-              memory = "512Mi"
+              memory = "1Gi"
             }
             limits = {
               cpu    = "500m"
-              memory = "1Gi"
+              memory = "2Gi"
             }
           }
         }
