@@ -235,7 +235,8 @@ resource "helm_release" "keycloak" {
       )
 
       # Drop JAR into Bitnami's writable providers emptydir (subPath app-providers-dir),
-      # after prepare-write-dirs. A separate volume would fight Bitnami's empty-dir mount.
+      # after prepare-write-dirs. Mount that same subPath on the main container — this
+      # chart revision does not mount providers by default.
       initContainers = local.event_webhook_enabled ? [{
         name  = "keycloak-events-provider"
         image = "curlimages/curl:8.12.1"
@@ -250,6 +251,12 @@ resource "helm_release" "keycloak" {
           mountPath = "/providers"
           subPath   = "app-providers-dir"
         }]
+      }] : []
+
+      extraVolumeMounts = local.event_webhook_enabled ? [{
+        name      = "empty-dir"
+        mountPath = "/opt/bitnami/keycloak/providers"
+        subPath   = "app-providers-dir"
       }] : []
 
       resources = {

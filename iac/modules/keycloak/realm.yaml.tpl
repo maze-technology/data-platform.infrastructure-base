@@ -27,6 +27,14 @@ maxDeltaTimeSeconds: 43200
 quickLoginCheckMilliSeconds: 1000
 minimumQuickLoginWaitSeconds: 60
 
+# Admin events drive Kellnr group sync (GROUP_MEMBERSHIP); user login events optional.
+eventsEnabled: true
+eventsListeners:
+  - jboss-logging
+  - ext-event-webhook
+adminEventsEnabled: true
+adminEventsDetailsEnabled: true
+
 # Force TOTP enrollment on first login; browser flow requires OTP every login
 browserFlow: browser with otp
 requiredActions:
