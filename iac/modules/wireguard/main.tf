@@ -221,7 +221,10 @@ resource "kubernetes_service" "wireguard" {
   }
 
   spec {
-    type = var.service_type
+    type                    = var.service_type
+    # Cluster SNAT rewrites the UDP source to a Cilium host IP; WireGuard then
+    # replies to that address and the real client never receives traffic (0 B rx).
+    external_traffic_policy = var.service_type == "NodePort" || var.service_type == "LoadBalancer" ? "Local" : null
 
     selector = {
       app = "wireguard"
