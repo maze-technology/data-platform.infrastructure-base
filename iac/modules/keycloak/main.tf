@@ -172,9 +172,11 @@ resource "helm_release" "keycloak" {
           "maze-realm.yaml" = local.realm_config
         }
         # First Keycloak boot builds the server image; default 120s wait is too short.
+        # NO_DELETE: maze-specific algorithm subgroups live outside realm.yaml.
         extraEnvVars = [
           { name = "KEYCLOAK_AVAILABILITYCHECK_ENABLED", value = "true" },
           { name = "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT", value = "600s" },
+          { name = "IMPORT_MANAGED_GROUP", value = "NO_DELETE" },
         ]
       }
 
