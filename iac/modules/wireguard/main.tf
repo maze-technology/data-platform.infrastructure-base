@@ -80,7 +80,7 @@ resource "kubernetes_daemon_set_v1" "wireguard" {
 
         init_container {
           name  = "seed-config"
-          image = "busybox:1.36"
+          image = "busybox:1.38"
 
           command = [
             "sh",
