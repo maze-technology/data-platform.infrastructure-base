@@ -217,9 +217,9 @@ resource "kubernetes_daemon_set_v1" "wireguard" {
 # Ensure shared seed Secret exists (from PVC bootstrap pod if missing).
 resource "null_resource" "ensure_wireguard_config_seed" {
   triggers = {
-    namespace     = var.namespace
-    peers        = var.peers
-    seed_script  = filesha256("${path.module}/ensure-config-seed.sh")
+    namespace   = var.namespace
+    peers       = var.peers
+    seed_script = filesha256("${path.module}/ensure-config-seed.sh")
   }
 
   provisioner "local-exec" {

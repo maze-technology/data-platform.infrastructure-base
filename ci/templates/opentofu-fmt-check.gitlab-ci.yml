@@ -35,12 +35,16 @@ opentofu_fmt_check:
   variables:
     # Prefer exec over attach on maze Kubernetes runners.
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
-  # Same as GitHub: skip fmt on MRs targeting main (release-approval covers those).
+  # GitHub opentofu-fmt-check.yaml:
+  #   on.pull_request + branches-ignore: [main]
+  # → only PRs whose *base* is not main (feature→develop etc.).
+  # GitLab: same for MRs, plus branch pipelines except main (develop/feature pushes).
+  # MRs → main are gated by release-approval instead.
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != "main"
-    - if: $CI_COMMIT_BRANCH == "develop"
-    - if: $CI_PIPELINE_SOURCE == "web"
-    - if: $CI_PIPELINE_SOURCE == "api"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main"
     - when: never
   before_script:
     - |
