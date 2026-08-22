@@ -51,7 +51,7 @@ output "maze_ca_install_hint" {
 
 output "wireguard_peer_config_command" {
   description = "Retrieve WireGuard config for bootstrap admin (run on a machine with kubectl access)"
-  value       = "kubectl exec -n wireguard deploy/wireguard -- cat /config/peer_${nonsensitive(var.bootstrap_admin.username)}/peer_${nonsensitive(var.bootstrap_admin.username)}.conf"
+  value       = "kubectl exec -n wireguard ds/wireguard -c wireguard -- cat /config/peer_${nonsensitive(var.bootstrap_admin.username)}/peer_${nonsensitive(var.bootstrap_admin.username)}.conf"
 }
 
 output "vpn_subnet" {

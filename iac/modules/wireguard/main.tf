@@ -16,6 +16,8 @@ resource "kubernetes_namespace" "wireguard" {
   }
 }
 
+# Retained for bootstrap / disaster recovery (single-node key generation).
+# Runtime HA uses the shared seed Secret + emptyDir on every node.
 resource "kubernetes_persistent_volume_claim" "wireguard_config" {
   metadata {
     name      = "wireguard-config"
@@ -39,7 +41,9 @@ resource "kubernetes_persistent_volume_claim" "wireguard_config" {
   wait_until_bound = false
 }
 
-resource "kubernetes_deployment" "wireguard" {
+# One WireGuard pod per node, identical server key + peer configs (from seed Secret).
+# Pair with OVH LB algorithm sourceIP so each client IP sticks to one backend.
+resource "kubernetes_daemon_set_v1" "wireguard" {
   metadata {
     name      = "wireguard"
     namespace = kubernetes_namespace.wireguard.metadata[0].name
@@ -51,8 +55,6 @@ resource "kubernetes_deployment" "wireguard" {
   }
 
   spec {
-    replicas = 1
-
     selector {
       match_labels = {
         app = "wireguard"
@@ -72,6 +74,36 @@ resource "kubernetes_deployment" "wireguard" {
       }
 
       spec {
+        toleration {
+          operator = "Exists"
+        }
+
+        init_container {
+          name  = "seed-config"
+          image = "busybox:1.36"
+
+          command = [
+            "sh",
+            "-c",
+            <<-EOT
+              set -e
+              rm -rf /config/*
+              tar xzf /seed/config.tar.gz -C /config
+              chown -R 1000:1000 /config
+            EOT
+          ]
+
+          volume_mount {
+            name       = "seed"
+            mount_path = "/seed"
+            read_only  = true
+          }
+          volume_mount {
+            name       = "config"
+            mount_path = "/config"
+          }
+        }
+
         container {
           name  = "wireguard"
           image = "lscr.io/linuxserver/wireguard:latest"
@@ -118,6 +150,7 @@ resource "kubernetes_deployment" "wireguard" {
           }
 
           port {
+            name           = "wireguard"
             container_port = var.server_port
             protocol       = "UDP"
           }
@@ -153,10 +186,15 @@ resource "kubernetes_deployment" "wireguard" {
         }
 
         volume {
-          name = "config"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.wireguard_config.metadata[0].name
+          name = "seed"
+          secret {
+            secret_name = "wireguard-config-seed"
           }
+        }
+
+        volume {
+          name = "config"
+          empty_dir {}
         }
 
         volume {
@@ -170,16 +208,47 @@ resource "kubernetes_deployment" "wireguard" {
     }
   }
 
-  depends_on = [kubernetes_namespace.wireguard]
+  depends_on = [
+    kubernetes_namespace.wireguard,
+    null_resource.ensure_wireguard_config_seed,
+  ]
+}
+
+# Ensure shared seed Secret exists (from PVC bootstrap pod if missing).
+resource "null_resource" "ensure_wireguard_config_seed" {
+  triggers = {
+    namespace     = var.namespace
+    peers        = var.peers
+    seed_script  = filesha256("${path.module}/ensure-config-seed.sh")
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/ensure-config-seed.sh"
+    environment = {
+      WG_NS          = var.namespace
+      WG_SERVER_URL  = var.server_url
+      WG_SERVER_PORT = tostring(var.server_port)
+      WG_PEERS       = var.peers
+      WG_VPN_SUBNET  = var.vpn_subnet
+      WG_ALLOWED     = local.allowed_ips
+      WG_DNS         = var.peer_dns != "" ? var.peer_dns : "auto"
+    }
+  }
+
+  depends_on = [
+    kubernetes_namespace.wireguard,
+    kubernetes_persistent_volume_claim.wireguard_config,
+  ]
 }
 
 # Patch peer templates + generated confs after deploy:
 # - NodePort: Endpoint must use node_port (container listens on server_port)
 # - Always: MTU=1280 (avoids TLS blackholes over WG), DNS/AllowedIPs, no ListenPort
 # - Server PostUp: TCP MSS clamp for the same MTU path issue
+# - Re-pack seed Secret so new/restarted DaemonSet pods get the same patches
 resource "null_resource" "patch_peer_endpoint_port" {
   triggers = {
-    deploy       = kubernetes_deployment.wireguard.id
+    daemonset    = kubernetes_daemon_set_v1.wireguard.id
     peers        = var.peers
     nodeport     = tostring(var.node_port)
     listen       = tostring(var.server_port)
@@ -206,7 +275,7 @@ resource "null_resource" "patch_peer_endpoint_port" {
     }
   }
 
-  depends_on = [kubernetes_deployment.wireguard, kubernetes_service.wireguard]
+  depends_on = [kubernetes_daemon_set_v1.wireguard, kubernetes_service.wireguard]
 }
 
 resource "kubernetes_service" "wireguard" {
@@ -221,9 +290,10 @@ resource "kubernetes_service" "wireguard" {
   }
 
   spec {
-    type                    = var.service_type
+    type = var.service_type
     # Cluster SNAT rewrites the UDP source to a Cilium host IP; WireGuard then
     # replies to that address and the real client never receives traffic (0 B rx).
+    # With a DaemonSet, Local still preserves client (or LB) source on each node.
     external_traffic_policy = var.service_type == "NodePort" || var.service_type == "LoadBalancer" ? "Local" : null
 
     selector = {
@@ -239,5 +309,5 @@ resource "kubernetes_service" "wireguard" {
     }
   }
 
-  depends_on = [kubernetes_deployment.wireguard]
+  depends_on = [kubernetes_daemon_set_v1.wireguard]
 }

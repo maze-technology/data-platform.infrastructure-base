@@ -20,5 +20,5 @@ output "node_port" {
 
 output "peer_configs_command" {
   description = "kubectl command to retrieve generated peer WireGuard configs"
-  value       = "kubectl exec -n ${kubernetes_namespace.wireguard.metadata[0].name} deploy/wireguard -- cat /config/peer_<name>/peer_<name>.conf"
+  value       = "kubectl exec -n ${kubernetes_namespace.wireguard.metadata[0].name} ds/wireguard -c wireguard -- cat /config/peer_<name>/peer_<name>.conf"
 }
