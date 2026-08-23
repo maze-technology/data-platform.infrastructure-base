@@ -120,17 +120,14 @@ resource "helm_release" "kyverno" {
         }
       }
       policyReportsCleanup = {
+        enabled = false
         image = {
           registry   = "registry.k8s.io"
           repository = "kubectl"
           tag        = var.kubectl_image_tag
         }
       }
-      # Post-upgrade clean-reports Job has been unreliable (BackoffLimitExceeded);
-      # keep controllers, skip the hook so helm upgrades can complete.
-      cleanupReports = {
-        enabled = false
-      }
+      # Post-upgrade clean-reports Job is controlled by policyReportsCleanup.enabled.
     })
   ]
 
