@@ -549,7 +549,7 @@ module "kellnr_keycloak_sync" {
   environment                = var.environment
   namespace                  = module.kellnr[0].namespace
   keycloak_realm             = module.keycloak.realm
-  keycloak_admin_base_url    = "http://keycloak-http.${module.keycloak.namespace}.svc.cluster.local:8080"
+  keycloak_admin_base_url    = "http://keycloak-keycloakx-http.${module.keycloak.namespace}.svc.cluster.local"
   keycloak_admin_username    = var.keycloak_admin_username
   keycloak_admin_password    = var.keycloak_admin_password
   kellnr_postgresql_host     = module.kellnr[0].postgresql_host

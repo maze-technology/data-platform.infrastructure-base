@@ -125,7 +125,8 @@ ${join("\n", [for g in user.groups : "      - ${g}"])}
   db_user     = var.use_external_database ? var.postgresql_username : var.postgresql_username
   db_password = var.use_external_database ? var.postgresql_password : random_password.postgresql_password[0].result
 
-  keycloak_service_url = "http://keycloak-http.${var.namespace}.svc.cluster.local:8080"
+  # keycloakx chart exposes port 80 on {release}-keycloakx-http (container listens on 8080).
+  keycloak_service_url = "http://${helm_release.keycloak.name}-keycloakx-http.${var.namespace}.svc.cluster.local"
 
   events_extra_volumes_body = <<-EOT
     - name: keycloak-providers
@@ -152,7 +153,7 @@ ${join("\n", [for g in user.groups : "      - ${g}"])}
           mountPath: /providers
   EOT
 
-  events_extra_volumes        = local.event_webhook_enabled ? local.events_extra_volumes_body : ""
+  events_extra_volumes         = local.event_webhook_enabled ? local.events_extra_volumes_body : ""
   events_extra_volume_mounts   = local.event_webhook_enabled ? local.events_extra_volume_mounts_body : ""
   events_extra_init_containers = local.event_webhook_enabled ? local.events_extra_init_containers_body : ""
 }

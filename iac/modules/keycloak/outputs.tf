@@ -23,6 +23,11 @@ output "admin_console_url" {
   value       = "${local.admin_base_url}/admin"
 }
 
+output "internal_http_url" {
+  description = "In-cluster Keycloak HTTP base URL (keycloakx service port 80)"
+  value       = "http://${helm_release.keycloak.name}-keycloakx-http.${kubernetes_namespace.keycloak.metadata[0].name}.svc.cluster.local"
+}
+
 output "client_ids" {
   description = "OIDC client IDs for integrated services"
   value = {
