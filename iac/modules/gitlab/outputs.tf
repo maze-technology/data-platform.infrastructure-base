@@ -27,3 +27,9 @@ output "shell_cluster_ip" {
   description = "ClusterIP of gitlab-gitlab-shell (git SSH over VPN; never public)"
   value       = try(data.kubernetes_service.gitlab_shell.spec[0].cluster_ip, "")
 }
+
+output "postgresql_password" {
+  description = "Effective GitLab Postgres password (var or generated) for backup dumps"
+  sensitive   = true
+  value       = local.postgresql_password
+}

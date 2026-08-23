@@ -117,6 +117,12 @@ output "keycloak_postgresql_password" {
   value       = module.keycloak.postgresql_password
 }
 
+output "gitlab_postgresql_password" {
+  description = "GitLab Postgres password for backup dumps (in-cluster CNPG only)"
+  sensitive   = true
+  value       = module.gitlab.postgresql_password
+}
+
 output "gitlab_url" {
   description = "GitLab web UI URL"
   value       = module.gitlab.gitlab_url

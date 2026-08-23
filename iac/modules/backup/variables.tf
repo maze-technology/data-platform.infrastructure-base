@@ -205,9 +205,9 @@ variable "postgres_dump_prefix" {
 }
 
 variable "postgres_dump_image" {
-  description = "Container image providing pg_dump (official postgres client tools)"
+  description = "Container image providing pg_dump (must be >= CNPG major; official postgres client tools)"
   type        = string
-  default     = "postgres:17-alpine"
+  default     = "postgres:18-alpine"
 }
 
 variable "postgres_dump_targets" {
