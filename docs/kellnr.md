@@ -10,7 +10,7 @@ Deployed when `enable_kellnr = true` (default).
 | Sparse index | `sparse+https://crates.<cluster_domain>/api/v1/crates/` |
 | Auth UI | Keycloak SSO — `admins` → Kellnr admin; `engineers` → normal users |
 | Auth Cargo | API tokens (`authRequired = true`) |
-| DB | In-cluster Bitnami Postgres |
+| DB | In-cluster CloudNativePG (`kellnr-pg`) |
 | Blobs | Rook RGW bucket `kellnr-crates-<env>` |
 
 ## Cargo config

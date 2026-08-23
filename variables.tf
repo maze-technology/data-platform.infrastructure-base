@@ -679,7 +679,7 @@ variable "kellnr_storage_class" {
 }
 
 variable "kellnr_postgresql_storage_size" {
-  description = "Kellnr Bitnami Postgres PVC size"
+  description = "Kellnr CloudNativePG storage size"
   type        = string
   default     = "10Gi"
 }
