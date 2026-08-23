@@ -13,7 +13,7 @@ locals {
     vault    = "vault.${var.cluster_domain}"
     vpn      = "vpn.${var.cluster_domain}"
     # VPN-only git SSH (CoreDNS → gitlab-shell). Never publish on the public LB.
-    git_ssh  = "git-ssh.${var.cluster_domain}"
+    git_ssh = "git-ssh.${var.cluster_domain}"
   }
 
   keycloak_bootstrap_users = concat(
