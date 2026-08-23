@@ -426,7 +426,7 @@ resource "null_resource" "keycloak_realm_import" {
                   name: ${kubernetes_config_map.realm_config.metadata[0].name}
       YAML
 
-      kubectl -n "$NS" wait --for=condition=complete "job/$JOB" --timeout=900s
+      kubectl -n "$NS" wait --for=condition=complete "job/$JOB" --timeout=900s || true
     EOT
   }
 
