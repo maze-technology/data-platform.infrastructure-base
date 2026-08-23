@@ -29,6 +29,6 @@ output "credentials_secret_name" {
 }
 
 output "cluster_id" {
-  description = "Cluster manifest id (for depends_on)"
-  value       = kubernetes_manifest.cluster.manifest.metadata.name
+  description = "Cluster name for depends_on (avoid reading manifest attrs that are null after import)"
+  value       = var.cluster_name
 }
