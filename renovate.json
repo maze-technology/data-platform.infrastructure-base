@@ -6,6 +6,8 @@
   "baseBranches": [
     "develop"
   ],
+  "prConcurrentLimit": 2,
+  "branchConcurrentLimit": 2,
   "automerge": true,
   "automergeType": "pr",
   "terraform": {

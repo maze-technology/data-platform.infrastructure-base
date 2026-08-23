@@ -262,6 +262,8 @@ locals {
       gitlab-runner = {
         install  = var.install_gitlab_runner
         replicas = var.gitlab_runner_replicas
+        # Cap parallel CI job pods so renovate/backend builds cannot pack the cluster.
+        concurrent = var.gitlab_runner_concurrent
         # Trust Maze CA when verifying https://scm… (self-signed ClusterIssuer).
         certsSecretName = var.custom_ca_pem != "" ? kubernetes_secret.custom_ca[0].metadata[0].name : null
         rbac = {

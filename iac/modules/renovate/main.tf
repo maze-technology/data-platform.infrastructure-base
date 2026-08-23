@@ -28,8 +28,11 @@ locals {
       extends      = ["config:recommended"]
       baseBranches = ["develop"]
     }
-    gitAuthor       = "${var.bot_name} <${var.bot_email}>"
-    persistRepoData = false
+    # Keep CI load modest on the shared maze-k8s runner (concurrent=3).
+    prConcurrentLimit     = var.pr_concurrent_limit
+    branchConcurrentLimit = var.branch_concurrent_limit
+    gitAuthor             = "${var.bot_name} <${var.bot_email}>"
+    persistRepoData       = false
   })
 }
 

@@ -448,8 +448,9 @@ module "gitlab" {
   postgresql_storage_size       = var.gitlab_postgresql_storage_size
   valkey_storage_size           = var.valkey_storage_size
 
-  install_gitlab_runner  = var.install_gitlab_runner
-  gitlab_runner_replicas = var.gitlab_runner_replicas
+  install_gitlab_runner    = var.install_gitlab_runner
+  gitlab_runner_replicas   = var.gitlab_runner_replicas
+  gitlab_runner_concurrent = var.gitlab_runner_concurrent
 
   webservice_min_replicas     = var.webservice_min_replicas
   webservice_max_replicas     = var.webservice_max_replicas

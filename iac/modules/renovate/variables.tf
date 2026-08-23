@@ -86,3 +86,15 @@ variable "api_token_secret_name" {
   type        = string
   default     = "renovate-gitlab-token"
 }
+
+variable "pr_concurrent_limit" {
+  description = "Max concurrent Renovate PRs across all discovered repos"
+  type        = number
+  default     = 2
+}
+
+variable "branch_concurrent_limit" {
+  description = "Max concurrent Renovate branch updates across all discovered repos"
+  type        = number
+  default     = 2
+}

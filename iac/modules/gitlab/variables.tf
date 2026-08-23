@@ -271,3 +271,9 @@ variable "gitlab_runner_replicas" {
   default     = 1
 }
 
+variable "gitlab_runner_concurrent" {
+  description = "Max CI jobs the in-cluster runner runs at once (protects cluster CPU/RAM)"
+  type        = number
+  default     = 3
+}
+

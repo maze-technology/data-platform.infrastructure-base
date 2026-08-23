@@ -726,6 +726,12 @@ variable "gitlab_runner_replicas" {
   default     = 1
 }
 
+variable "gitlab_runner_concurrent" {
+  description = "Max CI jobs the in-cluster runner runs at once"
+  type        = number
+  default     = 3
+}
+
 variable "webservice_min_replicas" {
   description = "GitLab webservice HPA min replicas"
   type        = number
