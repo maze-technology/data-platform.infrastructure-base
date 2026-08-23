@@ -48,3 +48,9 @@ variable "cosign_secret_name" {
   type        = string
   default     = "cosign-public-key"
 }
+
+variable "kubectl_image_tag" {
+  description = "registry.k8s.io/kubectl tag for Kyverno cleanup jobs (match cluster minor version)"
+  type        = string
+  default     = "v1.31.4"
+}

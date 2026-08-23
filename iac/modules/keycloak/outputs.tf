@@ -1,12 +1,3 @@
-terraform {
-  required_providers {
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
-  }
-}
-
 output "namespace" {
   description = "Keycloak namespace"
   value       = kubernetes_namespace.keycloak.metadata[0].name
@@ -70,4 +61,15 @@ output "groups" {
     engineers = "engineers"
     admins    = "admins"
   }
+}
+
+output "postgresql_password" {
+  description = "In-cluster PostgreSQL password (CloudNativePG); null when use_external_database"
+  value       = var.use_external_database ? null : random_password.postgresql_password[0].result
+  sensitive   = true
+}
+
+output "postgresql_rw_host" {
+  description = "In-cluster PostgreSQL read-write service host; empty when use_external_database"
+  value       = var.use_external_database ? "" : module.keycloak_postgresql[0].rw_host
 }

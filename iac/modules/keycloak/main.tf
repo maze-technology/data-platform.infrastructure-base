@@ -1,3 +1,23 @@
+# Keycloak identity provider (quay.io/keycloak + CloudNativePG).
+
+terraform {
+  required_providers {
+    helm = {
+      source = "hashicorp/helm"
+    }
+    kubernetes = {
+      source = "hashicorp/kubernetes"
+    }
+    null = {
+      source = "hashicorp/null"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
+  }
+}
+
 resource "random_password" "gitlab_client_secret" {
   length  = 32
   special = false
@@ -52,7 +72,6 @@ locals {
       "nginx.ingress.kubernetes.io/ssl-redirect"       = "true"
     } : {},
     {
-      # Rate-limit VPN clients; exempt in-cluster OIDC (GitLab/Grafana/Argo → Keycloak).
       "nginx.ingress.kubernetes.io/limit-rps"              = "5"
       "nginx.ingress.kubernetes.io/limit-rpm"              = "60"
       "nginx.ingress.kubernetes.io/limit-burst-multiplier" = "3"
@@ -99,12 +118,94 @@ ${join("\n", [for g in user.groups : "      - ${g}"])}
   })
 
   event_webhook_enabled = var.event_webhook_uri != "" && var.event_webhook_secret != ""
+
+  db_host     = var.use_external_database ? var.postgresql_host : module.keycloak_postgresql[0].rw_host
+  db_port     = var.use_external_database ? var.postgresql_port : module.keycloak_postgresql[0].port
+  db_name     = var.use_external_database ? var.postgresql_database : var.postgresql_database
+  db_user     = var.use_external_database ? var.postgresql_username : var.postgresql_username
+  db_password = var.use_external_database ? var.postgresql_password : random_password.postgresql_password[0].result
+
+  keycloak_service_url = "http://keycloak-http.${var.namespace}.svc.cluster.local:8080"
+
+  events_extra_volumes_body = <<-EOT
+    - name: keycloak-providers
+      emptyDir: {}
+  EOT
+
+  events_extra_volume_mounts_body = <<-EOT
+    - name: keycloak-providers
+      mountPath: /opt/keycloak/providers
+  EOT
+
+  events_extra_init_containers_body = <<-EOT
+    - name: keycloak-events-provider
+      image: curlimages/curl:8.12.1
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -euo pipefail
+          curl -fsSL -o /providers/keycloak-events.jar "${var.keycloak_events_jar_url}"
+          ls -la /providers/keycloak-events.jar
+      volumeMounts:
+        - name: keycloak-providers
+          mountPath: /providers
+  EOT
+
+  events_extra_volumes        = local.event_webhook_enabled ? local.events_extra_volumes_body : ""
+  events_extra_volume_mounts   = local.event_webhook_enabled ? local.events_extra_volume_mounts_body : ""
+  events_extra_init_containers = local.event_webhook_enabled ? local.events_extra_init_containers_body : ""
+}
+
+module "keycloak_postgresql" {
+  count  = var.use_external_database ? 0 : 1
+  source = "../cnpg-cluster"
+
+  environment    = var.environment
+  namespace      = kubernetes_namespace.keycloak.metadata[0].name
+  cluster_name   = "keycloak-pg"
+  database       = var.postgresql_database
+  username       = var.postgresql_username
+  password       = random_password.postgresql_password[0].result
+  storage_size   = var.postgresql_storage_size
+  storage_class  = var.storage_class
+  operator_ready = var.cnpg_operator_ready
+
+  resources = {
+    requests = {
+      cpu    = "100m"
+      memory = "256Mi"
+    }
+    limits = {
+      cpu    = "500m"
+      memory = "512Mi"
+    }
+  }
+
+  depends_on = [kubernetes_namespace.keycloak]
+}
+
+resource "kubernetes_secret" "keycloak_db" {
+  metadata {
+    name      = "keycloak-db-credentials"
+    namespace = kubernetes_namespace.keycloak.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    password = local.db_password
+  }
+
+  type = "Opaque"
 }
 
 resource "helm_release" "keycloak" {
   name       = "keycloak"
-  repository = "oci://registry-1.docker.io/bitnamicharts"
-  chart      = "keycloak"
+  repository = "https://codecentric.github.io/helm-charts"
+  chart      = "keycloakx"
   version    = var.helm_chart_version
   namespace  = kubernetes_namespace.keycloak.metadata[0].name
 
@@ -112,154 +213,67 @@ resource "helm_release" "keycloak" {
   wait    = false
 
   values = [
-    yamlencode(merge({
-      auth = {
-        adminUser     = var.admin_username
-        adminPassword = var.admin_password
-      }
+    yamlencode({
+      replicas = var.replica_count
 
       image = {
-        registry   = "docker.io"
-        repository = "bitnamilegacy/keycloak"
+        repository = "quay.io/keycloak/keycloak"
         tag        = var.keycloak_image_tag
       }
 
-      production   = var.production_mode
-      proxyHeaders = var.production_mode ? "xforwarded" : ""
+      http = {
+        relativePath = "/"
+      }
 
-      replicaCount = var.replica_count
+      proxy = {
+        enabled = true
+        mode    = "xforwarded"
+        http = {
+          enabled = true
+        }
+      }
+
+      dbchecker = {
+        enabled = true
+      }
+
+      database = {
+        vendor            = "postgres"
+        hostname          = local.db_host
+        port              = local.db_port
+        database          = local.db_name
+        username          = local.db_user
+        existingSecret    = kubernetes_secret.keycloak_db.metadata[0].name
+        existingSecretKey = "password"
+      }
 
       ingress = {
         enabled          = true
         ingressClassName = var.ingress_class
-        hostname         = var.keycloak_host
-        tls              = var.enable_tls
         annotations      = local.ingress_annotations
-        extraTls = var.enable_tls ? [{
+        rules = [{
+          host = var.keycloak_host
+          paths = [{
+            path     = "/"
+            pathType = "Prefix"
+          }]
+        }]
+        tls = var.enable_tls ? [{
           hosts      = [var.keycloak_host]
           secretName = var.tls_secret_name
         }] : []
       }
 
-      postgresql = {
-        enabled = !var.use_external_database
-        image = {
-          registry   = "docker.io"
-          repository = "bitnamilegacy/postgresql"
-        }
-        auth = var.use_external_database ? null : {
-          username = "bn_keycloak"
-          password = random_password.postgresql_password[0].result
-          database = "bitnami_keycloak"
-        }
-        primary = {
-          persistence = {
-            enabled      = true
-            storageClass = var.storage_class != "" ? var.storage_class : null
-            size         = var.postgresql_storage_size
-          }
-        }
-      }
-
-      keycloakConfigCli = {
-        enabled      = true
-        backoffLimit = 20
-        image = {
-          registry   = "docker.io"
-          repository = "bitnamilegacy/keycloak-config-cli"
-        }
-        configuration = {
-          "maze-realm.yaml" = local.realm_config
-        }
-        # First Keycloak boot builds the server image; default 120s wait is too short.
-        # NO_DELETE: maze-specific algorithm subgroups live outside realm.yaml.
-        extraEnvVars = [
-          { name = "KEYCLOAK_AVAILABILITYCHECK_ENABLED", value = "true" },
-          { name = "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT", value = "600s" },
-          { name = "IMPORT_MANAGED_GROUP", value = "NO_DELETE" },
-        ]
-      }
-
-      # First start runs Quarkus build; without startupProbe, liveness (120s) kills the pod.
-      startupProbe = {
-        enabled             = true
-        initialDelaySeconds = 30
-        periodSeconds       = 10
-        timeoutSeconds      = 5
-        failureThreshold    = 60
-        httpGet = {
-          path = "/realms/master"
-        }
-      }
-      livenessProbe = {
-        enabled             = true
-        initialDelaySeconds = 0
-        periodSeconds       = 10
-        timeoutSeconds      = 5
-        failureThreshold    = 3
-      }
-      readinessProbe = {
-        enabled             = true
-        initialDelaySeconds = 0
-        periodSeconds       = 10
-        timeoutSeconds      = 5
-        failureThreshold    = 3
-        httpGet = {
-          path = "/realms/master"
-        }
-      }
-
-      extraEnvVars = concat(
-        var.use_external_database ? concat(
-          [
-            # Bitnami wait-for-DB still uses KEYCLOAK_DATABASE_* even when KC_DB_URL is set.
-            { name = "KEYCLOAK_DATABASE_HOST", value = var.postgresql_host },
-            { name = "KEYCLOAK_DATABASE_PORT", value = tostring(var.postgresql_port) },
-            { name = "KEYCLOAK_DATABASE_USER", value = var.postgresql_username },
-            { name = "KEYCLOAK_DATABASE_NAME", value = var.postgresql_database },
-            { name = "KEYCLOAK_DATABASE_PASSWORD", value = var.postgresql_password },
-          ],
-          var.postgresql_ssl ? [
-            { name = "KC_DB_URL_PROPERTIES", value = "sslmode=require" }
-          ] : []
-          ) : [
-          { name = "KEYCLOAK_DATABASE_HOST", value = "keycloak-postgresql" },
-          { name = "KEYCLOAK_DATABASE_PORT", value = "5432" },
-          { name = "KEYCLOAK_DATABASE_USER", value = "bn_keycloak" },
-          { name = "KEYCLOAK_DATABASE_NAME", value = "bitnami_keycloak" },
-          { name = "KEYCLOAK_DATABASE_PASSWORD", value = random_password.postgresql_password[0].result },
-          { name = "KC_DB_PASSWORD", value = random_password.postgresql_password[0].result },
-        ],
-        local.event_webhook_enabled ? [
-          { name = "WEBHOOK_URI", value = var.event_webhook_uri },
-          { name = "WEBHOOK_SECRET", value = var.event_webhook_secret },
-        ] : [],
-      )
-
-      # Drop JAR into Bitnami's writable providers emptydir (subPath app-providers-dir),
-      # after prepare-write-dirs. Mount that same subPath on the main container — this
-      # chart revision does not mount providers by default.
-      initContainers = local.event_webhook_enabled ? [{
-        name  = "keycloak-events-provider"
-        image = "curlimages/curl:8.12.1"
-        command = ["/bin/sh", "-c", <<-EOT
-          set -euo pipefail
-          curl -fsSL -o /providers/keycloak-events.jar "${var.keycloak_events_jar_url}"
-          ls -la /providers/keycloak-events.jar
-        EOT
-        ]
-        volumeMounts = [{
-          name      = "empty-dir"
-          mountPath = "/providers"
-          subPath   = "app-providers-dir"
-        }]
-      }] : []
-
-      extraVolumeMounts = local.event_webhook_enabled ? [{
-        name      = "empty-dir"
-        mountPath = "/opt/bitnami/keycloak/providers"
-        subPath   = "app-providers-dir"
-      }] : []
+      startupProbe = <<-EOT
+        httpGet:
+          path: /health
+          port: http-internal
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      EOT
 
       resources = {
         requests = {
@@ -271,19 +285,147 @@ resource "helm_release" "keycloak" {
           memory = "2Gi"
         }
       }
-      },
-      # jsondecode keeps both ternary branches the same dynamic type for OpenTofu
-      jsondecode(var.use_external_database ? jsonencode({
-        externalDatabase = {
-          host     = var.postgresql_host
-          port     = var.postgresql_port
-          user     = var.postgresql_username
-          password = var.postgresql_password
-          database = var.postgresql_database
-        }
-      }) : "{}")
-    ))
+
+      extraEnv = join("\n", concat(
+        [
+          "- name: KEYCLOAK_ADMIN",
+          "  value: ${var.admin_username}",
+          "- name: KEYCLOAK_ADMIN_PASSWORD",
+          "  value: ${var.admin_password}",
+        ],
+        var.postgresql_ssl ? [
+          "- name: KC_DB_URL_PROPERTIES",
+          "  value: sslmode=require",
+        ] : [],
+        local.event_webhook_enabled ? [
+          "- name: WEBHOOK_URI",
+          "  value: ${var.event_webhook_uri}",
+          "- name: WEBHOOK_SECRET",
+          "  value: ${var.event_webhook_secret}",
+        ] : [],
+      ))
+
+      extraVolumes        = local.events_extra_volumes
+      extraVolumeMounts   = local.events_extra_volume_mounts
+      extraInitContainers = local.events_extra_init_containers
+    })
   ]
 
-  depends_on = [kubernetes_namespace.keycloak]
+  depends_on = [
+    kubernetes_namespace.keycloak,
+    kubernetes_secret.keycloak_db,
+    module.keycloak_postgresql,
+  ]
+}
+
+resource "kubernetes_config_map" "realm_config" {
+  metadata {
+    name      = "keycloak-realm-config"
+    namespace = kubernetes_namespace.keycloak.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    "maze-realm.yaml" = local.realm_config
+  }
+}
+
+resource "kubernetes_secret" "keycloak_config_cli_admin" {
+  metadata {
+    name      = "keycloak-config-cli-admin"
+    namespace = kubernetes_namespace.keycloak.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    username = var.admin_username
+    password = var.admin_password
+  }
+
+  type = "Opaque"
+}
+
+# Realm import via adorsys/keycloak-config-cli (replaces Bitnami keycloak-config-cli subchart).
+resource "null_resource" "keycloak_realm_import" {
+  triggers = {
+    realm_hash = sha256(local.realm_config)
+    release    = helm_release.keycloak.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      NS='${kubernetes_namespace.keycloak.metadata[0].name}'
+      JOB="keycloak-config-cli-$${RANDOM}"
+
+      kubectl -n "$NS" delete job -l app=keycloak-config-cli --ignore-not-found=true --wait=true
+
+      cat <<YAML | kubectl -n "$NS" apply -f -
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: $JOB
+        labels:
+          app: keycloak-config-cli
+          managed-by: opentofu
+      spec:
+        backoffLimit: 20
+        template:
+          metadata:
+            labels:
+              app: keycloak-config-cli
+          spec:
+            restartPolicy: OnFailure
+            containers:
+              - name: config-cli
+                image: ${var.keycloak_config_cli_image}
+                env:
+                  - name: KEYCLOAK_URL
+                    value: "${local.keycloak_service_url}"
+                  - name: KEYCLOAK_USER
+                    valueFrom:
+                      secretKeyRef:
+                        name: ${kubernetes_secret.keycloak_config_cli_admin.metadata[0].name}
+                        key: username
+                  - name: KEYCLOAK_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: ${kubernetes_secret.keycloak_config_cli_admin.metadata[0].name}
+                        key: password
+                  - name: IMPORT_FILES_LOCATIONS
+                    value: /config/*
+                  - name: IMPORT_VARSUBSTITUTION_ENABLED
+                    value: "true"
+                  - name: KEYCLOAK_AVAILABILITYCHECK_ENABLED
+                    value: "true"
+                  - name: KEYCLOAK_AVAILABILITYCHECK_TIMEOUT
+                    value: "600s"
+                  - name: IMPORT_MANAGED_GROUP
+                    value: "NO_DELETE"
+                volumeMounts:
+                  - name: config
+                    mountPath: /config
+                    readOnly: true
+            volumes:
+              - name: config
+                configMap:
+                  name: ${kubernetes_config_map.realm_config.metadata[0].name}
+      YAML
+
+      kubectl -n "$NS" wait --for=condition=complete "job/$JOB" --timeout=900s
+    EOT
+  }
+
+  depends_on = [
+    helm_release.keycloak,
+    kubernetes_config_map.realm_config,
+    kubernetes_secret.keycloak_config_cli_admin,
+  ]
 }

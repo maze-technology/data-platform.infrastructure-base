@@ -59,8 +59,14 @@ variable "storage_class" {
   default     = ""
 }
 
+variable "cnpg_operator_ready" {
+  description = "Dependency handle from module.cloudnativepg"
+  type        = any
+  default     = null
+}
+
 variable "postgresql_storage_size" {
-  description = "Bitnami Postgres PVC size"
+  description = "CloudNativePG Postgres PVC size"
   type        = string
   default     = "10Gi"
 }

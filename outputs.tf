@@ -111,6 +111,12 @@ output "kellnr_postgresql_password" {
   value       = var.enable_kellnr ? module.kellnr[0].postgresql_password : null
 }
 
+output "keycloak_postgresql_password" {
+  description = "Keycloak Postgres password for backup dumps (in-cluster CNPG only)"
+  sensitive   = true
+  value       = module.keycloak.postgresql_password
+}
+
 output "gitlab_url" {
   description = "GitLab web UI URL"
   value       = module.gitlab.gitlab_url
