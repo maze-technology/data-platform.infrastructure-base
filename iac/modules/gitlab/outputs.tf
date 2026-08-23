@@ -25,5 +25,5 @@ output "gateway_cluster_ip" {
 
 output "shell_cluster_ip" {
   description = "ClusterIP of gitlab-gitlab-shell (git SSH over VPN; never public)"
-  value       = try(data.kubernetes_service.gitlab_shell[0].spec[0].cluster_ip, "")
+  value       = try(data.kubernetes_service.gitlab_shell.spec[0].cluster_ip, "")
 }
