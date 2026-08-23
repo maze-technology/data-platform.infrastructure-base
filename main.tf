@@ -247,6 +247,14 @@ module "ingress" {
   depends_on = [module.cert_manager]
 }
 
+module "cloudnativepg" {
+  source = "./iac/modules/cloudnativepg"
+
+  environment = var.environment
+
+  depends_on = [module.ingress]
+}
+
 # Make *.<cluster_domain> resolvable inside the cluster and for WireGuard clients
 # (peer DNS = CoreDNS). All app hostnames map to ingress-nginx ClusterIP.
 # When GitLab Envoy Gateway is enabled, coredns_gitlab_envoy overrides scm/registry.
@@ -295,7 +303,7 @@ module "keycloak" {
   replica_count           = var.keycloak_replica_count
   storage_class           = local.keycloak_storage_class
   postgresql_storage_size = var.keycloak_postgresql_storage_size
-  production_mode         = var.keycloak_production_mode
+  cnpg_operator_ready     = module.cloudnativepg.helm_release_id
 
   use_external_database = var.use_external_keycloak_database
   postgresql_host       = var.keycloak_postgresql_host
@@ -315,7 +323,7 @@ module "keycloak" {
   event_webhook_uri    = local.kellnr_keycloak_sync_webhook_url
   event_webhook_secret = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? random_password.kellnr_keycloak_sync_webhook[0].result : ""
 
-  depends_on = [module.ingress, module.cert_manager]
+  depends_on = [module.ingress, module.cert_manager, module.cloudnativepg]
 }
 
 module "wireguard" {
@@ -453,6 +461,7 @@ module "gitlab" {
   gitaly_storage_size           = var.gitaly_storage_size
   postgresql_storage_size       = var.gitlab_postgresql_storage_size
   valkey_storage_size           = var.valkey_storage_size
+  cnpg_operator_ready           = module.cloudnativepg.helm_release_id
 
   install_gitlab_runner    = var.install_gitlab_runner
   gitlab_runner_replicas   = var.gitlab_runner_replicas
@@ -486,6 +495,7 @@ module "gitlab" {
     module.keycloak,
     module.cert_manager,
     module.cluster_dns,
+    module.cloudnativepg,
   ]
 }
 
@@ -503,6 +513,7 @@ module "kellnr" {
   storage_class           = local.kellnr_storage_class
   postgresql_storage_size = var.kellnr_postgresql_storage_size
   replica_count           = var.kellnr_replica_count
+  cnpg_operator_ready     = module.cloudnativepg.helm_release_id
 
   object_storage = {
     endpoint         = module.rook_ceph.rgw_endpoint
@@ -526,6 +537,7 @@ module "kellnr" {
     module.keycloak,
     module.cert_manager,
     module.cluster_dns,
+    module.cloudnativepg,
     aws_s3_bucket.kellnr_crates,
   ]
 }
@@ -537,7 +549,7 @@ module "kellnr_keycloak_sync" {
   environment                = var.environment
   namespace                  = module.kellnr[0].namespace
   keycloak_realm             = module.keycloak.realm
-  keycloak_admin_base_url    = "http://keycloak.${module.keycloak.namespace}.svc.cluster.local"
+  keycloak_admin_base_url    = "http://keycloak-keycloakx-http.${module.keycloak.namespace}.svc.cluster.local"
   keycloak_admin_username    = var.keycloak_admin_username
   keycloak_admin_password    = var.keycloak_admin_password
   kellnr_postgresql_host     = module.kellnr[0].postgresql_host

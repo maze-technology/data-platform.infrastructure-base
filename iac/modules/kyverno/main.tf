@@ -111,17 +111,19 @@ resource "helm_release" "kyverno" {
           }
         }
       }
-      # Chart defaults bitnami/kubectl (Docker Hub 404 after Bitnami relocation).
+      # Bitnami kubectl images are archived; use upstream registry.k8s.io instead.
       webhooksCleanup = {
         image = {
-          repository = "bitnamilegacy/kubectl"
-          tag        = "1.30.2"
+          registry   = "registry.k8s.io"
+          repository = "kubectl"
+          tag        = var.kubectl_image_tag
         }
       }
       policyReportsCleanup = {
         image = {
-          repository = "bitnamilegacy/kubectl"
-          tag        = "1.30.2"
+          registry   = "registry.k8s.io"
+          repository = "kubectl"
+          tag        = var.kubectl_image_tag
         }
       }
     })

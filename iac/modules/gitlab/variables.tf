@@ -63,9 +63,21 @@ variable "vpn_cidr" {
 }
 
 variable "use_external_postgresql" {
-  description = "Use external PostgreSQL (OVH managed). When false, bundled PostgreSQL subchart is used (local dev). Redis is always in-cluster."
+  description = "Use external PostgreSQL (OVH managed). When false, CloudNativePG cluster is provisioned in-namespace. Valkey is always in-cluster."
   type        = bool
   default     = false
+}
+
+variable "cnpg_operator_ready" {
+  description = "Dependency handle from module.cloudnativepg (CNPG operator must be up before Cluster CRs)"
+  type        = any
+  default     = null
+}
+
+variable "postgresql_instances" {
+  description = "CloudNativePG instance count for GitLab PostgreSQL (1 = standalone, 3 = HA)"
+  type        = number
+  default     = 1
 }
 
 variable "postgresql_host" {
@@ -111,8 +123,14 @@ variable "valkey_storage_size" {
   default     = "8Gi"
 }
 
+variable "valkey_helm_chart_version" {
+  description = "Official valkey-io/valkey-helm chart version"
+  type        = string
+  default     = "0.11.0"
+}
+
 variable "postgresql_storage_size" {
-  description = "Persistent volume size for bundled PostgreSQL"
+  description = "Persistent volume size for CloudNativePG PostgreSQL"
   type        = string
   default     = "8Gi"
 }

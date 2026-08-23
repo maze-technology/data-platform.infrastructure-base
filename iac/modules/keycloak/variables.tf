@@ -15,15 +15,27 @@ variable "namespace" {
 }
 
 variable "helm_chart_version" {
-  description = "Bitnami Keycloak Helm chart version"
+  description = "codecentric/keycloakx Helm chart version"
   type        = string
-  default     = "25.2.0"
+  default     = "7.2.3"
 }
 
 variable "keycloak_image_tag" {
-  description = "Bitnami Legacy Keycloak image tag (bitnami/* images moved to bitnamilegacy/*). Max published is 26.3.3 — AdminEvent.getResourceId() needs ≥26.4 for keycloak-events ≥0.50."
+  description = "quay.io/keycloak/keycloak image tag"
   type        = string
-  default     = "26.3.3-debian-12-r0"
+  default     = "26.6.4"
+}
+
+variable "cnpg_operator_ready" {
+  description = "Dependency handle from module.cloudnativepg"
+  type        = any
+  default     = null
+}
+
+variable "keycloak_config_cli_image" {
+  description = "adorsys/keycloak-config-cli image for realm import Job"
+  type        = string
+  default     = "adorsys/keycloak-config-cli:6.4.0-26.1.0"
 }
 
 variable "production_mode" {
@@ -121,7 +133,7 @@ variable "oidc_clients" {
 }
 
 variable "use_external_database" {
-  description = "Use external PostgreSQL (OVH managed) instead of bundled subchart"
+  description = "Use external PostgreSQL instead of in-cluster CloudNativePG cluster"
   type        = bool
   default     = false
 }
@@ -170,13 +182,13 @@ variable "replica_count" {
 }
 
 variable "storage_class" {
-  description = "StorageClass for Keycloak and bundled PostgreSQL PVCs"
+  description = "StorageClass for CloudNativePG PostgreSQL PVCs"
   type        = string
   default     = ""
 }
 
 variable "postgresql_storage_size" {
-  description = "Persistent volume size for bundled PostgreSQL"
+  description = "Persistent volume size for CloudNativePG PostgreSQL"
   type        = string
   default     = "8Gi"
 }
@@ -195,13 +207,7 @@ variable "event_webhook_secret" {
 }
 
 variable "keycloak_events_jar_url" {
-  description = <<-EOT
-    Download URL for p2-inc/keycloak-events provider JAR when event_webhook_uri is set
-    (Maven Central; GitHub releases have no assets).
-    Must match Keycloak API: 0.50+ calls AdminEvent.getResourceId() (Keycloak ≥26.4).
-    bitnamilegacy tops out at 26.3.3 — keep 0.49 until a ≥26.4 Bitnami-compatible
-    image exists, or realm updates (keycloak-config-cli) 500 with NoSuchMethodError.
-  EOT
+  description = "Download URL for p2-inc/keycloak-events provider JAR when event_webhook_uri is set"
   type        = string
-  default     = "https://repo1.maven.org/maven2/io/phasetwo/keycloak/keycloak-events/0.49/keycloak-events-0.49.jar"
+  default     = "https://repo1.maven.org/maven2/io/phasetwo/keycloak/keycloak-events/0.50/keycloak-events-0.50.jar"
 }

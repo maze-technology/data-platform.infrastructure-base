@@ -205,10 +205,10 @@ resource "random_password" "gitlab_valkey" {
 
 locals {
   postgresql_password = var.postgresql_password != "" ? var.postgresql_password : random_password.gitlab_postgresql[0].result
-  postgresql_host     = var.use_external_postgresql ? var.postgresql_host : "gitlab-postgresql.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
-  postgresql_port     = var.use_external_postgresql ? var.postgresql_port : 5432
+  postgresql_host     = var.use_external_postgresql ? var.postgresql_host : module.gitlab_postgresql[0].rw_host
+  postgresql_port     = var.use_external_postgresql ? var.postgresql_port : module.gitlab_postgresql[0].port
   postgresql_ssl      = var.use_external_postgresql ? var.postgresql_ssl : false
-  valkey_host         = "gitlab-valkey-primary.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
+  valkey_host         = "${helm_release.gitlab_valkey.name}.${kubernetes_namespace.gitlab.metadata[0].name}.svc.cluster.local"
 
   gitlab_global = merge(local.global_base, {
     # OVH Web Cloud / managed Postgres enforce TLS without client certs.
@@ -467,44 +467,31 @@ resource "kubernetes_secret" "gitlab_postgresql" {
   type = "Opaque"
 }
 
-resource "helm_release" "gitlab_postgresql" {
-  count = var.use_external_postgresql ? 0 : 1
+module "gitlab_postgresql" {
+  count  = var.use_external_postgresql ? 0 : 1
+  source = "../cnpg-cluster"
 
-  name       = "gitlab-postgresql"
-  repository = "oci://registry-1.docker.io/bitnamicharts"
-  chart      = "postgresql"
-  namespace  = kubernetes_namespace.gitlab.metadata[0].name
+  environment    = var.environment
+  namespace      = kubernetes_namespace.gitlab.metadata[0].name
+  cluster_name   = "gitlab-pg"
+  database       = var.postgresql_database
+  username       = var.postgresql_username
+  password       = local.postgresql_password
+  storage_size   = var.postgresql_storage_size
+  storage_class  = var.storage_class
+  instances      = var.postgresql_instances
+  operator_ready = var.cnpg_operator_ready
 
-  values = [
-    yamlencode({
-      auth = {
-        username = var.postgresql_username
-        password = local.postgresql_password
-        database = var.postgresql_database
-      }
-      primary = {
-        persistence = {
-          enabled      = true
-          size         = var.postgresql_storage_size
-          storageClass = var.storage_class != "" ? var.storage_class : null
-        }
-        resources = {
-          requests = {
-            cpu    = "250m"
-            memory = "512Mi"
-          }
-          limits = {
-            cpu    = "500m"
-            memory = "1Gi"
-          }
-        }
-      }
-      image = {
-        registry   = "docker.io"
-        repository = "bitnamilegacy/postgresql"
-      }
-    })
-  ]
+  resources = {
+    requests = {
+      cpu    = "250m"
+      memory = "512Mi"
+    }
+    limits = {
+      cpu    = "500m"
+      memory = "1Gi"
+    }
+  }
 
   depends_on = [kubernetes_namespace.gitlab]
 }
@@ -528,31 +515,43 @@ resource "kubernetes_secret" "gitlab_redis_password" {
 
 resource "helm_release" "gitlab_valkey" {
   name       = "gitlab-valkey"
-  repository = "oci://registry-1.docker.io/bitnamicharts"
+  repository = "https://valkey.io/valkey-helm/"
   chart      = "valkey"
+  version    = var.valkey_helm_chart_version
   namespace  = kubernetes_namespace.gitlab.metadata[0].name
 
   values = [
     yamlencode({
       auth = {
-        password = random_password.gitlab_valkey.result
-      }
-      architecture = "standalone"
-      primary = {
-        persistence = {
-          enabled      = true
-          size         = var.valkey_storage_size
-          storageClass = var.storage_class != "" ? var.storage_class : null
+        enabled = true
+        aclUsers = {
+          default = {
+            permissions = "~* &* +@all"
+            passwordKey = "redis-password"
+          }
         }
+        usersExistingSecret = kubernetes_secret.gitlab_redis_password.metadata[0].name
       }
-      image = {
-        registry   = "docker.io"
-        repository = "bitnamilegacy/valkey"
+      dataStorage = merge({
+        enabled       = true
+        requestedSize = var.valkey_storage_size
+        }, var.storage_class != "" ? {
+        className = var.storage_class
+      } : {})
+      resources = {
+        requests = {
+          cpu    = "50m"
+          memory = "128Mi"
+        }
+        limits = {
+          cpu    = "500m"
+          memory = "512Mi"
+        }
       }
     })
   ]
 
-  depends_on = [kubernetes_namespace.gitlab]
+  depends_on = [kubernetes_namespace.gitlab, kubernetes_secret.gitlab_redis_password]
 }
 
 resource "kubernetes_secret" "custom_ca" {
@@ -728,7 +727,7 @@ resource "helm_release" "gitlab" {
     kubernetes_secret.gitlab_postgresql,
     kubernetes_secret.custom_ca,
     kubernetes_secret.gitlab_runner_token,
-    helm_release.gitlab_postgresql,
+    module.gitlab_postgresql,
     kubernetes_secret.gitlab_redis_password,
     helm_release.gitlab_valkey,
     kubernetes_manifest.tls_certificates,

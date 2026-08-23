@@ -18,7 +18,7 @@ locals {
   # Sparse index URL for Cargo (registry = "maze")
   sparse_index = "sparse+https://${var.hostname}/api/v1/crates/"
 
-  postgresql_host = "kellnr-postgresql.${kubernetes_namespace.kellnr.metadata[0].name}.svc.cluster.local"
+  postgresql_host = module.kellnr_postgresql.rw_host
 }
 
 resource "kubernetes_namespace" "kellnr" {
@@ -70,42 +70,29 @@ resource "kubernetes_secret" "postgresql" {
   type = "Opaque"
 }
 
-resource "helm_release" "postgresql" {
-  name       = "kellnr-postgresql"
-  repository = "oci://registry-1.docker.io/bitnamicharts"
-  chart      = "postgresql"
-  namespace  = kubernetes_namespace.kellnr.metadata[0].name
+module "kellnr_postgresql" {
+  source = "../cnpg-cluster"
 
-  values = [
-    yamlencode({
-      auth = {
-        username = var.postgresql_username
-        password = random_password.postgresql.result
-        database = var.postgresql_database
-      }
-      primary = {
-        persistence = {
-          enabled      = true
-          size         = var.postgresql_storage_size
-          storageClass = var.storage_class != "" ? var.storage_class : null
-        }
-        resources = {
-          requests = {
-            cpu    = "100m"
-            memory = "256Mi"
-          }
-          limits = {
-            cpu    = "500m"
-            memory = "512Mi"
-          }
-        }
-      }
-      image = {
-        registry   = "docker.io"
-        repository = "bitnamilegacy/postgresql"
-      }
-    })
-  ]
+  environment    = var.environment
+  namespace      = kubernetes_namespace.kellnr.metadata[0].name
+  cluster_name   = "kellnr-pg"
+  database       = var.postgresql_database
+  username       = var.postgresql_username
+  password       = random_password.postgresql.result
+  storage_size   = var.postgresql_storage_size
+  storage_class  = var.storage_class
+  operator_ready = var.cnpg_operator_ready
+
+  resources = {
+    requests = {
+      cpu    = "100m"
+      memory = "256Mi"
+    }
+    limits = {
+      cpu    = "500m"
+      memory = "512Mi"
+    }
+  }
 
   depends_on = [kubernetes_namespace.kellnr]
 }
@@ -215,7 +202,7 @@ resource "helm_release" "kellnr" {
   ]
 
   depends_on = [
-    helm_release.postgresql,
+    module.kellnr_postgresql,
     kubernetes_secret.postgresql,
   ]
 }
