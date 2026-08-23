@@ -237,6 +237,13 @@ resource "helm_release" "keycloak" {
         enabled = true
       }
 
+      command = ["/opt/keycloak/bin/kc.sh"]
+      args = [
+        "start",
+        "--http-port=8080",
+        "--hostname-strict=false",
+      ]
+
       database = {
         vendor            = "postgres"
         hostname          = local.db_host
