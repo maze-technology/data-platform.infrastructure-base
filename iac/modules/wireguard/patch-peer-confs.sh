@@ -36,19 +36,26 @@ sed -e "s/MTU = .*/MTU = ${WG_PEER_MTU}/" \
 
 patch_pod() {
   local POD="$1"
+  # BusyBox sed: never use '|' as s/// delimiter when the replacement may contain
+  # '||' (PostDown iptables guards). Prefer '#' / '@'. Avoid embedding '||' in
+  # replacements — use '2>/dev/null; true' instead.
   kubectl -n "${WG_NS}" exec "${POD}" -c wireguard -- /bin/sh -c "
 set -e
 conf=/config/wg_confs/wg0.conf
 if [ -f \"\$conf\" ] && ! grep -q TCPMSS \"\$conf\"; then
-  sed -i 's|^PostUp = \(.*\)|PostUp = \1; iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t mangle -A FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU}; iptables -t mangle -A FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU}|' \"\$conf\"
-  sed -i 's|^PostDown = \(.*\)|PostDown = \1; iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true; iptables -t mangle -D FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU} 2>/dev/null || true; iptables -t mangle -D FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU} 2>/dev/null || true|' \"\$conf\"
+  sed -i 's#^PostUp = \\(.*\\)#PostUp = \\1; iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t mangle -A FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU}; iptables -t mangle -A FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU}#' \"\$conf\"
+  sed -i 's#^PostDown = \\(.*\\)#PostDown = \\1; iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; true; iptables -t mangle -D FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU} 2>/dev/null; true; iptables -t mangle -D FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss ${WG_PEER_MTU} 2>/dev/null; true#' \"\$conf\"
 fi
 for f in /config/peer_*/*.conf; do
   [ -f \"\$f\" ] || continue
   if [ \"${WG_SERVICE_TYPE}\" = NodePort ]; then
-    sed -i \"s/:${WG_LISTEN}\$/:${WG_NODEPORT}/\" \"\$f\"
+    sed -i \"s@:${WG_LISTEN}\\\$@:${WG_NODEPORT}@\" \"\$f\"
   fi
-  sed -i \"s#^AllowedIPs = .*#AllowedIPs = ${WG_ALLOWED}#\" \"\$f\"
+  # awk avoids sed delimiter clashes with CIDR slashes in AllowedIPs
+  awk -v ips=\"${WG_ALLOWED}\" '
+    /^AllowedIPs = / { print \"AllowedIPs = \" ips; next }
+    { print }
+  ' \"\$f\" > \"\$f.tmp\" && mv \"\$f.tmp\" \"\$f\"
   sed -i '/^ListenPort = /d' \"\$f\"
   if grep -q '^MTU' \"\$f\"; then
     sed -i \"s/^MTU = .*/MTU = ${WG_PEER_MTU}/\" \"\$f\"
