@@ -195,7 +195,13 @@ variable "event_webhook_secret" {
 }
 
 variable "keycloak_events_jar_url" {
-  description = "Download URL for p2-inc/keycloak-events provider JAR when event_webhook_uri is set (Maven Central; GitHub releases have no assets)"
+  description = <<-EOT
+    Download URL for p2-inc/keycloak-events provider JAR when event_webhook_uri is set
+    (Maven Central; GitHub releases have no assets).
+    Must match Keycloak major.minor API: 0.50+ calls AdminEvent.getResourceId() which
+    exists only on Keycloak >= 26.4. Pin 0.49 while image is bitnamilegacy 26.2.x —
+    otherwise realm updates (keycloak-config-cli) 500 with NoSuchMethodError.
+  EOT
   type        = string
-  default     = "https://repo1.maven.org/maven2/io/phasetwo/keycloak/keycloak-events/0.50/keycloak-events-0.50.jar"
+  default     = "https://repo1.maven.org/maven2/io/phasetwo/keycloak/keycloak-events/0.49/keycloak-events-0.49.jar"
 }
