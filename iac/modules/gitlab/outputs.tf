@@ -22,3 +22,8 @@ output "gateway_cluster_ip" {
   description = "ClusterIP of the GitLab Envoy Gateway proxy (empty when Gateway API is disabled)"
   value       = try(data.external.gitlab_gateway_ip[0].result.ip, "")
 }
+
+output "shell_cluster_ip" {
+  description = "ClusterIP of gitlab-gitlab-shell (git SSH over VPN; never public)"
+  value       = try(data.kubernetes_service.gitlab_shell[0].spec[0].cluster_ip, "")
+}

@@ -781,6 +781,16 @@ data "external" "gitlab_gateway_ip" {
   depends_on = [null_resource.gitlab_gateway_ready]
 }
 
+# gitlab-shell ClusterIP for VPN-only git SSH (CoreDNS git-ssh.<domain>).
+data "kubernetes_service" "gitlab_shell" {
+  metadata {
+    name      = "gitlab-gitlab-shell"
+    namespace = kubernetes_namespace.gitlab.metadata[0].name
+  }
+
+  depends_on = [helm_release.gitlab]
+}
+
 # Placeholder until rails creates a real glrt- token (auth-token workflow).
 resource "kubernetes_secret" "gitlab_runner_token" {
   count = var.install_gitlab_runner ? 1 : 0

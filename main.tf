@@ -12,6 +12,8 @@ locals {
     argocd   = "argocd.${var.cluster_domain}"
     vault    = "vault.${var.cluster_domain}"
     vpn      = "vpn.${var.cluster_domain}"
+    # VPN-only git SSH (CoreDNS → gitlab-shell). Never publish on the public LB.
+    git_ssh  = "git-ssh.${var.cluster_domain}"
   }
 
   keycloak_bootstrap_users = concat(
@@ -255,7 +257,11 @@ module "cluster_dns" {
   # Never map vpn.<domain> to the ingress ClusterIP — peers resolve the WireGuard
   # endpoint via public DNS; CoreDNS overriding it to 10.x breaks the tunnel once
   # clients switch DNS to CoreDNS (exclusive resolvconf), which kills all internet.
-  hosts = [for h in values(local.hosts) : h if h != local.hosts.vpn]
+  # git-ssh.<domain> is patched separately to gitlab-shell ClusterIP (not ingress).
+  hosts = [
+    for h in values(local.hosts) : h
+    if h != local.hosts.vpn && h != local.hosts.git_ssh
+  ]
 
   depends_on = [module.ingress]
 }
@@ -592,6 +598,55 @@ for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "gener
     meta.pop(k, None)
 subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
 print(f"coredns_gitlab_envoy: {scm}, {reg} -> {gw}")
+PY
+      kubectl -n kube-system rollout restart deploy/coredns
+      kubectl -n kube-system rollout status deploy/coredns --timeout=120s
+    EOT
+  }
+
+  depends_on = [module.cluster_dns, module.gitlab]
+}
+
+# VPN-only git SSH: CoreDNS git-ssh.<domain> → gitlab-shell ClusterIP (never public LB).
+resource "null_resource" "coredns_gitlab_shell" {
+  count = var.enable_cluster_dns && module.gitlab.shell_cluster_ip != "" ? 1 : 0
+
+  triggers = {
+    shell_ip   = module.gitlab.shell_cluster_ip
+    host       = "git-ssh.${var.cluster_domain}"
+    corefile   = module.cluster_dns[0].corefile
+    generation = "1"
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      export IP='${module.gitlab.shell_cluster_ip}'
+      export HOST='git-ssh.${var.cluster_domain}'
+      python3 - <<'PY'
+import re, subprocess, json, os
+ip, host = os.environ["IP"], os.environ["HOST"]
+if not ip or ip == "None":
+    raise SystemExit("coredns_gitlab_shell: empty shell ClusterIP")
+cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
+corefile = cm["data"]["Corefile"]
+pattern = rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$"
+if re.search(pattern, corefile):
+    corefile = re.sub(pattern, rf"\g<1>{ip} {host}", corefile)
+else:
+    corefile = re.sub(
+        r"(?m)^(\s*)fallthrough\s*$",
+        rf"\g<1>{ip} {host}\n\g<1>fallthrough",
+        corefile,
+        count=1,
+    )
+cm["data"]["Corefile"] = corefile
+meta = cm.setdefault("metadata", {})
+for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "generation"):
+    meta.pop(k, None)
+subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
+print(f"coredns_gitlab_shell: {host} -> {ip}")
 PY
       kubectl -n kube-system rollout restart deploy/coredns
       kubectl -n kube-system rollout status deploy/coredns --timeout=120s
