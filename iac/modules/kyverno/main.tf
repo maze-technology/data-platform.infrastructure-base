@@ -126,6 +126,11 @@ resource "helm_release" "kyverno" {
           tag        = var.kubectl_image_tag
         }
       }
+      # Post-upgrade clean-reports Job has been unreliable (BackoffLimitExceeded);
+      # keep controllers, skip the hook so helm upgrades can complete.
+      cleanupReports = {
+        enabled = false
+      }
     })
   ]
 
