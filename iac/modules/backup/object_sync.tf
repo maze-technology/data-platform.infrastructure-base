@@ -156,9 +156,10 @@ resource "kubernetes_cron_job_v1" "rgw_object_mirror" {
             }
 
             container {
-              name  = "rclone"
-              image = var.object_sync_rclone_image
-              args  = ["/bin/sh", "/scripts/sync.sh"]
+              name    = "rclone"
+              image   = var.object_sync_rclone_image
+              # rclone image ENTRYPOINT is `rclone`; must override with command (not args).
+              command = ["/bin/sh", "/scripts/sync.sh"]
 
               env {
                 name = "ENCRYPTION_PASSWORD"

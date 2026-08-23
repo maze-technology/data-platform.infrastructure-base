@@ -294,6 +294,12 @@ resource "kubernetes_cron_job_v1" "renovate" {
               app     = "renovate"
               purpose = "renovate"
             }
+            # Scratch emptyDir only — FS-backup races when the job exits mid-run and
+            # flips daily Velero backups to PartiallyFailed.
+            annotations = {
+              "velero.io/exclude-from-backup"             = "true"
+              "backup.velero.io/backup-volumes-excludes" = "tmp"
+            }
           }
 
           spec {

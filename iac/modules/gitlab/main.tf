@@ -294,6 +294,9 @@ locals {
                 service_memory_request_overwrite_max_allowed = "8Gi"
                 service_memory_limit_overwrite_max_allowed = "8Gi"
                 helper_memory_limit_overwrite_max_allowed = "1Gi"
+                # Ephemeral CI volumes — skip Velero FS backup (noise / races).
+                [runners.kubernetes.pod_annotations]
+                  "velero.io/exclude-from-backup" = "true"
           EOT
         }
         resources = {
