@@ -830,8 +830,8 @@ resource "null_resource" "gitlab_runner_register" {
           continue
         fi
         TOKEN="$(kubectl -n "$NS" exec "$POD" -- gitlab-rails runner "$(cat <<'RUBY'
-user = User.find_by_username('root')
-raise 'root missing' if user.nil?
+user = User.find_by_username('b4ck') || User.find_by(admin: true)
+raise 'admin user missing' if user.nil?
 existing = Ci::Runner.find_by(description: 'maze-k8s')
 if existing
   # Token is only shown once at create — recreate if we cannot register.
