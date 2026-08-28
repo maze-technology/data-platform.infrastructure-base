@@ -564,8 +564,9 @@ module "kellnr_keycloak_sync" {
 
 # GitLab Envoy Gateway path: override scm + registry DNS → Envoy ClusterIP.
 # Skipped when Gateway API is disabled (nginx ingress serves scm/registry).
+# count must not depend on gateway_cluster_ip (computed; unknown at plan).
 resource "null_resource" "coredns_gitlab_envoy" {
-  count = var.enable_cluster_dns && module.gitlab.gateway_cluster_ip != "" ? 1 : 0
+  count = var.enable_cluster_dns ? 1 : 0
 
   triggers = {
     gateway_ip = module.gitlab.gateway_cluster_ip
@@ -587,7 +588,8 @@ resource "null_resource" "coredns_gitlab_envoy" {
 import re, subprocess, json, os
 gw, scm, reg = os.environ["GW"], os.environ["SCM"], os.environ["REG"]
 if not gw or gw == "None":
-    raise SystemExit("coredns_gitlab_envoy: empty gateway IP")
+    print("coredns_gitlab_envoy: skip (no gateway ClusterIP)")
+    raise SystemExit(0)
 cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
 corefile = cm["data"]["Corefile"]
 
@@ -610,9 +612,9 @@ for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "gener
     meta.pop(k, None)
 subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
 print(f"coredns_gitlab_envoy: {scm}, {reg} -> {gw}")
+subprocess.run(["kubectl", "-n", "kube-system", "rollout", "restart", "deploy/coredns"], check=True)
+subprocess.run(["kubectl", "-n", "kube-system", "rollout", "status", "deploy/coredns", "--timeout=120s"], check=True)
 PY
-      kubectl -n kube-system rollout restart deploy/coredns
-      kubectl -n kube-system rollout status deploy/coredns --timeout=120s
     EOT
   }
 
@@ -620,8 +622,9 @@ PY
 }
 
 # VPN-only git SSH: CoreDNS git-ssh.<domain> → gitlab-shell ClusterIP (never public LB).
+# count must not depend on shell_cluster_ip (computed data source; unknown at plan).
 resource "null_resource" "coredns_gitlab_shell" {
-  count = var.enable_cluster_dns && module.gitlab.shell_cluster_ip != "" ? 1 : 0
+  count = var.enable_cluster_dns ? 1 : 0
 
   triggers = {
     shell_ip   = module.gitlab.shell_cluster_ip
@@ -640,7 +643,8 @@ resource "null_resource" "coredns_gitlab_shell" {
 import re, subprocess, json, os
 ip, host = os.environ["IP"], os.environ["HOST"]
 if not ip or ip == "None":
-    raise SystemExit("coredns_gitlab_shell: empty shell ClusterIP")
+    print("coredns_gitlab_shell: skip (no shell ClusterIP)")
+    raise SystemExit(0)
 cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
 corefile = cm["data"]["Corefile"]
 pattern = rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$"
@@ -659,9 +663,9 @@ for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "gener
     meta.pop(k, None)
 subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
 print(f"coredns_gitlab_shell: {host} -> {ip}")
+subprocess.run(["kubectl", "-n", "kube-system", "rollout", "restart", "deploy/coredns"], check=True)
+subprocess.run(["kubectl", "-n", "kube-system", "rollout", "status", "deploy/coredns", "--timeout=120s"], check=True)
 PY
-      kubectl -n kube-system rollout restart deploy/coredns
-      kubectl -n kube-system rollout status deploy/coredns --timeout=120s
     EOT
   }
 
