@@ -708,6 +708,36 @@ variable "gitlab_oidc_extra_required_groups" {
   default     = []
 }
 
+variable "enable_coder" {
+  description = "Deploy Coder self-hosted dev workspaces (coder.<domain>)"
+  type        = bool
+  default     = false
+}
+
+variable "coder_storage_class" {
+  description = "StorageClass for Coder Postgres and workspace PVCs. Empty uses Rook RBD."
+  type        = string
+  default     = ""
+}
+
+variable "coder_postgresql_storage_size" {
+  description = "Coder CloudNativePG storage size"
+  type        = string
+  default     = "10Gi"
+}
+
+variable "coder_oidc_allowed_groups" {
+  description = "Keycloak groups allowed to sign in to Coder"
+  type        = list(string)
+  default     = ["engineers", "admins"]
+}
+
+variable "coder_oidc_email_domain" {
+  description = "Optional email domain restriction for Coder OIDC (empty = any)"
+  type        = string
+  default     = ""
+}
+
 variable "s3_force_destroy" {
   description = "Allow OpenTofu to destroy non-empty S3 buckets (local only)"
   type        = bool
