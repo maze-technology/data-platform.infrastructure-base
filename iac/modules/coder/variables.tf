@@ -28,7 +28,7 @@ variable "hostname" {
 variable "helm_chart_version" {
   description = "Coder Helm chart version (matches ghcr.io/coder/coder tag)"
   type        = string
-  default     = "2.35.4"
+  default     = "2.37.0"
 }
 
 variable "ingress_class" {
