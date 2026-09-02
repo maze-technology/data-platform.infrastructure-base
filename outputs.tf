@@ -26,6 +26,7 @@ output "service_urls" {
     scm          = "https://${local.hosts.scm}"
     registry     = "https://${local.hosts.registry}"
     crates       = var.enable_kellnr ? "https://${local.hosts.crates}" : null
+    coder        = var.enable_coder ? "https://${local.hosts.coder}" : null
     grafana      = "https://${local.hosts.grafana}"
     argocd       = "https://${local.hosts.argocd}"
     vault        = "https://${local.hosts.vault}"
@@ -109,6 +110,22 @@ output "kellnr_postgresql_password" {
   description = "Kellnr Postgres password for backup dumps"
   sensitive   = true
   value       = var.enable_kellnr ? module.kellnr[0].postgresql_password : null
+}
+
+output "coder_url" {
+  description = "Coder web UI URL (null when disabled)"
+  value       = var.enable_coder ? module.coder[0].url : null
+}
+
+output "coder_postgresql_password" {
+  description = "Coder Postgres password for backup dumps"
+  sensitive   = true
+  value       = var.enable_coder ? module.coder[0].postgresql_password : null
+}
+
+output "coder_push_template_command" {
+  description = "Push the default maze-dev workspace template (run after first admin OIDC login)"
+  value       = var.enable_coder ? module.coder[0].push_template_command : null
 }
 
 output "keycloak_postgresql_password" {

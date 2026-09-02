@@ -11,6 +11,7 @@ locals {
     grafana  = "grafana.${var.cluster_domain}"
     argocd   = "argocd.${var.cluster_domain}"
     vault    = "vault.${var.cluster_domain}"
+    coder    = "coder.${var.cluster_domain}"
     vpn      = "vpn.${var.cluster_domain}"
     # VPN-only git SSH (CoreDNS → gitlab-shell). Never publish on the public LB.
     git_ssh = "git-ssh.${var.cluster_domain}"
@@ -68,6 +69,7 @@ locals {
   gitlab_bucket_name   = var.gitlab_bucket_name != "" ? var.gitlab_bucket_name : "gitlab-storage-${var.environment}"
   kellnr_bucket_name   = var.kellnr_bucket_name != "" ? var.kellnr_bucket_name : "kellnr-crates-${var.environment}"
   kellnr_storage_class = var.kellnr_storage_class != "" ? var.kellnr_storage_class : local.rook_storage_class
+  coder_storage_class  = var.coder_storage_class != "" ? var.coder_storage_class : local.rook_storage_class
 
   kellnr_keycloak_sync_webhook_url = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? "http://kellnr-keycloak-sync.kellnr.svc.cluster.local:8080/webhook" : ""
 
@@ -318,6 +320,7 @@ module "keycloak" {
     argocd_redirect_uri  = "https://${local.hosts.argocd}/auth/callback"
     grafana_redirect_uri = "https://${local.hosts.grafana}/login/generic_oauth"
     kellnr_redirect_uri  = "https://${local.hosts.crates}/api/v1/oauth2/callback"
+    coder_redirect_uri   = "https://${local.hosts.coder}/api/v2/users/oidc/callback"
   }
 
   event_webhook_uri    = local.kellnr_keycloak_sync_webhook_url
@@ -560,6 +563,41 @@ module "kellnr_keycloak_sync" {
   webhook_secret             = random_password.kellnr_keycloak_sync_webhook[0].result
 
   depends_on = [module.kellnr, module.keycloak]
+}
+
+module "coder" {
+  count  = var.enable_coder ? 1 : 0
+  source = "./iac/modules/coder"
+
+  cluster_name            = var.cluster_name
+  environment             = var.environment
+  hostname                = local.hosts.coder
+  enable_tls              = true
+  tls_cluster_issuer      = module.cert_manager.cluster_issuer_name
+  vpn_cidr                = module.wireguard.vpn_subnet
+  restrict_to_vpn         = var.restrict_to_vpn
+  storage_class           = local.coder_storage_class
+  postgresql_storage_size = var.coder_postgresql_storage_size
+  cnpg_operator_ready     = module.cloudnativepg.helm_release_id
+  oidc_allowed_groups     = var.coder_oidc_allowed_groups
+  oidc_email_domain       = var.coder_oidc_email_domain
+  backup_label_key        = "${var.cluster_domain}/backup-enabled"
+
+  oidc = {
+    issuer_url    = module.keycloak.issuer_url
+    client_id     = module.keycloak.client_ids.coder
+    client_secret = module.keycloak.client_secrets.coder
+  }
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.keycloak,
+    module.cert_manager,
+    module.cluster_dns,
+    module.cloudnativepg,
+  ]
 }
 
 # GitLab Envoy Gateway path: override scm + registry DNS → Envoy ClusterIP.
