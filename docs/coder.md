@@ -23,10 +23,23 @@ Deployed when `enable_coder = true`.
 How to check your role after SSO:
 
 1. Open **https://coder.`<cluster_domain>`** → avatar / account menu — Owners see **Admin settings**.
-2. Or: `coder users show <you>` (Owner column / roles).
+2. Or: `coder users show <you>` (roles).
 3. Or: Deployment → Users — your row should list **Owner** if you are in Keycloak `admins`.
 
-Automatic group→role sync via `CODER_OIDC_USER_ROLE_*` is a **Coder Premium** feature. This deployment is unlicensed, so OpenTofu instead runs CronJob `coder-site-owner-sync` (every 5 minutes) that promotes users listed from Keycloak bootstrap **admins** (username + email) to Owner. Engineers need no action — Member is the default after OIDC signup.
+### How role sync works
+
+Automatic `CODER_OIDC_USER_ROLE_*` mapping is **Coder Premium** (not licensed here).
+
+Instead, Deployment `coder-keycloak-owner-sync` (same pattern as `kellnr-keycloak-sync`):
+
+1. Calls the **Keycloak Admin API** and lists live members of group `admins`.
+2. For each matching Coder user (by username or email): set site **Owner** + org-admin.
+3. If an OIDC user loses `admins` membership: demote to ordinary **Member**.
+4. Reconciles on startup, then every 5 minutes; also exposes `/webhook` for Keycloak events (fan-out not wired yet — Keycloak currently has a single webhook URI pointed at Kellnr).
+
+Adding someone to Keycloak `admins` in the UI is enough; they do **not** need to be in OpenTofu `bootstrap_users`. They must SSO into Coder at least once before promotion can apply.
+
+`coder-bootstrap` / `prebuilds` are never demoted.
 
 ## First-time setup
 
@@ -43,7 +56,7 @@ OpenTofu therefore creates owner `coder-bootstrap` / `coder-bootstrap@<cluster_d
 1. Apply OpenTofu with `enable_coder = true`.
 2. Connect via WireGuard and open **https://coder.`<cluster_domain>`/login**
 3. Click **Sign in with SSO** (Keycloak). Use your normal Keycloak account (`admins` / `engineers`).
-4. If you are in `admins`, wait up to ~5 minutes (or trigger the CronJob) for Owner promotion, then refresh.
+4. If you are in Keycloak `admins`, wait for `coder-keycloak-owner-sync` (startup + every ~5 min), then refresh.
 5. Break-glass credentials (emergency DB/bootstrap only — UI password login is disabled while `CODER_DISABLE_PASSWORD_AUTH=true`):
 
 ```bash

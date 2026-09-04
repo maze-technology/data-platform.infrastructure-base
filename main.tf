@@ -36,15 +36,6 @@ locals {
     ]
   )
 
-  # Keycloak admins → Coder site Owners (OSS; Premium IdP role sync is not licensed).
-  # engineers remain ordinary Members. Include username + email so either claim matches.
-  coder_site_owners = distinct(flatten([
-    for user in local.keycloak_bootstrap_users : [
-      user.username,
-      user.email,
-    ] if contains(user.groups, "admins")
-  ]))
-
   wireguard_peers  = var.wireguard_peers != "" ? var.wireguard_peers : var.bootstrap_admin.username
   wireguard_server = var.wireguard_server_url != "" ? var.wireguard_server_url : local.hosts.vpn
 
@@ -603,8 +594,14 @@ module "coder" {
     email    = "coder-bootstrap@${var.cluster_domain}"
   }
 
-  # admins → Owner; engineers stay Members (default after OIDC signup).
-  site_owners = local.coder_site_owners
+  # Live Keycloak Admin API: members of `admins` → Coder Owner (engineers stay Members).
+  keycloak_owner_sync = {
+    realm          = module.keycloak.realm
+    admin_base_url = module.keycloak.internal_http_url
+    admin_username = var.keycloak_admin_username
+    admin_password = var.keycloak_admin_password
+    admin_group    = "admins"
+  }
 
   depends_on = [
     module.rook_ceph,

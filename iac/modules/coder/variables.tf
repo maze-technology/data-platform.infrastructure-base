@@ -155,25 +155,22 @@ variable "bootstrap_owner" {
   default = null
 }
 
-variable "site_owners" {
+variable "keycloak_owner_sync" {
   description = <<-EOT
-    Usernames and/or emails that should receive the Coder site Owner role after SSO login.
-    Keycloak group → role sync (CODER_OIDC_USER_ROLE_*) is Premium-only; this list is the OSS workaround.
-    Typically Keycloak admins (bootstrap_admin + bootstrap_users in the admins group).
-    engineers stay ordinary Members (workspace users) with no entry here.
+    Live Keycloak → Coder Owner sync (same pattern as kellnr-keycloak-sync).
+    Queries the Keycloak Admin API for members of admin_group (default admins) and
+    promotes matching Coder users to Owner; demotes OIDC owners who left that group.
+    engineers stay ordinary Members. Premium CODER_OIDC_USER_ROLE_* is not used.
   EOT
-  type        = list(string)
-  default     = []
-}
-
-variable "site_owner_sync_schedule" {
-  description = "Cron schedule for promoting site_owners to Owner (after they appear via OIDC)"
-  type        = string
-  default     = "*/5 * * * *"
-}
-
-variable "site_owner_sync_image" {
-  description = "Postgres client image used by the site-owner sync CronJob"
-  type        = string
-  default     = "postgres:18-alpine"
+  type = object({
+    realm                      = optional(string, "maze")
+    admin_base_url             = string
+    admin_username             = string
+    admin_password             = string
+    admin_group                = optional(string, "admins")
+    image                      = optional(string, "python:3.12-slim-bookworm")
+    reconcile_interval_seconds = optional(number, 300)
+  })
+  default   = null
+  sensitive = true
 }
