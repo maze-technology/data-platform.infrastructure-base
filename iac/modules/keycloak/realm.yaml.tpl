@@ -27,11 +27,14 @@ maxDeltaTimeSeconds: 43200
 quickLoginCheckMilliSeconds: 1000
 minimumQuickLoginWaitSeconds: 60
 
-# Admin events drive Kellnr group sync (GROUP_MEMBERSHIP); user login events optional.
+# Admin events retained for audit; group sync is CronJob-based (no Keycloak webhook —
+# p2-inc/keycloak-events supports only one WEBHOOK_URI).
 eventsEnabled: true
 eventsListeners:
   - jboss-logging
+%{ if event_webhook_enabled ~}
   - ext-event-webhook
+%{ endif ~}
 adminEventsEnabled: true
 adminEventsDetailsEnabled: true
 

@@ -48,11 +48,3 @@ output "push_template_command" {
   description = "Run on a machine with VPN + coder CLI after logging in as admin"
   value       = "coder login ${local.access_url} && coder templates push maze-dev ${path.module}/templates/kubernetes-dev --variable namespace=${var.workspace_namespace} --variable storage_class=${var.storage_class} --yes"
 }
-
-output "keycloak_owner_sync_webhook_url" {
-  description = "In-cluster webhook URL for Keycloak events (fan-out target; periodic reconcile works without it)"
-  value = try(
-    "http://${kubernetes_service_v1.keycloak_owner_sync[0].metadata[0].name}.${kubernetes_namespace.coder.metadata[0].name}.svc.cluster.local:8080/webhook",
-    null,
-  )
-}
