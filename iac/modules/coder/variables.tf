@@ -145,3 +145,35 @@ variable "backup_label_key" {
   type        = string
   default     = "backup.maze.trading/enabled"
 }
+
+variable "bootstrap_owner" {
+  description = "Create a break-glass Coder owner (password login) so /login shows OIDC. Use a system email that does not overlap Keycloak users."
+  type = object({
+    username = string
+    email    = string
+  })
+  default = null
+}
+
+variable "site_owners" {
+  description = <<-EOT
+    Usernames and/or emails that should receive the Coder site Owner role after SSO login.
+    Keycloak group → role sync (CODER_OIDC_USER_ROLE_*) is Premium-only; this list is the OSS workaround.
+    Typically Keycloak admins (bootstrap_admin + bootstrap_users in the admins group).
+    engineers stay ordinary Members (workspace users) with no entry here.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "site_owner_sync_schedule" {
+  description = "Cron schedule for promoting site_owners to Owner (after they appear via OIDC)"
+  type        = string
+  default     = "*/5 * * * *"
+}
+
+variable "site_owner_sync_image" {
+  description = "Postgres client image used by the site-owner sync CronJob"
+  type        = string
+  default     = "postgres:18-alpine"
+}
