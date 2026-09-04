@@ -30,12 +30,13 @@ How to check your role after SSO:
 
 Automatic `CODER_OIDC_USER_ROLE_*` mapping is **Coder Premium** (not licensed here).
 
-Instead, Deployment `coder-keycloak-owner-sync` (same pattern as `kellnr-keycloak-sync`):
+Instead, CronJob `coder-keycloak-owner-sync` (every 15 minutes; same idea as `kellnr-keycloak-sync`):
 
 1. Calls the **Keycloak Admin API** and lists live members of group `admins`.
 2. For each matching Coder user (by username or email): set site **Owner** + org-admin.
 3. If an OIDC user loses `admins` membership: demote to ordinary **Member**.
-4. Reconciles on startup, then every 5 minutes; also exposes `/webhook` for Keycloak events (fan-out not wired yet — Keycloak currently has a single webhook URI pointed at Kellnr).
+
+Keycloak’s event webhook slot (`WEBHOOK_URI`) is left free — both Kellnr and Coder sync via CronJobs.
 
 Adding someone to Keycloak `admins` in the UI is enough; they do **not** need to be in OpenTofu `bootstrap_users`. They must SSO into Coder at least once before promotion can apply.
 
@@ -56,7 +57,7 @@ OpenTofu therefore creates owner `coder-bootstrap` / `coder-bootstrap@<cluster_d
 1. Apply OpenTofu with `enable_coder = true`.
 2. Connect via WireGuard and open **https://coder.`<cluster_domain>`/login**
 3. Click **Sign in with SSO** (Keycloak). Use your normal Keycloak account (`admins` / `engineers`).
-4. If you are in Keycloak `admins`, wait for `coder-keycloak-owner-sync` (startup + every ~5 min), then refresh.
+4. If you are in Keycloak `admins`, wait for CronJob `coder-keycloak-owner-sync` (every ~15 min), then refresh.
 5. Break-glass credentials (emergency DB/bootstrap only — UI password login is disabled while `CODER_DISABLE_PASSWORD_AUTH=true`):
 
 ```bash

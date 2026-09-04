@@ -691,7 +691,7 @@ variable "kellnr_replica_count" {
 }
 
 variable "enable_kellnr_keycloak_sync" {
-  description = "Deploy Keycloak event webhook listener + Kellnr group membership sync service"
+  description = "Deploy CronJob that syncs Keycloak group membership into Kellnr (Admin API poll every 15m)"
   type        = bool
   default     = true
 }

@@ -122,6 +122,7 @@ ${join("\n", [for g in user.groups : "      - ${g}"])}
     kellnr_redirect_uri   = var.oidc_clients.kellnr_redirect_uri
     coder_redirect_uri    = var.oidc_clients.coder_redirect_uri
     realm_users_yaml      = local.realm_users_yaml
+    event_webhook_enabled = var.event_webhook_uri != "" && var.event_webhook_secret != ""
   })
 
   event_webhook_enabled = var.event_webhook_uri != "" && var.event_webhook_secret != ""

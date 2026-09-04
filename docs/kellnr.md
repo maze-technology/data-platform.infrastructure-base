@@ -34,3 +34,10 @@ CI: store a Kellnr token as GitLab group variable `CARGO_REGISTRIES_MAZE_TOKEN`
 
 Bootstrap admin token is in OpenTofu output `kellnr_admin_token` / secret
 `kellnr-secret` key `KELLNR_SETUP__ADMIN_TOKEN` — prefer UI-issued tokens for day-to-day CI.
+
+## Keycloak group sync
+
+CronJob `kellnr-keycloak-sync` (every 15 minutes) polls the Keycloak Admin API and
+reconciles configured groups (`kellnr_keycloak_sync_groups`) into Kellnr.
+
+It does **not** use Keycloak’s event webhook — that single `WEBHOOK_URI` slot is left free.

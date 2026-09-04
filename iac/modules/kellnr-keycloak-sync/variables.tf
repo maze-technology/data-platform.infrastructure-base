@@ -4,7 +4,7 @@ variable "environment" {
 }
 
 variable "namespace" {
-  description = "Kubernetes namespace for the sync service (typically kellnr)"
+  description = "Kubernetes namespace for the sync CronJob (typically kellnr)"
   type        = string
   default     = "kellnr"
 }
@@ -60,20 +60,14 @@ variable "sync_group_names" {
   default     = []
 }
 
-variable "webhook_secret" {
-  description = "Shared secret for Keycloak ext-event-webhook HMAC (WEBHOOK_SECRET)"
-  type        = string
-  sensitive   = true
-}
-
 variable "image" {
-  description = "Container image for the sync service"
+  description = "Container image for the sync job"
   type        = string
   default     = "python:3.12-slim-bookworm"
 }
 
-variable "reconcile_interval_seconds" {
-  description = "Background full reconcile interval (0 disables periodic reconcile)"
-  type        = number
-  default     = 300
+variable "schedule" {
+  description = "Cron schedule for Keycloak → Kellnr group membership sync"
+  type        = string
+  default     = "*/15 * * * *"
 }

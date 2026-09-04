@@ -71,16 +71,8 @@ locals {
   kellnr_storage_class = var.kellnr_storage_class != "" ? var.kellnr_storage_class : local.rook_storage_class
   coder_storage_class  = var.coder_storage_class != "" ? var.coder_storage_class : local.rook_storage_class
 
-  kellnr_keycloak_sync_webhook_url = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? "http://kellnr-keycloak-sync.kellnr.svc.cluster.local:8080/webhook" : ""
-
   # kubernetes provider returns secret data already base64-decoded in .data
   maze_ca_pem = var.create_maze_ca ? try(data.kubernetes_secret.maze_ca[0].data["ca.crt"], "") : ""
-}
-
-resource "random_password" "kellnr_keycloak_sync_webhook" {
-  count   = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? 1 : 0
-  length  = 32
-  special = false
 }
 
 # ============================================================================
@@ -323,8 +315,9 @@ module "keycloak" {
     coder_redirect_uri   = "https://${local.hosts.coder}/api/v2/users/oidc/callback"
   }
 
-  event_webhook_uri    = local.kellnr_keycloak_sync_webhook_url
-  event_webhook_secret = var.enable_kellnr && var.enable_kellnr_keycloak_sync ? random_password.kellnr_keycloak_sync_webhook[0].result : ""
+  # Leave Keycloak's single WEBHOOK_URI free; Kellnr/Coder sync via CronJobs.
+  event_webhook_uri    = ""
+  event_webhook_secret = ""
 
   depends_on = [module.ingress, module.cert_manager, module.cloudnativepg]
 }
@@ -560,7 +553,7 @@ module "kellnr_keycloak_sync" {
   kellnr_postgresql_username = module.kellnr[0].postgresql_username
   kellnr_postgresql_password = module.kellnr[0].postgresql_password
   sync_group_names           = var.kellnr_keycloak_sync_groups
-  webhook_secret             = random_password.kellnr_keycloak_sync_webhook[0].result
+  schedule                   = "*/15 * * * *"
 
   depends_on = [module.kellnr, module.keycloak]
 }

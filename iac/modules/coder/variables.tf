@@ -157,19 +157,20 @@ variable "bootstrap_owner" {
 
 variable "keycloak_owner_sync" {
   description = <<-EOT
-    Live Keycloak → Coder Owner sync (same pattern as kellnr-keycloak-sync).
+    Live Keycloak → Coder Owner sync (CronJob; same idea as kellnr-keycloak-sync).
     Queries the Keycloak Admin API for members of admin_group (default admins) and
     promotes matching Coder users to Owner; demotes OIDC owners who left that group.
     engineers stay ordinary Members. Premium CODER_OIDC_USER_ROLE_* is not used.
+    Keycloak WEBHOOK_URI is left free (single-slot provider).
   EOT
   type = object({
-    realm                      = optional(string, "maze")
-    admin_base_url             = string
-    admin_username             = string
-    admin_password             = string
-    admin_group                = optional(string, "admins")
-    image                      = optional(string, "python:3.12-slim-bookworm")
-    reconcile_interval_seconds = optional(number, 300)
+    realm          = optional(string, "maze")
+    admin_base_url = string
+    admin_username = string
+    admin_password = string
+    admin_group    = optional(string, "admins")
+    image          = optional(string, "python:3.12-slim-bookworm")
+    schedule       = optional(string, "*/15 * * * *")
   })
   default   = null
   sensitive = true

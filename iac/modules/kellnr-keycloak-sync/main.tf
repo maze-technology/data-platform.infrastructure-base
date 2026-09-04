@@ -3,14 +3,12 @@ terraform {
     kubernetes = {
       source = "hashicorp/kubernetes"
     }
-    random = {
-      source = "hashicorp/random"
-    }
   }
 }
 
 locals {
   sync_groups_json = jsonencode(var.sync_group_names)
+  schedule         = var.schedule
 }
 
 resource "kubernetes_config_map" "sync_app" {
@@ -27,16 +25,12 @@ resource "kubernetes_config_map" "sync_app" {
   data = {
     "sync.py" = <<-PY
       #!/usr/bin/env python3
-      import hashlib
-      import hmac
       import json
       import logging
       import os
-      import threading
       import time
       import urllib.parse
       import urllib.request
-      from http.server import BaseHTTPRequestHandler, HTTPServer
 
       logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
       log = logging.getLogger("kellnr-keycloak-sync")
@@ -52,12 +46,9 @@ resource "kubernetes_config_map" "sync_app" {
           password=os.environ["KELLNR_PG_PASSWORD"],
       )
       GROUPS = json.loads(os.environ.get("SYNC_GROUP_NAMES", "[]"))
-      WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
-      RECONCILE_EVERY = int(os.environ.get("RECONCILE_INTERVAL_SECONDS", "300"))
 
       try:
           import psycopg2
-          import psycopg2.extras
       except ImportError as exc:
           raise SystemExit(f"psycopg2 required (install into PYTHONPATH): {exc}") from exc
 
@@ -186,63 +177,8 @@ resource "kubernetes_config_map" "sync_app" {
               conn.commit()
           log.info("reconcile complete for %d groups", len(GROUPS))
 
-      class Handler(BaseHTTPRequestHandler):
-          def log_message(self, fmt, *args):
-              log.info("http " + fmt, *args)
-
-          def do_POST(self):
-              if self.path != "/webhook":
-                  self.send_response(404)
-                  self.end_headers()
-                  return
-              length = int(self.headers.get("Content-Length", "0"))
-              body = self.rfile.read(length)
-              if WEBHOOK_SECRET:
-                  sig = self.headers.get("X-Keycloak-Signature") or self.headers.get("X-Webhook-Signature")
-                  if not sig:
-                      self.send_response(401)
-                      self.end_headers()
-                      return
-                  digest = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
-                  if not hmac.compare_digest(digest, sig.replace("sha256=", "")):
-                      self.send_response(401)
-                      self.end_headers()
-                      return
-              try:
-                  reconcile_all()
-                  self.send_response(202)
-                  self.end_headers()
-                  self.wfile.write(b"ok")
-              except Exception as exc:
-                  log.exception("webhook reconcile failed: %s", exc)
-                  self.send_response(500)
-                  self.end_headers()
-
-          def do_GET(self):
-              if self.path == "/healthz":
-                  self.send_response(200)
-                  self.end_headers()
-                  self.wfile.write(b"ok")
-                  return
-              self.send_response(404)
-              self.end_headers()
-
-      def periodic():
-          while True:
-              time.sleep(max(RECONCILE_EVERY, 60))
-              try:
-                  reconcile_all()
-              except Exception:
-                  log.exception("periodic reconcile failed")
-
       if __name__ == "__main__":
-          if RECONCILE_EVERY > 0:
-              threading.Thread(target=periodic, daemon=True).start()
-          try:
-              reconcile_all()
-          except Exception:
-              log.exception("startup reconcile failed")
-          HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+          reconcile_all()
     PY
   }
 }
@@ -259,23 +195,21 @@ resource "kubernetes_secret" "sync_env" {
   }
 
   data = {
-    KEYCLOAK_REALM             = var.keycloak_realm
-    KEYCLOAK_ADMIN_BASE_URL    = var.keycloak_admin_base_url
-    KEYCLOAK_ADMIN_USERNAME    = var.keycloak_admin_username
-    KEYCLOAK_ADMIN_PASSWORD    = var.keycloak_admin_password
-    KELLNR_PG_HOST             = var.kellnr_postgresql_host
-    KELLNR_PG_DB               = var.kellnr_postgresql_database
-    KELLNR_PG_USER             = var.kellnr_postgresql_username
-    KELLNR_PG_PASSWORD         = var.kellnr_postgresql_password
-    SYNC_GROUP_NAMES           = local.sync_groups_json
-    WEBHOOK_SECRET             = var.webhook_secret
-    RECONCILE_INTERVAL_SECONDS = tostring(var.reconcile_interval_seconds)
+    KEYCLOAK_REALM          = var.keycloak_realm
+    KEYCLOAK_ADMIN_BASE_URL = var.keycloak_admin_base_url
+    KEYCLOAK_ADMIN_USERNAME = var.keycloak_admin_username
+    KEYCLOAK_ADMIN_PASSWORD = var.keycloak_admin_password
+    KELLNR_PG_HOST          = var.kellnr_postgresql_host
+    KELLNR_PG_DB            = var.kellnr_postgresql_database
+    KELLNR_PG_USER          = var.kellnr_postgresql_username
+    KELLNR_PG_PASSWORD      = var.kellnr_postgresql_password
+    SYNC_GROUP_NAMES        = local.sync_groups_json
   }
 
   type = "Opaque"
 }
 
-resource "kubernetes_deployment" "sync" {
+resource "kubernetes_cron_job_v1" "sync" {
   metadata {
     name      = "kellnr-keycloak-sync"
     namespace = var.namespace
@@ -287,15 +221,13 @@ resource "kubernetes_deployment" "sync" {
   }
 
   spec {
-    replicas = 1
+    schedule                      = local.schedule
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 1
+    failed_jobs_history_limit     = 3
+    starting_deadline_seconds     = 300
 
-    selector {
-      match_labels = {
-        app = "kellnr-keycloak-sync"
-      }
-    }
-
-    template {
+    job_template {
       metadata {
         labels = {
           app = "kellnr-keycloak-sync"
@@ -303,122 +235,88 @@ resource "kubernetes_deployment" "sync" {
       }
 
       spec {
-        container {
-          name  = "sync"
-          image = var.image
-          command = [
-            "/bin/sh",
-            "-c",
-            "pip install --target=/tmp/deps -q psycopg2-binary && PYTHONPATH=/tmp/deps exec python3 /app/sync.py",
-          ]
-
-          port {
-            name           = "http"
-            container_port = 8080
-          }
-
-          env_from {
-            secret_ref {
-              name = kubernetes_secret.sync_env.metadata[0].name
+        backoff_limit = 1
+        template {
+          metadata {
+            labels = {
+              app = "kellnr-keycloak-sync"
             }
           }
 
-          volume_mount {
-            name       = "app"
-            mount_path = "/app"
-            read_only  = true
-          }
+          spec {
+            restart_policy = "OnFailure"
 
-          volume_mount {
-            name       = "tmp"
-            mount_path = "/tmp"
-          }
-
-          readiness_probe {
-            http_get {
-              path = "/healthz"
-              port = 8080
+            security_context {
+              run_as_non_root = true
+              fs_group        = 65534
+              seccomp_profile {
+                type = "RuntimeDefault"
+              }
             }
-            initial_delay_seconds = 30
-            period_seconds        = 10
-          }
 
-          liveness_probe {
-            http_get {
-              path = "/healthz"
-              port = 8080
+            container {
+              name  = "sync"
+              image = var.image
+              command = [
+                "/bin/sh",
+                "-c",
+                "pip install --target=/tmp/deps -q psycopg2-binary && PYTHONPATH=/tmp/deps exec python3 /app/sync.py",
+              ]
+
+              env_from {
+                secret_ref {
+                  name = kubernetes_secret.sync_env.metadata[0].name
+                }
+              }
+
+              volume_mount {
+                name       = "app"
+                mount_path = "/app"
+                read_only  = true
+              }
+
+              volume_mount {
+                name       = "tmp"
+                mount_path = "/tmp"
+              }
+
+              resources {
+                requests = {
+                  cpu    = "50m"
+                  memory = "128Mi"
+                }
+                limits = {
+                  cpu    = "500m"
+                  memory = "512Mi"
+                }
+              }
+
+              security_context {
+                allow_privilege_escalation = false
+                read_only_root_filesystem  = true
+                run_as_non_root            = true
+                run_as_user                = 65534
+                capabilities {
+                  drop = ["ALL"]
+                }
+              }
             }
-            initial_delay_seconds = 60
-            period_seconds        = 30
-          }
 
-          resources {
-            requests = {
-              cpu    = "50m"
-              memory = "128Mi"
+            volume {
+              name = "app"
+              config_map {
+                name         = kubernetes_config_map.sync_app.metadata[0].name
+                default_mode = "0555"
+              }
             }
-            limits = {
-              cpu    = "500m"
-              memory = "512Mi"
+
+            volume {
+              name = "tmp"
+              empty_dir {}
             }
-          }
-
-          security_context {
-            allow_privilege_escalation = false
-            read_only_root_filesystem  = true
-            run_as_non_root            = true
-            run_as_user                = 65534
-            capabilities {
-              drop = ["ALL"]
-            }
-          }
-        }
-
-        volume {
-          name = "app"
-          config_map {
-            name         = kubernetes_config_map.sync_app.metadata[0].name
-            default_mode = "0555"
-          }
-        }
-
-        volume {
-          name = "tmp"
-          empty_dir {}
-        }
-
-        security_context {
-          run_as_non_root = true
-          fs_group        = 65534
-          seccomp_profile {
-            type = "RuntimeDefault"
           }
         }
       }
-    }
-  }
-}
-
-resource "kubernetes_service" "sync" {
-  metadata {
-    name      = "kellnr-keycloak-sync"
-    namespace = var.namespace
-    labels = {
-      app         = "kellnr-keycloak-sync"
-      environment = var.environment
-      managed-by  = "opentofu"
-    }
-  }
-
-  spec {
-    selector = {
-      app = "kellnr-keycloak-sync"
-    }
-
-    port {
-      name        = "http"
-      port        = 8080
-      target_port = 8080
     }
   }
 }
