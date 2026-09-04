@@ -589,6 +589,20 @@ module "coder" {
     client_secret = module.keycloak.client_secrets.coder
   }
 
+  bootstrap_owner = {
+    username = "coder-bootstrap"
+    email    = "coder-bootstrap@${var.cluster_domain}"
+  }
+
+  # Live Keycloak Admin API: members of `admins` → Coder Owner (engineers stay Members).
+  keycloak_owner_sync = {
+    realm          = module.keycloak.realm
+    admin_base_url = module.keycloak.internal_http_url
+    admin_username = var.keycloak_admin_username
+    admin_password = var.keycloak_admin_password
+    admin_group    = "admins"
+  }
+
   depends_on = [
     module.rook_ceph,
     module.ingress,

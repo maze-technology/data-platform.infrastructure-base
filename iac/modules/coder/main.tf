@@ -9,6 +9,9 @@ terraform {
     random = {
       source = "hashicorp/random"
     }
+    null = {
+      source = "hashicorp/null"
+    }
   }
 }
 
@@ -74,6 +77,7 @@ locals {
       value = "true"
     }] : [],
   )
+
 }
 
 resource "kubernetes_namespace" "coder" {
@@ -258,3 +262,71 @@ resource "helm_release" "coder" {
     module.coder_postgresql,
   ]
 }
+
+# Coder redirects all routes to /setup until at least one user exists; OIDC login
+# is only offered on /login after that. Bootstrap a break-glass owner (random password).
+resource "random_password" "bootstrap_owner" {
+  count   = var.bootstrap_owner != null ? 1 : 0
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_secret" "bootstrap_owner" {
+  count = var.bootstrap_owner != null ? 1 : 0
+
+  metadata {
+    name      = "coder-bootstrap-owner"
+    namespace = kubernetes_namespace.coder.metadata[0].name
+    labels = {
+      environment = var.environment
+      managed-by  = "opentofu"
+    }
+  }
+
+  data = {
+    username = var.bootstrap_owner.username
+    email    = var.bootstrap_owner.email
+    password = random_password.bootstrap_owner[0].result
+  }
+
+  type = "Opaque"
+
+  depends_on = [helm_release.coder]
+}
+
+resource "null_resource" "bootstrap_owner" {
+  count = var.bootstrap_owner != null ? 1 : 0
+
+  triggers = {
+    username   = var.bootstrap_owner.username
+    email      = var.bootstrap_owner.email
+    password   = random_password.bootstrap_owner[0].result
+    deployment = helm_release.coder.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      for i in $(seq 1 60); do
+        kubectl -n ${kubernetes_namespace.coder.metadata[0].name} get deploy/coder >/dev/null 2>&1 && \
+          kubectl -n ${kubernetes_namespace.coder.metadata[0].name} wait --for=condition=available deploy/coder --timeout=120s && break
+        sleep 5
+      done
+      kubectl -n ${kubernetes_namespace.coder.metadata[0].name} exec deploy/coder -- \
+        coder server create-admin-user \
+          --username '${var.bootstrap_owner.username}' \
+          --email '${var.bootstrap_owner.email}' \
+          --password '${random_password.bootstrap_owner[0].result}' \
+        2>&1 | grep -qE 'User created successfully|duplicate key value violates unique constraint' \
+        || { echo "bootstrap owner: user may already exist"; exit 0; }
+    EOT
+  }
+
+  depends_on = [
+    helm_release.coder,
+    kubernetes_secret.bootstrap_owner,
+    module.coder_postgresql,
+  ]
+}
+
