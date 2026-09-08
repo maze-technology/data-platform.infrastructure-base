@@ -84,6 +84,10 @@ data "coder_parameter" "memory" {
     name  = "8 GB"
     value = "8"
   }
+  option {
+    name  = "16 GB"
+    value = "16"
+  }
 }
 
 data "coder_parameter" "home_disk_size" {
