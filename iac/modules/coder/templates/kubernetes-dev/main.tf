@@ -128,6 +128,12 @@ resource "coder_agent" "main" {
     # Install code-server for the browser IDE app.
     curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/tmp/code-server
     /tmp/code-server/bin/code-server --auth none --port 13337 >/tmp/code-server.log 2>&1 &
+
+    # Optional per-user startup (persists on home PVC). Opt in with:
+    #   mkdir -p ~/.coder && chmod +x ~/.coder/startup.sh
+    if [ -x "$${HOME}/.coder/startup.sh" ]; then
+      "$${HOME}/.coder/startup.sh" &
+    fi
   EOT
 
   # The following metadata blocks are optional. They are used to display

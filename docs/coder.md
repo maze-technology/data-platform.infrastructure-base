@@ -96,6 +96,26 @@ ssh coder.<workspace-name>
 
 Install the **Coder Remote** extension, run **Coder: Login**, then **Coder: Open Workspace**.
 
+### Personal workspace startup hook
+
+The maze-dev template runs `~/.coder/startup.sh` on agent start **if that file is executable**. Use it for per-user daemons (e.g. Cursor `agent worker`) without changing the shared template for everyone:
+
+```bash
+mkdir -p ~/.coder
+cat > ~/.coder/startup.sh <<'EOF'
+#!/bin/bash
+export PATH="$HOME/.local/bin:$PATH"
+export AGENT_CLI_CREDENTIAL_STORE=file
+pkill -f 'agent worker start' 2>/dev/null || true
+nohup agent worker start --name "maze-coder-general" \
+  --worker-dir "$HOME/Projects/maze.trading" \
+  >>"$HOME/.cursor-agent-worker.log" 2>&1 &
+EOF
+chmod +x ~/.coder/startup.sh
+```
+
+Requires a prior `agent login` (session stored on the home PVC). Restart the workspace after creating the script (and after pushing a template version that includes the hook).
+
 ## Backup
 
 Coder is covered by the platform backup stack in three layers:
