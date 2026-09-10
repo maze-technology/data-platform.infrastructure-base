@@ -30,6 +30,11 @@ locals {
   # Seeded once into PAPERCLIP_HOME; DATABASE_URL + deployment env vars override at runtime.
   # Do not put credentials in this ConfigMap — only non-secret defaults.
   seed_config = {
+    "$meta" = {
+      version   = 1
+      updatedAt = "1970-01-01T00:00:00.000Z"
+      source    = "configure"
+    }
     database = {
       mode = "postgres"
       backup = {
@@ -565,8 +570,12 @@ resource "kubernetes_deployment" "paperclip" {
 
           readiness_probe {
             http_get {
-              path = "/"
+              path = "/api/health"
               port = "http"
+              http_header {
+                name  = "Host"
+                value = var.hostname
+              }
             }
             initial_delay_seconds = 15
             period_seconds        = 10
@@ -576,8 +585,12 @@ resource "kubernetes_deployment" "paperclip" {
 
           liveness_probe {
             http_get {
-              path = "/"
+              path = "/api/health"
               port = "http"
+              http_header {
+                name  = "Host"
+                value = var.hostname
+              }
             }
             initial_delay_seconds = 60
             period_seconds        = 20
