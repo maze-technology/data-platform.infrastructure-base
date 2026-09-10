@@ -738,6 +738,54 @@ variable "coder_oidc_email_domain" {
   default     = ""
 }
 
+variable "enable_paperclip" {
+  description = "Deploy Paperclip AI agent orchestration (paperclip.<domain>, VPN-only)"
+  type        = bool
+  default     = false
+}
+
+variable "paperclip_storage_class" {
+  description = "StorageClass for Paperclip Postgres and home PVC. Empty uses Rook RBD."
+  type        = string
+  default     = ""
+}
+
+variable "paperclip_postgresql_storage_size" {
+  description = "Paperclip CloudNativePG storage size"
+  type        = string
+  default     = "10Gi"
+}
+
+variable "paperclip_home_storage_size" {
+  description = "Paperclip PAPERCLIP_HOME PVC size (config, secrets master key, plugin state)"
+  type        = string
+  default     = "10Gi"
+}
+
+variable "paperclip_bucket_name" {
+  description = "RGW bucket for Paperclip attachments. Empty defaults to paperclip-storage-<env>."
+  type        = string
+  default     = ""
+}
+
+variable "paperclip_image" {
+  description = "Paperclip server image"
+  type        = string
+  default     = "ghcr.io/paperclipai/paperclip:2026.831.1"
+}
+
+variable "paperclip_plugin_version" {
+  description = "npm version of @paperclipai/plugin-kubernetes staged at boot"
+  type        = string
+  default     = "2026.831.1"
+}
+
+variable "paperclip_agent_sandbox_version" {
+  description = "kubernetes-sigs/agent-sandbox release tag"
+  type        = string
+  default     = "v1.0.1"
+}
+
 variable "s3_force_destroy" {
   description = "Allow OpenTofu to destroy non-empty S3 buckets (local only)"
   type        = bool
