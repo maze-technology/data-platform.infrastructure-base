@@ -129,6 +129,10 @@ Keycloak is the central IdP (SSO for GitLab, Grafana, Argo CD, Kellnr). Groups:
 
 Private Cargo registry: [docs/kellnr.md](docs/kellnr.md) (`crates.<domain>`).
 
+Coder workspaces: [docs/coder.md](docs/coder.md) (`coder.<domain>`).
+
+Paperclip agent orchestration: [docs/paperclip.md](docs/paperclip.md) (`paperclip.<domain>`, VPN-only; email/password — no Keycloak OIDC yet).
+
 GitLab stays VPN-only via Envoy `SecurityPolicy`. Cosign + Kyverno enforce signed images on namespaces labeled `<cluster_domain>/require-signed-images=true`. Details: [docs/gitlab-container-security.md](docs/gitlab-container-security.md).
 
 ## Layout

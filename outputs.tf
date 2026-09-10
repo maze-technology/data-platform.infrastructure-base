@@ -27,6 +27,7 @@ output "service_urls" {
     registry     = "https://${local.hosts.registry}"
     crates       = var.enable_kellnr ? "https://${local.hosts.crates}" : null
     coder        = var.enable_coder ? "https://${local.hosts.coder}" : null
+    paperclip    = var.enable_paperclip ? "https://${local.hosts.paperclip}" : null
     grafana      = "https://${local.hosts.grafana}"
     argocd       = "https://${local.hosts.argocd}"
     vault        = "https://${local.hosts.vault}"
@@ -126,6 +127,22 @@ output "coder_postgresql_password" {
 output "coder_push_template_command" {
   description = "Push the default maze-dev workspace template (run after first admin OIDC login)"
   value       = var.enable_coder ? module.coder[0].push_template_command : null
+}
+
+output "paperclip_url" {
+  description = "Paperclip web UI URL (null when disabled)"
+  value       = var.enable_paperclip ? module.paperclip[0].url : null
+}
+
+output "paperclip_postgresql_password" {
+  description = "Paperclip Postgres password for backup dumps"
+  sensitive   = true
+  value       = var.enable_paperclip ? module.paperclip[0].postgresql_password : null
+}
+
+output "paperclip_bucket_name" {
+  description = "S3 bucket for Paperclip attachments"
+  value       = var.enable_paperclip ? local.paperclip_bucket_name : null
 }
 
 output "keycloak_postgresql_password" {

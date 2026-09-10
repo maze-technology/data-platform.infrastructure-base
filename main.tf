@@ -4,15 +4,16 @@
 
 locals {
   hosts = {
-    auth     = "auth.${var.cluster_domain}"
-    scm      = "scm.${var.cluster_domain}"
-    registry = "registry.scm.${var.cluster_domain}"
-    crates   = "crates.${var.cluster_domain}"
-    grafana  = "grafana.${var.cluster_domain}"
-    argocd   = "argocd.${var.cluster_domain}"
-    vault    = "vault.${var.cluster_domain}"
-    coder    = "coder.${var.cluster_domain}"
-    vpn      = "vpn.${var.cluster_domain}"
+    auth      = "auth.${var.cluster_domain}"
+    scm       = "scm.${var.cluster_domain}"
+    registry  = "registry.scm.${var.cluster_domain}"
+    crates    = "crates.${var.cluster_domain}"
+    grafana   = "grafana.${var.cluster_domain}"
+    argocd    = "argocd.${var.cluster_domain}"
+    vault     = "vault.${var.cluster_domain}"
+    coder     = "coder.${var.cluster_domain}"
+    paperclip = "paperclip.${var.cluster_domain}"
+    vpn       = "vpn.${var.cluster_domain}"
     # VPN-only git SSH (CoreDNS → gitlab-shell). Never publish on the public LB.
     git_ssh = "git-ssh.${var.cluster_domain}"
   }
@@ -65,11 +66,13 @@ locals {
   gitlab_storage_class        = var.gitlab_storage_class != "" ? var.gitlab_storage_class : local.rook_storage_class
   gitaly_storage_class        = var.gitaly_storage_class != "" ? var.gitaly_storage_class : local.rook_encrypted_storage_class
 
-  loki_bucket_name     = var.loki_bucket_name != "" ? var.loki_bucket_name : "loki-logs-${var.environment}"
-  gitlab_bucket_name   = var.gitlab_bucket_name != "" ? var.gitlab_bucket_name : "gitlab-storage-${var.environment}"
-  kellnr_bucket_name   = var.kellnr_bucket_name != "" ? var.kellnr_bucket_name : "kellnr-crates-${var.environment}"
-  kellnr_storage_class = var.kellnr_storage_class != "" ? var.kellnr_storage_class : local.rook_storage_class
-  coder_storage_class  = var.coder_storage_class != "" ? var.coder_storage_class : local.rook_storage_class
+  loki_bucket_name        = var.loki_bucket_name != "" ? var.loki_bucket_name : "loki-logs-${var.environment}"
+  gitlab_bucket_name      = var.gitlab_bucket_name != "" ? var.gitlab_bucket_name : "gitlab-storage-${var.environment}"
+  kellnr_bucket_name      = var.kellnr_bucket_name != "" ? var.kellnr_bucket_name : "kellnr-crates-${var.environment}"
+  kellnr_storage_class    = var.kellnr_storage_class != "" ? var.kellnr_storage_class : local.rook_storage_class
+  coder_storage_class     = var.coder_storage_class != "" ? var.coder_storage_class : local.rook_storage_class
+  paperclip_storage_class = var.paperclip_storage_class != "" ? var.paperclip_storage_class : local.rook_storage_class
+  paperclip_bucket_name   = var.paperclip_bucket_name != "" ? var.paperclip_bucket_name : "paperclip-storage-${var.environment}"
 
   # kubernetes provider returns secret data already base64-decoded in .data
   maze_ca_pem = var.create_maze_ca ? try(data.kubernetes_secret.maze_ca[0].data["ca.crt"], "") : ""
@@ -607,6 +610,46 @@ module "coder" {
   ]
 }
 
+module "paperclip" {
+  count  = var.enable_paperclip ? 1 : 0
+  source = "./iac/modules/paperclip"
+
+  cluster_name            = var.cluster_name
+  environment             = var.environment
+  hostname                = local.hosts.paperclip
+  enable_tls              = true
+  tls_cluster_issuer      = module.cert_manager.cluster_issuer_name
+  vpn_cidr                = module.wireguard.vpn_subnet
+  restrict_to_vpn         = var.restrict_to_vpn
+  storage_class           = local.paperclip_storage_class
+  postgresql_storage_size = var.paperclip_postgresql_storage_size
+  home_storage_size       = var.paperclip_home_storage_size
+  cnpg_operator_ready     = module.cloudnativepg.helm_release_id
+  backup_label_key        = "${var.cluster_domain}/backup-enabled"
+  image                   = var.paperclip_image
+  plugin_version          = var.paperclip_plugin_version
+  agent_sandbox_version   = var.paperclip_agent_sandbox_version
+
+  object_storage = {
+    endpoint         = module.rook_ceph.rgw_endpoint
+    region           = "us-east-1"
+    access_key       = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key       = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style = true
+    bucket           = local.paperclip_bucket_name
+  }
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.cert_manager,
+    module.cluster_dns,
+    module.cloudnativepg,
+    aws_s3_bucket.paperclip_storage,
+  ]
+}
+
 # GitLab Envoy Gateway path: override scm + registry DNS → Envoy ClusterIP.
 # Skipped when Gateway API is disabled (nginx ingress serves scm/registry).
 # count must not depend on gateway_cluster_ip (computed; unknown at plan).
@@ -810,6 +853,23 @@ resource "aws_s3_bucket" "kellnr_crates" {
   depends_on = [module.rgw_bootstrap]
 }
 
+resource "aws_s3_bucket" "paperclip_storage" {
+  count = var.enable_paperclip ? 1 : 0
+
+  provider      = aws.rgw
+  bucket        = local.paperclip_bucket_name
+  force_destroy = var.s3_force_destroy
+
+  tags = {
+    Name        = local.paperclip_bucket_name
+    Environment = var.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "paperclip-storage"
+  }
+
+  depends_on = [module.rgw_bootstrap]
+}
+
 resource "aws_s3_bucket_versioning" "loki_logs" {
   provider = aws.rgw
   bucket   = aws_s3_bucket.loki_logs.id
@@ -862,6 +922,18 @@ locals {
       {
         name                     = "kellnr-crates"
         bucket                   = aws_s3_bucket.kellnr_crates[0].id
+        endpoint                 = module.rook_ceph.rgw_endpoint
+        region                   = "us-east-1"
+        force_path_style         = true
+        insecure_skip_tls_verify = local.backup_rgw_insecure
+        access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+        secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+      },
+    ] : [],
+    var.enable_paperclip ? [
+      {
+        name                     = "paperclip-storage"
+        bucket                   = aws_s3_bucket.paperclip_storage[0].id
         endpoint                 = module.rook_ceph.rgw_endpoint
         region                   = "us-east-1"
         force_path_style         = true
