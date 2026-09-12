@@ -407,6 +407,15 @@ resource "kubernetes_deployment" "paperclip" {
             cp -a package/. "$PLUGIN_ROOT/"
             cd "$PLUGIN_ROOT"
             npm install --omit=dev --no-fund --no-audit
+            # agent-sandbox >= v1.0 ships Sandbox CRD as v1beta1 only; the npm
+            # plugin still hard-codes v1alpha1 and gets HTTP 404 on lease create.
+            if grep -Rql 'agents.x-k8s.io/v1alpha1\|SANDBOX_VERSION = "v1alpha1"' dist 2>/dev/null; then
+              find dist -type f \( -name '*.js' -o -name '*.mjs' \) -print0 \
+                | xargs -0 sed -i \
+                  -e 's|agents.x-k8s.io/v1alpha1|agents.x-k8s.io/v1beta1|g' \
+                  -e 's|SANDBOX_VERSION = "v1alpha1"|SANDBOX_VERSION = "v1beta1"|g'
+              echo "patched plugin Sandbox API v1alpha1 -> v1beta1"
+            fi
             echo "staged @paperclipai/plugin-kubernetes@${var.plugin_version}"
           EOT
           ]

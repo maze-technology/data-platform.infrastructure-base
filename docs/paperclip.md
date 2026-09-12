@@ -67,3 +67,4 @@ kubectl get crd sandboxes.agents.x-k8s.io
 - Single replica + `Recreate` strategy so the RWO home PVC is not multi-attached.
 - Seeded `config.json` is written only on first boot; later storage/URL changes need a manual edit or PVC wipe.
 - Image / plugin pins: `paperclip_image`, `paperclip_plugin_version`, `paperclip_agent_sandbox_version`.
+- The bundled `@paperclipai/plugin-kubernetes` still hard-codes Sandbox CRD `v1alpha1`; agent-sandbox **v1.0+** only serves **`v1beta1`**. The `install-k8s-plugin` init rewrites that API version after `npm pack` so lease create does not 404.
