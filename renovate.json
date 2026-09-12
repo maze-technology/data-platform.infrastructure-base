@@ -3,7 +3,7 @@
   "extends": [
     "config:recommended"
   ],
-  "baseBranches": [
+  "baseBranchPatterns": [
     "develop"
   ],
   "prConcurrentLimit": 2,
@@ -13,20 +13,41 @@
   "terraform": {
     "enabled": true
   },
-  "packageRules": [
+  "customManagers": [
     {
-      "matchManagers": [
-        "regex"
-      ],
-      "matchFileNames": [
-        "iac/modules/gitlab/variables.tf"
+      "customType": "regex",
+      "fileMatch": [
+        "^iac/modules/gitlab/variables\\.tf$"
       ],
       "matchStrings": [
         "variable \"helm_chart_version\"[\\s\\S]*?default\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "depNameTemplate": "gitlab",
       "datasourceTemplate": "helm",
-      "registryUrlTemplate": "https://charts.gitlab.io",
+      "registryUrlTemplate": "https://charts.gitlab.io"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "regex"
+      ],
+      "matchDepNames": [
+        "gitlab"
+      ],
+      "groupName": "GitLab Helm chart",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "matchManagers": [
+        "regex"
+      ],
+      "matchDepNames": [
+        "gitlab"
+      ],
       "groupName": "GitLab Helm chart"
     },
     {
