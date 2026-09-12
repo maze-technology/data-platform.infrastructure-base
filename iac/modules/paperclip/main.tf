@@ -356,7 +356,7 @@ resource "kubernetes_deployment" "paperclip" {
 
         init_container {
           name    = "seed-home"
-          image   = "busybox:1.37"
+          image   = "busybox:1.38"
           command = ["/bin/sh", "-c"]
           args = [<<-EOT
             set -euo pipefail
