@@ -17,7 +17,7 @@ variable "namespace" {
 variable "helm_chart_version" {
   description = "Version of the GitLab Helm chart"
   type        = string
-  default     = "10.1.6"
+  default     = "10.3.2"
 }
 
 variable "gitlab_domain" {
