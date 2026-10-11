@@ -2,7 +2,7 @@
 
 Versioned OpenTofu **root module** that composes cluster-level components under `iac/modules/*`. Environment entrypoints (providers, backends, tfvars, `make apply`) live in the separate [`infrastructure`](https://github.com/maze-technology/infrastructure) composition repo.
 
-**First release scope:** GitLab CE, Rook-Ceph, WireGuard VPN, observability, Argo CD, Keycloak, Vault, cert-manager, ingress, Kyverno/cosign. Temporal is deferred.
+**First release scope:** GitLab CE, Rook-Ceph, WireGuard VPN, observability, Argo CD, Keycloak, Vault, cert-manager, ingress, Kyverno/cosign.
 
 ## Usage
 
