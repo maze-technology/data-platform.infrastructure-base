@@ -420,12 +420,6 @@ module "argocd" {
   depends_on = [module.keycloak, module.wireguard, module.cluster_dns]
 }
 
-# Temporal — disabled for first release (workflow orchestration comes later)
-# module "temporal" {
-#   source = "./iac/modules/temporal"
-#   ...
-# }
-
 module "gitlab" {
   source = "./iac/modules/gitlab"
 
