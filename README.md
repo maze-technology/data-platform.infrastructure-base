@@ -70,7 +70,7 @@ This root module declares `required_providers` (including `aws` with `configurat
 Optional (local/kind only):
 
 - `enable_kind_cluster` — probes/creates the kind cluster module
-- `enable_cluster_dns` — CoreDNS rewrites for `*.cluster_domain` + GitLab Envoy DNS patch
+- `enable_cluster_dns` — CoreDNS rewrites for `*.cluster_domain` + GitLab Envoy/shell DNS patch (`scm`/`registry` → Envoy, `git-ssh` → gitlab-shell)
 - `create_maze_ca` — internal Maze CA instead of public Let's Encrypt
 - Loop-device OSD settings for safe kind storage
 
@@ -101,7 +101,7 @@ See [`outputs.tf`](outputs.tf). Useful ones:
 - `hosts`, `service_urls`, `etc_hosts`
 - `vpn_subnet`, `wireguard_peer_config_command`
 - `storage_class_name`, `encrypted_storage_class_name`, `rgw_endpoint`
-- `gitlab_url`, `registry_url`, `gitlab_gateway_cluster_ip`
+- `gitlab_url`, `registry_url`, `gitlab_gateway_cluster_ip`, `gitlab_shell_cluster_ip`
 - `keycloak_issuer_url`, `tls_cluster_issuer`
 - `cosign_vault_path`, `kyverno_signed_images_label`
 - `bootstrap_credentials` (sensitive)

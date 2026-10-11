@@ -254,7 +254,7 @@ module "cloudnativepg" {
 
 # Make *.<cluster_domain> resolvable inside the cluster and for WireGuard clients
 # (peer DNS = CoreDNS). All app hostnames map to ingress-nginx ClusterIP.
-# When GitLab Envoy Gateway is enabled, coredns_gitlab_envoy overrides scm/registry.
+# coredns_gitlab_overrides then remaps scm/registry → Envoy and git-ssh → gitlab-shell.
 module "cluster_dns" {
   count  = var.enable_cluster_dns ? 1 : 0
   source = "./iac/modules/cluster-dns"
@@ -644,19 +644,27 @@ module "paperclip" {
   ]
 }
 
-# GitLab Envoy Gateway path: override scm + registry DNS → Envoy ClusterIP.
-# Skipped when Gateway API is disabled (nginx ingress serves scm/registry).
-# count must not depend on gateway_cluster_ip (computed; unknown at plan).
-resource "null_resource" "coredns_gitlab_envoy" {
+# GitLab DNS overrides on top of cluster_dns Corefile (single atomic patch).
+#
+# Previously coredns_gitlab_envoy + coredns_gitlab_shell raced: both read/modify/wrote
+# the CoreDNS ConfigMap in parallel, so the last writer dropped the other host lines.
+# Symptom: git-ssh.<domain> fell through to public DNS (LB IP) and :22 timed out, while
+# scm.<domain> still resolved to the Envoy ClusterIP on :443.
+#
+# count must not depend on gateway/shell ClusterIPs (computed; unknown at plan).
+resource "null_resource" "coredns_gitlab_overrides" {
   count = var.enable_cluster_dns ? 1 : 0
 
   triggers = {
     gateway_ip = module.gitlab.gateway_cluster_ip
+    shell_ip   = module.gitlab.shell_cluster_ip
     scm        = local.hosts.scm
     registry   = local.hosts.registry
-    # Re-patch whenever cluster_dns rewrites Corefile (it omits scm/registry → nginx).
+    git_ssh    = local.hosts.git_ssh
+    # Re-patch whenever cluster_dns rewrites Corefile (hosts list omits git-ssh;
+    # scm/registry may point at nginx until this runs).
     corefile   = module.cluster_dns[0].corefile
-    generation = "3"
+    generation = "4"
   }
 
   provisioner "local-exec" {
@@ -664,87 +672,57 @@ resource "null_resource" "coredns_gitlab_envoy" {
     command     = <<-EOT
       set -euo pipefail
       export GW='${module.gitlab.gateway_cluster_ip}'
+      export SHELL_IP='${module.gitlab.shell_cluster_ip}'
       export SCM='${local.hosts.scm}'
       export REG='${local.hosts.registry}'
+      export GIT_SSH='${local.hosts.git_ssh}'
       python3 - <<'PY'
-import re, subprocess, json, os
-gw, scm, reg = os.environ["GW"], os.environ["SCM"], os.environ["REG"]
-if not gw or gw == "None":
-    print("coredns_gitlab_envoy: skip (no gateway ClusterIP)")
-    raise SystemExit(0)
+import re, subprocess, json, os, sys
+
+gw = os.environ.get("GW") or ""
+shell_ip = os.environ.get("SHELL_IP") or ""
+scm, reg, git_ssh = os.environ["SCM"], os.environ["REG"], os.environ["GIT_SSH"]
+
+if not shell_ip or shell_ip == "None":
+    print("coredns_gitlab_overrides: ERROR — empty gitlab-shell ClusterIP", file=sys.stderr)
+    raise SystemExit(1)
+
 cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
 corefile = cm["data"]["Corefile"]
 
 def upsert(corefile: str, host: str, ip: str) -> str:
     pattern = rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$"
+    line = rf"\g<1>{ip} {host}"
     if re.search(pattern, corefile):
-        return re.sub(pattern, rf"\g<1>{ip} {host}", corefile)
-    return re.sub(
+        return re.sub(pattern, line, corefile)
+    replaced, n = re.subn(
         r"(?m)^(\s*)fallthrough\s*$",
         rf"\g<1>{ip} {host}\n\g<1>fallthrough",
         corefile,
         count=1,
     )
+    if n != 1:
+        raise SystemExit(f"coredns_gitlab_overrides: could not insert hosts line for {host}")
+    return replaced
 
-for host in (scm, reg):
-    corefile = upsert(corefile, host, gw)
-cm["data"]["Corefile"] = corefile
-meta = cm.setdefault("metadata", {})
-for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "generation"):
-    meta.pop(k, None)
-subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
-print(f"coredns_gitlab_envoy: {scm}, {reg} -> {gw}")
-subprocess.run(["kubectl", "-n", "kube-system", "rollout", "restart", "deploy/coredns"], check=True)
-subprocess.run(["kubectl", "-n", "kube-system", "rollout", "status", "deploy/coredns", "--timeout=120s"], check=True)
-PY
-    EOT
-  }
+# VPN-only git SSH → gitlab-shell (never the public LB / Envoy).
+corefile = upsert(corefile, git_ssh, shell_ip)
+print(f"coredns_gitlab_overrides: {git_ssh} -> {shell_ip}")
 
-  depends_on = [module.cluster_dns, module.gitlab]
-}
-
-# VPN-only git SSH: CoreDNS git-ssh.<domain> → gitlab-shell ClusterIP (never public LB).
-# count must not depend on shell_cluster_ip (computed data source; unknown at plan).
-resource "null_resource" "coredns_gitlab_shell" {
-  count = var.enable_cluster_dns ? 1 : 0
-
-  triggers = {
-    shell_ip   = module.gitlab.shell_cluster_ip
-    host       = "git-ssh.${var.cluster_domain}"
-    corefile   = module.cluster_dns[0].corefile
-    generation = "1"
-  }
-
-  provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    command     = <<-EOT
-      set -euo pipefail
-      export IP='${module.gitlab.shell_cluster_ip}'
-      export HOST='git-ssh.${var.cluster_domain}'
-      python3 - <<'PY'
-import re, subprocess, json, os
-ip, host = os.environ["IP"], os.environ["HOST"]
-if not ip or ip == "None":
-    print("coredns_gitlab_shell: skip (no shell ClusterIP)")
-    raise SystemExit(0)
-cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
-corefile = cm["data"]["Corefile"]
-pattern = rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$"
-if re.search(pattern, corefile):
-    corefile = re.sub(pattern, rf"\g<1>{ip} {host}", corefile)
+# Envoy Gateway path: scm + registry → Envoy ClusterIP. Skip when Gateway API is off
+# (nginx ingress already serves those names via cluster_dns).
+if gw and gw != "None":
+    for host in (scm, reg):
+        corefile = upsert(corefile, host, gw)
+    print(f"coredns_gitlab_overrides: {scm}, {reg} -> {gw}")
 else:
-    corefile = re.sub(
-        r"(?m)^(\s*)fallthrough\s*$",
-        rf"\g<1>{ip} {host}\n\g<1>fallthrough",
-        corefile,
-        count=1,
-    )
+    print("coredns_gitlab_overrides: skip envoy overrides (no gateway ClusterIP)")
+
 cm["data"]["Corefile"] = corefile
 meta = cm.setdefault("metadata", {})
 for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "generation"):
     meta.pop(k, None)
 subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
-print(f"coredns_gitlab_shell: {host} -> {ip}")
 subprocess.run(["kubectl", "-n", "kube-system", "rollout", "restart", "deploy/coredns"], check=True)
 subprocess.run(["kubectl", "-n", "kube-system", "rollout", "status", "deploy/coredns", "--timeout=120s"], check=True)
 PY

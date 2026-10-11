@@ -36,6 +36,18 @@ variable "storage_class" {
   description = "StorageClass for workspace home PVCs (e.g. rook-ceph-block)."
 }
 
+variable "scm_host" {
+  type        = string
+  description = "GitLab hostname used in git@ URLs (SSH Host block)."
+  default     = "scm.maze.trading"
+}
+
+variable "git_ssh_host" {
+  type        = string
+  description = "CoreDNS name that resolves to gitlab-shell (SSH HostName)."
+  default     = "git-ssh.maze.trading"
+}
+
 data "coder_parameter" "cpu" {
   name         = "cpu"
   display_name = "CPU"
@@ -122,8 +134,46 @@ resource "coder_agent" "main" {
     if command -v apt-get >/dev/null 2>&1; then
       sudo apt-get update -y
       sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        git curl ca-certificates openssh-client build-essential jq
+        git curl ca-certificates openssh-client build-essential jq python3
     fi
+
+    # Git over SSH: keep git@scm… URLs, connect via git-ssh → gitlab-shell (CoreDNS).
+    mkdir -p "$${HOME}/.ssh"
+    chmod 700 "$${HOME}/.ssh"
+    SCM_HOST='${var.scm_host}'
+    GIT_SSH_HOST='${var.git_ssh_host}'
+    python3 - "$${HOME}/.ssh/config" "$${SCM_HOST}" "$${GIT_SSH_HOST}" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+scm, git_ssh = sys.argv[2], sys.argv[3]
+text = path.read_text() if path.exists() else ""
+lines = text.splitlines()
+host_idx = next((i for i, l in enumerate(lines) if l.split()[:2] == ["Host", scm]), None)
+block = [f"Host {scm}", f"  HostName {git_ssh}", "  Port 22"]
+if host_idx is None:
+    out = (text.rstrip() + ("\n\n" if text.strip() else "") + "\n".join(block) + "\n")
+    path.write_text(out)
+    path.chmod(0o600)
+    raise SystemExit(0)
+# Ensure HostName/Port inside the existing Host block (until next Host).
+end = host_idx + 1
+while end < len(lines) and not lines[end].startswith("Host "):
+    end += 1
+chunk = lines[host_idx:end]
+has_hn = any(l.strip().startswith("HostName ") for l in chunk)
+has_port = any(l.strip().startswith("Port ") for l in chunk)
+insert_at = host_idx + 1
+new_chunk = list(chunk)
+if not has_hn:
+    new_chunk.insert(insert_at, f"  HostName {git_ssh}")
+    insert_at += 1
+if not has_port:
+    new_chunk.insert(insert_at, "  Port 22")
+if new_chunk != chunk:
+    lines[host_idx:end] = new_chunk
+    path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") or not text else "\n"))
+    path.chmod(0o600)
+PY
 
     # Install code-server for the browser IDE app.
     curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/tmp/code-server
