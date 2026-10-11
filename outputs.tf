@@ -188,26 +188,6 @@ output "tls_cluster_issuer" {
   value       = module.cert_manager.cluster_issuer_name
 }
 
-output "cosign_vault_path" {
-  description = "Vault path for cosign signing keys (private_key, public_key, password)"
-  value       = module.cosign_keys.vault_path
-}
-
-output "cosign_ci_scope" {
-  description = "COSIGN_* CI variables are instance-level (available to all projects)"
-  value       = module.gitlab_ci_cosign.cosign_scope
-}
-
-output "gitlab_org_group" {
-  description = "Optional GitLab org group path from gitlab-ci-cosign (empty when none is managed)"
-  value       = module.gitlab_ci_cosign.org_group_path
-}
-
-output "kyverno_signed_images_label" {
-  description = "Label namespaces with this to require cosign-verified images from the Maze registry"
-  value       = module.kyverno.namespace_opt_in_label
-}
-
 output "bootstrap_credentials" {
   description = "Initial credentials — day-to-day login is Keycloak SSO; Keycloak master is break-glass only"
   sensitive   = true

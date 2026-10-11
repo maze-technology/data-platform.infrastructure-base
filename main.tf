@@ -183,22 +183,6 @@ resource "vault_kv_secret_v2" "rbd_luks" {
   depends_on = [module.vault, module.rook_ceph]
 }
 
-module "cosign_keys" {
-  source = "./iac/modules/cosign-keys"
-
-  vault_kv_mount    = "secret"
-  vault_secret_path = "cosign/gitlab"
-
-  depends_on = [module.vault]
-}
-
-data "vault_kv_secret_v2" "cosign" {
-  mount = "secret"
-  name  = "cosign/gitlab"
-
-  depends_on = [module.cosign_keys]
-}
-
 data "vault_kv_secret_v2" "rgw_credentials" {
   mount = "secret"
   name  = "rgw/credentials"
@@ -730,32 +714,6 @@ PY
   }
 
   depends_on = [module.cluster_dns, module.gitlab]
-}
-
-module "kyverno" {
-  source = "./iac/modules/kyverno"
-
-  environment         = var.environment
-  cosign_public_key   = data.vault_kv_secret_v2.cosign.data["public_key"]
-  registry_hosts      = [local.hosts.registry]
-  namespace_label_key = "${var.cluster_domain}/require-signed-images"
-
-  depends_on = [module.cosign_keys]
-}
-
-module "gitlab_ci_cosign" {
-  source = "./iac/modules/gitlab-ci-cosign"
-
-  gitlab_namespace  = module.gitlab.namespace
-  vault_kv_mount    = "secret"
-  vault_secret_path = "cosign/gitlab"
-  # No default org group (maze removed). Product groups (data-platform, templates)
-  # are created outside OpenTofu.
-
-  depends_on = [
-    module.gitlab,
-    module.cosign_keys,
-  ]
 }
 
 module "renovate" {
