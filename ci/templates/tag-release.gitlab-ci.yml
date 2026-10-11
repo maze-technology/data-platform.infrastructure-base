@@ -46,10 +46,7 @@ tag_release:
       when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: never
-    # Prefer REF_NAME: some pipeline sources leave CI_COMMIT_BRANCH unset even
-    # when ref is the main branch (empty pipeline → GitLab skips creation).
     - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_REF_NAME == "main"
   script:
     - |
       set -euo pipefail

@@ -24,8 +24,8 @@ spec:
 
 ---
 
-stages:
-  - $[[ inputs.job_stage ]]
+# Do not declare `stages:` here — overriding the includer's stage list can drop
+# other jobs (e.g. tag_release in `.pre`) when this job is rule-excluded.
 
 opentofu_fmt_check:
   stage: $[[ inputs.job_stage ]]
