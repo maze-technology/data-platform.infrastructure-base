@@ -648,7 +648,8 @@ resource "null_resource" "coredns_gitlab_overrides" {
     # Re-patch whenever cluster_dns rewrites Corefile (hosts list omits git-ssh;
     # scm/registry may point at nginx until this runs).
     corefile   = module.cluster_dns[0].corefile
-    generation = "4"
+    # Bump when live Corefile loses git-ssh (e.g. after cluster_dns rewrite without override).
+    generation = "5"
   }
 
   provisioner "local-exec" {
