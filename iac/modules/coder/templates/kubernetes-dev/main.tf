@@ -134,7 +134,7 @@ resource "coder_agent" "main" {
     if command -v apt-get >/dev/null 2>&1; then
       sudo apt-get update -y
       sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        git curl ca-certificates openssh-client build-essential jq
+        git curl ca-certificates openssh-client build-essential jq python3
     fi
 
     # Git over SSH: keep git@scm… URLs, connect via git-ssh → gitlab-shell (CoreDNS).
