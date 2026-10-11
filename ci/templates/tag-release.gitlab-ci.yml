@@ -35,7 +35,9 @@ spec:
 ---
 
 tag_release:
-  stage: .pre
+  # Use a normal stage — pipelines whose only jobs are in `.pre`/`.post` are
+  # treated as empty on this GitLab CE ("resulting pipeline would have been empty").
+  stage: validate
   image:
     name: alpine:3.24
     entrypoint: [""]
@@ -137,7 +139,8 @@ tag_release:
 
 # GitLab Release with changelog notes (runs on the tag pipeline).
 gitlab_release:
-  stage: .post
+  # Same as tag_release: avoid `.post`-only pipelines (empty on this GitLab CE).
+  stage: publish
   image:
     name: alpine:3.24
     entrypoint: [""]

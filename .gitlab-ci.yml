@@ -21,8 +21,7 @@ stages:
 include:
   - local: "/ci/templates/opentofu-fmt-check.gitlab-ci.yml"
   - local: "/ci/templates/release-approval.gitlab-ci.yml"
-  # Explicit inputs: local component include without inputs previously failed to
-  # register tag_release/gitlab_release on this project (job history was fmt-only).
+  # Component includes need explicit inputs; without them jobs were dropped.
   - local: "/ci/templates/tag-release.gitlab-ci.yml"
     inputs:
       with_v: "true"
