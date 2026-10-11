@@ -19,10 +19,11 @@ stages:
   - publish
 
 include:
-  # Local include of tag-release never registered jobs on this project (only
-  # opentofu_fmt_* ever ran). Use the same project include consumers use.
   - local: "/ci/templates/opentofu-fmt-check.gitlab-ci.yml"
   - local: "/ci/templates/release-approval.gitlab-ci.yml"
-  - project: "data-platform/infrastructure-base"
-    ref: "v0.2.19"
-    file: "/ci/templates/tag-release.gitlab-ci.yml"
+  # Explicit inputs: local component include without inputs previously failed to
+  # register tag_release/gitlab_release on this project (job history was fmt-only).
+  - local: "/ci/templates/tag-release.gitlab-ci.yml"
+    inputs:
+      with_v: "true"
+      initial_version: "0.0.1"
