@@ -52,7 +52,9 @@ maven_publish:
     name: $[[ inputs.job_image ]]
     entrypoint: [""]
   variables:
-    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+    # Match java-build: legacy attach strategy has dropped url.*.insteadOf for submodule clones
+    # (git fell back to SSH → scm:22 timeout). Non-legacy keeps HTTPS rewrite working.
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
     # Submodules use git@scm / git@github.com URLs; init manually with HTTPS rewrite in before_script.
     GIT_SUBMODULE_STRATEGY: "none"
     SMITHY_VERSION: "1.72.1"
@@ -99,16 +101,41 @@ maven_publish:
       echo "make=$(make --version 2>&1 | head -n1 || true)"
       echo "git=$(git --version 2>&1 || true)"
 
+      # Always install insteadOf before submodule work (same pattern as java-build).
+      # Keep git@scm… in .gitmodules; CI clones over HTTPS with the job token.
+      # scm:22 is Envoy-only — a missed rewrite times out on SSH.
+      echo "=== maven_publish: git HTTPS insteadOf for scm ==="
+      git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "git@${CI_SERVER_HOST}:"
+      git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "git@scm.maze.trading:"
+      git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "https://scm.maze.trading/"
+      git config --global url."https://github.com/".insteadOf "git@github.com:"
+      git config --global --get-regexp '^url\..*\.insteadof$' || true
+
       if [ -f .gitmodules ]; then
         echo "=== maven_publish: git submodules (CI HTTPS for GitLab SSH URLs) ==="
-        # Runners authenticate to scm via job token, not deploy keys.
-        # SSH form (preferred, matches data-platform specs):
-        git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@scm.maze.trading/".insteadOf "git@scm.maze.trading:"
-        # Bare HTTPS form (e.g. cross-group checkouts that used https://scm...):
-        git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@scm.maze.trading/".insteadOf "https://scm.maze.trading/"
-        # Legacy: keep GitHub HTTPS rewrite if any submodule still points there.
-        git config --global url."https://github.com/".insteadOf "git@github.com:"
         git submodule sync --recursive
+        # Force each submodule remote to HTTPS+job-token in .git/config so a missed
+        # insteadOf cannot fall back to SSH.
+        git config --file .gitmodules --get-regexp '^submodule\..*\.url$' | while read -r key url; do
+          name="${key#submodule.}"
+          name="${name%.url}"
+          case "$url" in
+            git@scm.maze.trading:*)
+              path="${url#git@scm.maze.trading:}"
+              path="${path%.git}"
+              https_url="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${path}.git"
+              git config "submodule.${name}.url" "$https_url"
+              echo "submodule ${name} -> https://${CI_SERVER_HOST}/${path}.git"
+              ;;
+            git@"${CI_SERVER_HOST}":*)
+              path="${url#git@${CI_SERVER_HOST}:}"
+              path="${path%.git}"
+              https_url="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${path}.git"
+              git config "submodule.${name}.url" "$https_url"
+              echo "submodule ${name} -> https://${CI_SERVER_HOST}/${path}.git"
+              ;;
+          esac
+        done
         git submodule update --init --recursive
         git submodule status --recursive || true
       fi
