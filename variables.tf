@@ -67,7 +67,7 @@ variable "storage_nodes" {
 }
 
 variable "create_loop_devices" {
-  description = "Create loop device-backed OSD images (kind/local only)"
+  description = "Kind/local only: loop-backed OSD images and Kind host-path helpers (Rook data dirs via docker exec). Leave false on bare metal/production."
   type        = bool
   default     = false
 }

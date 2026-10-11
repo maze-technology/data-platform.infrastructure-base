@@ -9,14 +9,17 @@
 # rather than real disk partitions — preventing accidental data loss on the host.
 
 locals {
-  # All kind nodes that need the Rook data directory
-  # Must match the nodes defined in config/kind-config.yaml
-  kind_nodes = [
+  # Kind node container names (must match config/kind-config.yaml).
+  # Bare metal / production never manages host paths via docker exec.
+  kind_node_names = [
     "local-control-plane",
     "local-worker",
     "local-worker2",
     "local-worker3",
   ]
+
+  # Gate Kind-only host-path helpers on create_loop_devices (local=true, production=false).
+  kind_nodes = var.create_loop_devices ? toset(local.kind_node_names) : toset([])
 
   # Derive (node, device) pairs from storage_nodes for loop device setup.
   # Only populated when create_loop_devices = true.
@@ -28,7 +31,8 @@ locals {
   } : {}
 
   # Derive (node, directory) pairs from storage_nodes for directory OSD setup.
-  osd_directory_pairs = {
+  # Kind-only (same gate as create_rook_data_dir) — bare metal directories are node-local.
+  osd_directory_pairs = var.create_loop_devices ? {
     for pair in flatten([
       for node in var.storage_nodes : [
         for dir in coalesce(node.directories, []) : {
@@ -37,12 +41,12 @@ locals {
         }
       ]
     ]) : "${pair.node_name}:${pair.dir_path}" => pair
-  }
+  } : {}
 }
 
-# Data source to check if data directory exists on each node
+# Data source to check if data directory exists on each Kind node (skipped when create_loop_devices = false)
 data "external" "check_rook_dir" {
-  for_each = toset(local.kind_nodes)
+  for_each = local.kind_nodes
   program = ["sh", "-c", <<-EOT
     NODE="${each.key}"
     DIR="${var.data_dir_host_path}"
@@ -80,9 +84,9 @@ data "external" "check_osd_loop_device" {
   ]
 }
 
-# Create the Rook data directory on each Kind node
+# Create the Rook data directory on each Kind node (skipped when create_loop_devices = false)
 resource "null_resource" "create_rook_data_dir" {
-  for_each = toset(local.kind_nodes)
+  for_each = local.kind_nodes
 
   triggers = {
     data_dir_host_path = var.data_dir_host_path

@@ -289,7 +289,7 @@ variable "allow_loop_devices" {
 }
 
 variable "create_loop_devices" {
-  description = "Create loop device-backed OSD images on kind worker nodes. Writes to files, not real disks — safe for local development. Requires storage_nodes to specify the target loop device paths."
+  description = "Kind/local only. When true: create loop-backed OSD images on kind worker nodes, and manage Rook host data dirs via docker exec into local-* containers. When false (bare metal/production): skip all Kind host-path helpers (check_rook_dir / create_rook_data_dir / setup_osd_directories)."
   type        = bool
   default     = false
 }
