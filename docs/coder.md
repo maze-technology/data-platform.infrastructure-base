@@ -92,6 +92,19 @@ coder config-ssh --no-wildcard
 ssh coder.<workspace-name>
 ```
 
+### Git over SSH (`git@scm.<cluster_domain>`)
+
+Submodules and remotes stay on SSH (`git@scm…`). Inside the cluster / on VPN, CoreDNS maps **`git-ssh.<cluster_domain>` → gitlab-shell** (not the public LB). Clients must rewrite the connect host:
+
+```sshconfig
+Host scm.<cluster_domain>
+  HostName git-ssh.<cluster_domain>
+  Port 22
+  IdentityFile ~/.ssh/<your-key>
+```
+
+The maze-dev workspace startup script installs this `Host`/`HostName` block when missing. Do **not** point `scm:22` or `git-ssh` at the public load balancer.
+
 ### Cursor
 
 Install the **Coder Remote** extension, run **Coder: Login**, then **Coder: Open Workspace**.

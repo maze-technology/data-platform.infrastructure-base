@@ -36,13 +36,14 @@ output "service_urls" {
 }
 
 output "etc_hosts" {
-  description = "Lines to add to /etc/hosts — set cluster_public_ip for ready-to-paste output"
+  description = "Lines to add to /etc/hosts — set cluster_public_ip for ready-to-paste output. Omits vpn (public WireGuard endpoint) and git-ssh (CoreDNS → gitlab-shell only; never the public LB)."
   value = var.cluster_public_ip != "" ? join("\n", [
     for host in values(local.hosts) : "${var.cluster_public_ip}  ${host}"
+    if host != local.hosts.vpn && host != local.hosts.git_ssh
   ]) : <<-EOT
     # Set cluster_public_ip to generate ready-to-paste lines
     # Example (replace VPS_IP):
-    ${join("\n", [for host in values(local.hosts) : "# VPS_IP  ${host}"])}
+    ${join("\n", [for host in values(local.hosts) : "# VPS_IP  ${host}" if host != local.hosts.vpn && host != local.hosts.git_ssh])}
   EOT
 }
 
@@ -170,6 +171,11 @@ output "registry_url" {
 output "gitlab_gateway_cluster_ip" {
   description = "Envoy Gateway ClusterIP for scm/registry DNS"
   value       = module.gitlab.gateway_cluster_ip
+}
+
+output "gitlab_shell_cluster_ip" {
+  description = "gitlab-shell ClusterIP for git-ssh.<domain> (VPN/CoreDNS only; never public)"
+  value       = module.gitlab.shell_cluster_ip
 }
 
 output "keycloak_issuer_url" {
