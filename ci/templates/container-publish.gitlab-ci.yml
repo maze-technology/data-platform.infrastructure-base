@@ -167,6 +167,33 @@ container_publish:
   script:
     - |
       set -euo pipefail
+
+      # Re-login before pushes. Long bootBuildImage/Paketo runs often leave the
+      # initial before_script docker login stale; the follow-up `docker push`
+      # then fails with "unauthorized: authentication required" even though
+      # login succeeded at job start (and pack may have already published).
+      gitlab_registry_login() {
+        echo "Logging into GitLab registry ${CI_REGISTRY}"
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      }
+
+      docker_push_retry() {
+        local ref="$1"
+        local attempt
+        for attempt in 1 2 3; do
+          gitlab_registry_login
+          echo "Pushing ${ref} (attempt ${attempt}/3)"
+          if docker push "${ref}"; then
+            echo "Pushed ${ref}"
+            return 0
+          fi
+          echo "WARN: docker push failed for ${ref} (attempt ${attempt}/3); will re-login and retry" >&2
+          sleep $((attempt * 2))
+        done
+        echo "ERROR: docker push failed for ${ref} after 3 attempts" >&2
+        return 1
+      }
+
       GITLAB_REF="${PUBLISH_IMAGE}:${PUBLISH_TAG}"
       echo "Build target → ${GITLAB_REF}"
 
@@ -185,22 +212,19 @@ container_publish:
 
       docker image inspect "${GITLAB_REF}" >/dev/null
       echo "Pushing runtime SoT → ${GITLAB_REF}"
-      docker push "${GITLAB_REF}"
-      echo "Pushed ${GITLAB_REF}"
+      docker_push_retry "${GITLAB_REF}"
 
       # Version tag parity with former GitHub publish (semver tag pipelines).
       if [ -n "${CI_COMMIT_TAG:-}" ]; then
         VER_REF="${PUBLISH_IMAGE}:${CI_COMMIT_TAG}"
         docker tag "${GITLAB_REF}" "${VER_REF}"
-        docker push "${VER_REF}"
-        echo "Pushed ${VER_REF}"
+        docker_push_retry "${VER_REF}"
       fi
 
       if [ "${PUBLISH_PUSH_LATEST}" = "true" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
         LATEST_REF="${PUBLISH_IMAGE}:latest"
         docker tag "${GITLAB_REF}" "${LATEST_REF}"
-        docker push "${LATEST_REF}"
-        echo "Pushed ${LATEST_REF}"
+        docker_push_retry "${LATEST_REF}"
       fi
 
       # Optional Docker Hub mirror (same local image, second push)
@@ -216,14 +240,28 @@ container_publish:
         test -n "${DOCKERHUB_TOKEN:-}" || { echo "DOCKERHUB_TOKEN required"; exit 1; }
         HUB_REPO="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/${CI_PROJECT_NAME}}"
         HUB_REF="${HUB_REPO}:${PUBLISH_TAG}"
-        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+        hub_push_retry() {
+          local ref="$1"
+          local attempt
+          for attempt in 1 2 3; do
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            echo "Pushing Docker Hub ${ref} (attempt ${attempt}/3)"
+            if docker push "${ref}"; then
+              echo "Pushed ${ref}"
+              return 0
+            fi
+            echo "WARN: Docker Hub push failed for ${ref} (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 2))
+          done
+          echo "ERROR: Docker Hub push failed for ${ref} after 3 attempts" >&2
+          return 1
+        }
         docker tag "${GITLAB_REF}" "${HUB_REF}"
-        docker push "${HUB_REF}"
+        hub_push_retry "${HUB_REF}"
         echo "Pushed Docker Hub mirror → ${HUB_REF}"
         if [ "${PUBLISH_PUSH_LATEST}" = "true" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
           docker tag "${GITLAB_REF}" "${HUB_REPO}:latest"
-          docker push "${HUB_REPO}:latest"
-          echo "Pushed ${HUB_REPO}:latest"
+          hub_push_retry "${HUB_REPO}:latest"
         fi
       else
         echo "Docker Hub push skipped (set DOCKERHUB_USERNAME + DOCKERHUB_TOKEN to enable)"
