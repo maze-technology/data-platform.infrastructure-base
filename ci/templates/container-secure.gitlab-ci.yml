@@ -32,6 +32,8 @@ variables:
 
 trivy:
   stage: secure
+  # Cancelable when a newer commit supersedes this pipeline (see workflow:auto_cancel).
+  interruptible: true
   image:
     name: aquasec/trivy:0.75.0
     entrypoint: [""]
