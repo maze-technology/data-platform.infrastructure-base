@@ -77,6 +77,8 @@ variables:
 
 container_publish:
   stage: build
+  # Cancelable when a newer commit supersedes this pipeline (see workflow:auto_cancel).
+  interruptible: true
   image:
     name: $[[ inputs.job_image ]]
     entrypoint: [""]
