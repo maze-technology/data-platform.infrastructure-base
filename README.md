@@ -103,7 +103,6 @@ See [`outputs.tf`](outputs.tf). Useful ones:
 - `storage_class_name`, `encrypted_storage_class_name`, `rgw_endpoint`
 - `gitlab_url`, `registry_url`, `gitlab_gateway_cluster_ip`, `gitlab_shell_cluster_ip`
 - `keycloak_issuer_url`, `tls_cluster_issuer`
-- `cosign_vault_path`, `kyverno_signed_images_label`
 - `bootstrap_credentials` (sensitive)
 - `backup_schedule` (cron, TTL, bucket) when `backup_enabled`
 
@@ -133,7 +132,7 @@ Coder workspaces: [docs/coder.md](docs/coder.md) (`coder.<domain>`).
 
 Paperclip agent orchestration: [docs/paperclip.md](docs/paperclip.md) (`paperclip.<domain>`, VPN-only; email/password — no Keycloak OIDC yet).
 
-GitLab stays VPN-only via Envoy `SecurityPolicy`. Cosign + Kyverno enforce signed images on namespaces labeled `<cluster_domain>/require-signed-images=true`. Details: [docs/gitlab-container-security.md](docs/gitlab-container-security.md).
+GitLab stays VPN-only via Envoy `SecurityPolicy`. Container images are scanned with Trivy in CI (High+). Details: [docs/gitlab-container-security.md](docs/gitlab-container-security.md).
 
 ## Layout
 

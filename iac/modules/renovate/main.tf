@@ -1,5 +1,5 @@
 # Self-hosted Renovate against maze GitLab (Kubernetes CronJob).
-# Creates renovate-bot + PAT via Rails (same bootstrap style as gitlab-ci-cosign),
+# Creates renovate-bot + PAT via Rails (toolbox / gitlab-rails bootstrap),
 # then runs renovate/renovate on a schedule with autodiscover limited to product groups.
 
 terraform {
