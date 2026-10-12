@@ -1,8 +1,19 @@
 # OpenTofu CI for infrastructure-base (GitLab SoT).
-# Ports useful GitHub workflows:
-#   - opentofu-fmt-check.yaml → opentofu-fmt template
-#   - release-approval.yaml  → release-approval template (manual gate on MRs → main)
-#   - tag-release.yaml       → tag-release template (patch tag on main)
+# Local templates:
+#   - opentofu-fmt-check → fmt on MRs/develop
+#   - release-approval   → manual gate on MRs → main
+#   - tag-release        → patch tag on main
+#   - workflow-auto-cancel → cancel superseded interruptible jobs
+
+include:
+  - local: "/ci/templates/workflow-auto-cancel.gitlab-ci.yml"
+  - local: "/ci/templates/opentofu-fmt-check.gitlab-ci.yml"
+  - local: "/ci/templates/release-approval.gitlab-ci.yml"
+  # Component includes need explicit inputs; without them jobs were dropped.
+  - local: "/ci/templates/tag-release.gitlab-ci.yml"
+    inputs:
+      with_v: "true"
+      initial_version: "0.0.1"
 
 workflow:
   rules:
@@ -17,12 +28,3 @@ workflow:
 stages:
   - validate
   - publish
-
-include:
-  - local: "/ci/templates/opentofu-fmt-check.gitlab-ci.yml"
-  - local: "/ci/templates/release-approval.gitlab-ci.yml"
-  # Component includes need explicit inputs; without them jobs were dropped.
-  - local: "/ci/templates/tag-release.gitlab-ci.yml"
-    inputs:
-      with_v: "true"
-      initial_version: "0.0.1"

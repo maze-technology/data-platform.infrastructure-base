@@ -29,6 +29,7 @@ spec:
 
 opentofu_fmt_check:
   stage: $[[ inputs.job_stage ]]
+  interruptible: true
   image:
     name: alpine:3.24
     entrypoint: [""]
