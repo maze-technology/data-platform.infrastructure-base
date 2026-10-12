@@ -1,0 +1,18 @@
+# Auto-cancel superseded pipelines when a newer commit lands on the same ref.
+#
+# Requires project setting: Settings → CI/CD → General pipelines →
+# "Auto-cancel redundant pipelines" (already enabled on product repos).
+#
+# Pair with interruptible: true on long MR/develop jobs (java_build,
+# container_publish, trivy). Leave tag_release / release_approval /
+# deploy-like jobs at the default interruptible: false.
+#
+# Include early in .gitlab-ci.yml:
+#   include:
+#     - project: "data-platform/infrastructure-base"
+#       ref: "v0.2.26"
+#       file: "/ci/templates/workflow-auto-cancel.gitlab-ci.yml"
+
+workflow:
+  auto_cancel:
+    on_new_commit: interruptible
