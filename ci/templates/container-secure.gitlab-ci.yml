@@ -35,7 +35,7 @@ trivy:
   # Cancelable when a newer commit supersedes this pipeline (see workflow:auto_cancel).
   interruptible: true
   image:
-    name: aquasec/trivy:0.76.0
+    name: aquasec/trivy:0.76.1
     entrypoint: [""]
   variables:
     TRIVY_USERNAME: $CI_REGISTRY_USER
