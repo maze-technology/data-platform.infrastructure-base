@@ -65,8 +65,9 @@ locals {
       fi
 
       echo "restarting kubelet to apply reserved/eviction"
-      # yq image has no nsenter; use the host binary via /host-root.
-      if /host-root/usr/bin/nsenter -t 1 -m -u -i -n -p -- systemctl restart kubelet; then
+      # yq image cannot exec host ELF binaries directly (missing dynamic linker).
+      # chroot into the host rootfs and restart kubelet there.
+      if chroot /host-root /bin/systemctl restart kubelet; then
         echo "$desired" > "$FLAG"
       else
         echo "WARN: kubelet restart failed (will retry next loop)" >&2
