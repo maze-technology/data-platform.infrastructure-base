@@ -42,23 +42,53 @@ variable "enable_control_plane_resources" {
 variable "apiserver_memory_request" {
   description = "kube-apiserver memory request (match limit for Guaranteed QoS)."
   type        = string
-  default     = "1500Mi"
+  default     = "3Gi"
 }
 
 variable "apiserver_memory_limit" {
   description = "kube-apiserver memory limit (match request for Guaranteed QoS)."
   type        = string
-  default     = "1500Mi"
+  default     = "3Gi"
 }
 
 variable "etcd_memory_request" {
   description = "etcd memory request (match limit for Guaranteed QoS)."
   type        = string
-  default     = "1Gi"
+  default     = "2Gi"
 }
 
 variable "etcd_memory_limit" {
   description = "etcd memory limit (match request for Guaranteed QoS)."
+  type        = string
+  default     = "2Gi"
+}
+
+variable "kube_reserved_cpu" {
+  description = "kubelet kubeReserved.cpu on CP nodes."
+  type        = string
+  default     = "500m"
+}
+
+variable "kube_reserved_memory" {
+  description = "kubelet kubeReserved.memory on CP nodes (reduces Node Allocatable)."
+  type        = string
+  default     = "2Gi"
+}
+
+variable "system_reserved_cpu" {
+  description = "kubelet systemReserved.cpu on CP nodes."
+  type        = string
+  default     = "500m"
+}
+
+variable "system_reserved_memory" {
+  description = "kubelet systemReserved.memory on CP nodes (reduces Node Allocatable)."
+  type        = string
+  default     = "2Gi"
+}
+
+variable "eviction_hard_memory_available" {
+  description = "kubelet evictionHard memory.available on CP nodes."
   type        = string
   default     = "1Gi"
 }
@@ -829,15 +859,21 @@ variable "install_gitlab_runner" {
 }
 
 variable "gitlab_runner_replicas" {
-  description = "GitLab Runner replicas"
+  description = "GitLab Runner replicas (keep at 1 on shared CP nodes)."
   type        = number
   default     = 1
 }
 
 variable "gitlab_runner_concurrent" {
-  description = "Max CI jobs the in-cluster runner runs at once"
+  description = "Max CI jobs the in-cluster runner runs at once (1 on shared CP nodes)."
   type        = number
-  default     = 3
+  default     = 1
+}
+
+variable "gitlab_runner_job_memory_overwrite_max" {
+  description = "Max KUBERNETES_MEMORY_* overwrite for CI job pods (must cover CI templates)."
+  type        = string
+  default     = "4Gi"
 }
 
 variable "webservice_min_replicas" {
