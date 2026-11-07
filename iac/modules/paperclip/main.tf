@@ -394,7 +394,7 @@ resource "kubernetes_deployment" "paperclip" {
 
         init_container {
           name    = "install-k8s-plugin"
-          image   = "node:24-bookworm-slim"
+          image   = "node:26-bookworm-slim"
           command = ["/bin/bash", "-c"]
           args = [<<-EOT
             set -euo pipefail

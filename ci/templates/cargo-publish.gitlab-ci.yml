@@ -3,7 +3,7 @@
 # Include from a specs/crate .gitlab-ci.yml:
 #
 #   include:
-#     - project: "data-platform/infrastructure-base"
+#     - project: "iac/infrastructure-base"
 #       ref: "develop"
 #       file: "/ci/templates/cargo-publish.gitlab-ci.yml"
 #       inputs:

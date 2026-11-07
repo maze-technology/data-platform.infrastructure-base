@@ -3,7 +3,7 @@
 # Include from a library/specs .gitlab-ci.yml:
 #
 #   include:
-#     - project: "data-platform/infrastructure-base"
+#     - project: "iac/infrastructure-base"
 #       ref: "main"
 #       file: "/ci/templates/maven-publish.gitlab-ci.yml"
 #       inputs:
