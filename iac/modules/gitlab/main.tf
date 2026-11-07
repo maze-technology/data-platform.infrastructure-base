@@ -9,6 +9,24 @@ resource "kubernetes_namespace" "gitlab" {
   }
 }
 
+# CI job pods run below platform workloads so memory pressure preempts builds
+# before Guaranteed control-plane / GitLab core components.
+resource "kubernetes_priority_class_v1" "ci_low" {
+  metadata {
+    name = "maze-ci-low"
+    labels = {
+      managed-by  = "opentofu"
+      purpose     = "gitlab-ci"
+      environment = var.environment
+    }
+  }
+
+  value          = 1000
+  global_default = false
+  description    = "GitLab Runner job pods — preemptible under memory pressure"
+  # PreemptLowerPriority is the API default; leave unset for provider compatibility.
+}
+
 # Required in the PVC namespace for rook-ceph-block-encrypted (CSI metadata KMS).
 resource "kubernetes_secret" "storage_encryption" {
   count = var.storage_encryption_passphrase != "" ? 1 : 0
@@ -282,18 +300,20 @@ locals {
                 image = "alpine:3.20"
                 privileged = true
                 poll_timeout = 180
+                # Low priority so CI is preempted before control-plane / platform pods.
+                priority_class_name = "${kubernetes_priority_class_v1.ci_low.metadata[0].name}"
                 cpu_request = "100m"
                 memory_request = "512Mi"
                 memory_limit = "2Gi"
-                # Allow CI templates to raise via KUBERNETES_MEMORY_* (SDKMAN+Gradle+dind).
-                memory_request_overwrite_max_allowed = "8Gi"
-                memory_limit_overwrite_max_allowed = "8Gi"
+                # Hard cap: keep job pods from OOM-killing apiserver on shared CP nodes.
+                memory_request_overwrite_max_allowed = "2Gi"
+                memory_limit_overwrite_max_allowed = "2Gi"
                 service_cpu_request = "100m"
                 service_memory_request = "256Mi"
                 service_memory_limit = "2Gi"
-                service_memory_request_overwrite_max_allowed = "8Gi"
-                service_memory_limit_overwrite_max_allowed = "8Gi"
-                helper_memory_limit_overwrite_max_allowed = "1Gi"
+                service_memory_request_overwrite_max_allowed = "2Gi"
+                service_memory_limit_overwrite_max_allowed = "2Gi"
+                helper_memory_limit_overwrite_max_allowed = "512Mi"
                 # Ephemeral CI volumes — skip Velero FS backup (noise / races).
                 [runners.kubernetes.pod_annotations]
                   "velero.io/exclude-from-backup" = "true"

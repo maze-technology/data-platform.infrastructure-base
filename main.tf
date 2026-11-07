@@ -92,6 +92,18 @@ module "cluster" {
   node_count   = 1
 }
 
+# Guaranteed memory for kubeadm static pods (apiserver/etcd) on shared CP nodes.
+module "control_plane_resources" {
+  count  = var.enable_control_plane_resources ? 1 : 0
+  source = "./iac/modules/control-plane-resources"
+
+  enabled                 = true
+  apiserver_memory_request = var.apiserver_memory_request
+  apiserver_memory_limit   = var.apiserver_memory_limit
+  etcd_memory_request      = var.etcd_memory_request
+  etcd_memory_limit        = var.etcd_memory_limit
+}
+
 # ============================================================================
 # FOUNDATION LAYER
 # ============================================================================

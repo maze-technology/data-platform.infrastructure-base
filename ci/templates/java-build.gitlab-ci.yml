@@ -45,8 +45,8 @@ java_build:
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
     GIT_SUBMODULE_STRATEGY: "none"
-    KUBERNETES_MEMORY_REQUEST: "3Gi"
-    KUBERNETES_MEMORY_LIMIT: "8Gi"
+    KUBERNETES_MEMORY_REQUEST: "1Gi"
+    KUBERNETES_MEMORY_LIMIT: "2Gi"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "develop"
