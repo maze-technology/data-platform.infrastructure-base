@@ -2,7 +2,7 @@
 #
 # Include:
 #   include:
-#     - project: "data-platform/infrastructure-base"
+#     - project: "iac/infrastructure-base"
 #       ref: "develop"
 #       file: "/ci/templates/opentofu-fmt-check.gitlab-ci.yml"
 #     # optional inputs:

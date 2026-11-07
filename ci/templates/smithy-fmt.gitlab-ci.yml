@@ -2,7 +2,7 @@
 #
 # Include from specs/commons:
 #   include:
-#     - project: "data-platform/infrastructure-base"
+#     - project: "iac/infrastructure-base"
 #       ref: "develop"
 #       file: "/ci/templates/smithy-fmt.gitlab-ci.yml"
 
