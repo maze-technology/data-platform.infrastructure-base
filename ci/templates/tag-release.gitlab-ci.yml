@@ -6,7 +6,7 @@
 #
 # Include:
 #   include:
-#     - project: "data-platform/infrastructure-base"
+#     - project: "iac/infrastructure-base"
 #       ref: "develop"
 #       file: "/ci/templates/tag-release.gitlab-ci.yml"
 #
@@ -17,7 +17,7 @@
 #   (CI_JOB_TOKEN is tried as fallback for tags but often cannot create tags on CE.)
 #
 # Pipeline trigger after tag create uses CI_JOB_TOKEN (not GITLAB_TAG_TOKEN) so
-# private CI includes (e.g. data-platform/infrastructure-base) resolve via the
+# private CI includes (e.g. iac/infrastructure-base) resolve via the
 # project's job-token allowlist, not a cross-group PAT.
 #
 # Loop-safe: tag_release never runs on tag pipelines. Creating a tag starts a

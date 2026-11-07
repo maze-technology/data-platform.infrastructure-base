@@ -9,7 +9,7 @@
 #
 # Include early in .gitlab-ci.yml:
 #   include:
-#     - project: "data-platform/infrastructure-base"
+#     - project: "iac/infrastructure-base"
 #       ref: "v0.2.26"
 #       file: "/ci/templates/workflow-auto-cancel.gitlab-ci.yml"
 

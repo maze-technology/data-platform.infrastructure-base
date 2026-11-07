@@ -6,12 +6,12 @@
 # Include after (or instead of) a custom build job:
 #
 #   include:
-#     - project: 'data-platform/infrastructure-base'
+#     - project: 'iac/infrastructure-base'
 #       file: '/ci/templates/container-publish.gitlab-ci.yml'
 #       inputs:
 #         dockerfile: Dockerfile
 #         context: .
-#     - project: 'data-platform/infrastructure-base'
+#     - project: 'iac/infrastructure-base'
 #       file: '/ci/templates/container-secure.gitlab-ci.yml'
 #       inputs:
 #         image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
