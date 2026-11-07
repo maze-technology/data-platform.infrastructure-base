@@ -87,6 +87,7 @@ resource "kubernetes_daemon_set_v1" "guard" {
       spec {
         service_account_name = kubernetes_service_account_v1.guard[0].metadata[0].name
         host_network         = true
+        host_pid             = true
         priority_class_name  = "system-node-critical"
 
         node_selector = {
@@ -112,7 +113,10 @@ resource "kubernetes_daemon_set_v1" "guard" {
           command = ["/bin/sh", "-ec", local.guard_script]
 
           security_context {
-            privileged = true
+            privileged                 = true
+            run_as_user                = 0
+            run_as_group               = 0
+            allow_privilege_escalation = true
           }
 
           resources {
@@ -127,16 +131,16 @@ resource "kubernetes_daemon_set_v1" "guard" {
           }
 
           volume_mount {
-            name       = "kubernetes"
-            mount_path = "/host/etc/kubernetes"
+            name       = "host"
+            mount_path = "/host"
             read_only  = false
           }
         }
 
         volume {
-          name = "kubernetes"
+          name = "host"
           host_path {
-            path = "/etc/kubernetes"
+            path = "/"
             type = "Directory"
           }
         }
