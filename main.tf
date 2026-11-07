@@ -249,8 +249,10 @@ module "cloudnativepg" {
 }
 
 # Make *.<cluster_domain> resolvable inside the cluster and for WireGuard clients
-# (peer DNS = CoreDNS). All app hostnames map to ingress-nginx ClusterIP.
-# coredns_gitlab_overrides then remaps scm/registry → Envoy and git-ssh → gitlab-shell.
+# (peer DNS = CoreDNS). Single Corefile owner — no post-hoc null_resource patches.
+# Default: app hostnames → ingress ClusterIP. Overrides:
+#   git-ssh → gitlab-shell (VPN-only SSH; never public LB)
+#   scm/registry → Envoy Gateway when Gateway API is enabled
 module "cluster_dns" {
   count  = var.enable_cluster_dns ? 1 : 0
   source = "./iac/modules/cluster-dns"
@@ -258,13 +260,25 @@ module "cluster_dns" {
   # Never map vpn.<domain> to the ingress ClusterIP — peers resolve the WireGuard
   # endpoint via public DNS; CoreDNS overriding it to 10.x breaks the tunnel once
   # clients switch DNS to CoreDNS (exclusive resolvconf), which kills all internet.
-  # git-ssh.<domain> is patched separately to gitlab-shell ClusterIP (not ingress).
   hosts = [
     for h in values(local.hosts) : h
-    if h != local.hosts.vpn && h != local.hosts.git_ssh
+    if h != local.hosts.vpn && (
+      h != local.hosts.git_ssh || module.gitlab.shell_cluster_ip != ""
+    )
   ]
 
-  depends_on = [module.ingress]
+  host_ips = merge(
+    module.gitlab.shell_cluster_ip != "" ? {
+      (local.hosts.git_ssh) = module.gitlab.shell_cluster_ip
+    } : {},
+    module.gitlab.gateway_cluster_ip != "" ? {
+      (local.hosts.scm)      = module.gitlab.gateway_cluster_ip
+      (local.hosts.registry) = module.gitlab.gateway_cluster_ip
+    } : {},
+  )
+
+  # After GitLab so shell/gateway ClusterIPs are known (gitlab no longer depends_on us).
+  depends_on = [module.ingress, module.gitlab]
 }
 
 data "kubernetes_secret" "maze_ca" {
@@ -477,13 +491,13 @@ module "gitlab" {
   sso_admin_email            = var.bootstrap_admin.email
   custom_ca_pem              = local.maze_ca_pem
 
+  # cluster_dns depends on gitlab (shell/gateway IPs); do not depend_on cluster_dns here.
   depends_on = [
     module.rook_ceph,
     module.ingress,
     module.wireguard,
     module.keycloak,
     module.cert_manager,
-    module.cluster_dns,
     module.cloudnativepg,
   ]
 }
@@ -638,95 +652,6 @@ module "paperclip" {
     module.cloudnativepg,
     aws_s3_bucket.paperclip_storage,
   ]
-}
-
-# GitLab DNS overrides on top of cluster_dns Corefile (single atomic patch).
-#
-# Previously coredns_gitlab_envoy + coredns_gitlab_shell raced: both read/modify/wrote
-# the CoreDNS ConfigMap in parallel, so the last writer dropped the other host lines.
-# Symptom: git-ssh.<domain> fell through to public DNS (LB IP) and :22 timed out, while
-# scm.<domain> still resolved to the Envoy ClusterIP on :443.
-#
-# count must not depend on gateway/shell ClusterIPs (computed; unknown at plan).
-resource "null_resource" "coredns_gitlab_overrides" {
-  count = var.enable_cluster_dns ? 1 : 0
-
-  triggers = {
-    gateway_ip = module.gitlab.gateway_cluster_ip
-    shell_ip   = module.gitlab.shell_cluster_ip
-    scm        = local.hosts.scm
-    registry   = local.hosts.registry
-    git_ssh    = local.hosts.git_ssh
-    # Re-patch whenever cluster_dns rewrites Corefile (hosts list omits git-ssh;
-    # scm/registry may point at nginx until this runs).
-    corefile = module.cluster_dns[0].corefile
-    # Bump when live Corefile loses git-ssh (e.g. after cluster_dns rewrite without override).
-    generation = "6"
-  }
-
-  provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    command     = <<-EOT
-      set -euo pipefail
-      export GW='${module.gitlab.gateway_cluster_ip}'
-      export SHELL_IP='${module.gitlab.shell_cluster_ip}'
-      export SCM='${local.hosts.scm}'
-      export REG='${local.hosts.registry}'
-      export GIT_SSH='${local.hosts.git_ssh}'
-      python3 - <<'PY'
-import re, subprocess, json, os, sys
-
-gw = os.environ.get("GW") or ""
-shell_ip = os.environ.get("SHELL_IP") or ""
-scm, reg, git_ssh = os.environ["SCM"], os.environ["REG"], os.environ["GIT_SSH"]
-
-if not shell_ip or shell_ip == "None":
-    print("coredns_gitlab_overrides: ERROR — empty gitlab-shell ClusterIP", file=sys.stderr)
-    raise SystemExit(1)
-
-cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
-corefile = cm["data"]["Corefile"]
-
-def upsert(corefile: str, host: str, ip: str) -> str:
-    pattern = rf"(?m)^(\s*)[0-9.]+\s+{re.escape(host)}\s*$"
-    line = rf"\g<1>{ip} {host}"
-    if re.search(pattern, corefile):
-        return re.sub(pattern, line, corefile)
-    replaced, n = re.subn(
-        r"(?m)^(\s*)fallthrough\s*$",
-        rf"\g<1>{ip} {host}\n\g<1>fallthrough",
-        corefile,
-        count=1,
-    )
-    if n != 1:
-        raise SystemExit(f"coredns_gitlab_overrides: could not insert hosts line for {host}")
-    return replaced
-
-# VPN-only git SSH → gitlab-shell (never the public LB / Envoy).
-corefile = upsert(corefile, git_ssh, shell_ip)
-print(f"coredns_gitlab_overrides: {git_ssh} -> {shell_ip}")
-
-# Envoy Gateway path: scm + registry → Envoy ClusterIP. Skip when Gateway API is off
-# (nginx ingress already serves those names via cluster_dns).
-if gw and gw != "None":
-    for host in (scm, reg):
-        corefile = upsert(corefile, host, gw)
-    print(f"coredns_gitlab_overrides: {scm}, {reg} -> {gw}")
-else:
-    print("coredns_gitlab_overrides: skip envoy overrides (no gateway ClusterIP)")
-
-cm["data"]["Corefile"] = corefile
-meta = cm.setdefault("metadata", {})
-for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "generation"):
-    meta.pop(k, None)
-subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm), text=True, check=True)
-subprocess.run(["kubectl", "-n", "kube-system", "rollout", "restart", "deploy/coredns"], check=True)
-subprocess.run(["kubectl", "-n", "kube-system", "rollout", "status", "deploy/coredns", "--timeout=120s"], check=True)
-PY
-    EOT
-  }
-
-  depends_on = [module.cluster_dns, module.gitlab]
 }
 
 module "renovate" {
