@@ -4,6 +4,6 @@ output "ingress_ip" {
 }
 
 output "corefile" {
-  description = "Rendered CoreDNS Corefile (for dependent patches that must re-run after DNS rewrite)"
+  description = "Rendered CoreDNS Corefile"
   value       = local.corefile
 }
