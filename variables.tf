@@ -33,6 +33,36 @@ variable "enable_kind_cluster" {
   default     = false
 }
 
+variable "enable_control_plane_resources" {
+  description = "DaemonSet that pins Guaranteed memory on kube-apiserver/etcd static pods (shared CP nodes)."
+  type        = bool
+  default     = true
+}
+
+variable "apiserver_memory_request" {
+  description = "kube-apiserver memory request (match limit for Guaranteed QoS)."
+  type        = string
+  default     = "1500Mi"
+}
+
+variable "apiserver_memory_limit" {
+  description = "kube-apiserver memory limit (match request for Guaranteed QoS)."
+  type        = string
+  default     = "1500Mi"
+}
+
+variable "etcd_memory_request" {
+  description = "etcd memory request (match limit for Guaranteed QoS)."
+  type        = string
+  default     = "1Gi"
+}
+
+variable "etcd_memory_limit" {
+  description = "etcd memory limit (match request for Guaranteed QoS)."
+  type        = string
+  default     = "1Gi"
+}
+
 variable "enable_cluster_dns" {
   description = "Patch CoreDNS so *.cluster_domain resolves inside the cluster (needed for kind/local OIDC)."
   type        = bool
@@ -538,15 +568,15 @@ variable "loki_deployment_mode" {
 }
 
 variable "loki_chunks_cache_memory_mb" {
-  description = "Loki chunks cache memory (MB)"
+  description = "Loki chunks cache memory (MB). Keep small on shared control-plane nodes."
   type        = number
-  default     = 8192
+  default     = 2048
 }
 
 variable "loki_results_cache_memory_mb" {
   description = "Loki results cache memory (MB)"
   type        = number
-  default     = 1024
+  default     = 512
 }
 
 variable "enable_promtail" {
