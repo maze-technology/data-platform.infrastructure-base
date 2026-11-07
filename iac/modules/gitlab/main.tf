@@ -304,15 +304,16 @@ locals {
                 priority_class_name = "${kubernetes_priority_class_v1.ci_low.metadata[0].name}"
                 cpu_request = "100m"
                 memory_request = "512Mi"
-                memory_limit = "2Gi"
-                # Hard cap: keep job pods from OOM-killing apiserver on shared CP nodes.
-                memory_request_overwrite_max_allowed = "2Gi"
-                memory_limit_overwrite_max_allowed = "2Gi"
+                memory_limit = "${var.gitlab_runner_job_memory_overwrite_max}"
+                # Cap job overwrites; keep in sync with CI templates (container_publish uses 4Gi).
+                # Pair with low runner replicas/concurrent on shared CP nodes.
+                memory_request_overwrite_max_allowed = "${var.gitlab_runner_job_memory_overwrite_max}"
+                memory_limit_overwrite_max_allowed = "${var.gitlab_runner_job_memory_overwrite_max}"
                 service_cpu_request = "100m"
                 service_memory_request = "256Mi"
-                service_memory_limit = "2Gi"
-                service_memory_request_overwrite_max_allowed = "2Gi"
-                service_memory_limit_overwrite_max_allowed = "2Gi"
+                service_memory_limit = "${var.gitlab_runner_job_memory_overwrite_max}"
+                service_memory_request_overwrite_max_allowed = "${var.gitlab_runner_job_memory_overwrite_max}"
+                service_memory_limit_overwrite_max_allowed = "${var.gitlab_runner_job_memory_overwrite_max}"
                 helper_memory_limit_overwrite_max_allowed = "512Mi"
                 # Ephemeral CI volumes — skip Velero FS backup (noise / races).
                 [runners.kubernetes.pod_annotations]

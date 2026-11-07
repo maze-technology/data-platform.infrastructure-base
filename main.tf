@@ -92,16 +92,22 @@ module "cluster" {
   node_count   = 1
 }
 
-# Guaranteed memory for kubeadm static pods (apiserver/etcd) on shared CP nodes.
+# Guaranteed memory for kubeadm static pods (apiserver/etcd) + kubelet reserved
+# on shared CP nodes so CI cannot schedule into OS/kubelet RAM.
 module "control_plane_resources" {
   count  = var.enable_control_plane_resources ? 1 : 0
   source = "./iac/modules/control-plane-resources"
 
-  enabled                  = true
-  apiserver_memory_request = var.apiserver_memory_request
-  apiserver_memory_limit   = var.apiserver_memory_limit
-  etcd_memory_request      = var.etcd_memory_request
-  etcd_memory_limit        = var.etcd_memory_limit
+  enabled                        = true
+  apiserver_memory_request       = var.apiserver_memory_request
+  apiserver_memory_limit         = var.apiserver_memory_limit
+  etcd_memory_request            = var.etcd_memory_request
+  etcd_memory_limit              = var.etcd_memory_limit
+  kube_reserved_cpu              = var.kube_reserved_cpu
+  kube_reserved_memory           = var.kube_reserved_memory
+  system_reserved_cpu            = var.system_reserved_cpu
+  system_reserved_memory         = var.system_reserved_memory
+  eviction_hard_memory_available = var.eviction_hard_memory_available
 }
 
 # ============================================================================
@@ -466,9 +472,10 @@ module "gitlab" {
   valkey_storage_size           = var.valkey_storage_size
   cnpg_operator_ready           = module.cloudnativepg.helm_release_id
 
-  install_gitlab_runner    = var.install_gitlab_runner
-  gitlab_runner_replicas   = var.gitlab_runner_replicas
-  gitlab_runner_concurrent = var.gitlab_runner_concurrent
+  install_gitlab_runner                  = var.install_gitlab_runner
+  gitlab_runner_replicas                 = var.gitlab_runner_replicas
+  gitlab_runner_concurrent               = var.gitlab_runner_concurrent
+  gitlab_runner_job_memory_overwrite_max = var.gitlab_runner_job_memory_overwrite_max
 
   webservice_min_replicas     = var.webservice_min_replicas
   webservice_max_replicas     = var.webservice_max_replicas
