@@ -339,28 +339,26 @@ locals {
           resources = {
             requests = {
               cpu    = "500m"
-              memory = "2Gi"
+              memory = "4Gi"
             }
             limits = {
               cpu    = "2"
-              memory = "4Gi"
+              memory = "8Gi"
             }
           }
         }
-        # Sidekiq schedules CI / post-receive / renovate work. 1Gi OOMs under a
-        # backlog (jobs stay pending forever even for tiny fmt checks — that is
-        # not the runner job limit; KUBERNETES_MEMORY_* covers build pods).
+        # Sidekiq schedules CI / post-receive / renovate work. Sized ~2x WSS.
         sidekiq = {
           minReplicas = 1
           maxReplicas = 1
           resources = {
             requests = {
               cpu    = "100m"
-              memory = "1Gi"
+              memory = "2Gi"
             }
             limits = {
               cpu    = "500m"
-              memory = "2Gi"
+              memory = "4Gi"
             }
           }
         }

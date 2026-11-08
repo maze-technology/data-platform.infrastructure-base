@@ -137,7 +137,7 @@ variable "resource_requests" {
     }
     mon = {
       cpu    = "500m"
-      memory = "2Gi"
+      memory = "1Gi"
     }
     mgr = {
       cpu    = "500m"
@@ -145,11 +145,11 @@ variable "resource_requests" {
     }
     osd = {
       cpu    = "1"
-      memory = "2Gi"
+      memory = "3Gi"
     }
     rgw = {
       cpu    = "500m"
-      memory = "512Mi"
+      memory = "1Gi"
     }
   }
 }
@@ -185,7 +185,7 @@ variable "resource_limits" {
     }
     mon = {
       cpu    = "1000m"
-      memory = "4Gi"
+      memory = "2Gi"
     }
     mgr = {
       cpu    = "1000m"
@@ -193,11 +193,11 @@ variable "resource_limits" {
     }
     osd = {
       cpu    = "2"
-      memory = "4Gi"
+      memory = "6Gi"
     }
     rgw = {
       cpu    = "1000m"
-      memory = "1Gi"
+      memory = "2Gi"
     }
   }
 }

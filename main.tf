@@ -44,18 +44,18 @@ locals {
 
   rook_resource_requests = var.rook_resource_requests != null ? var.rook_resource_requests : {
     operator = { cpu = "100m", memory = "128Mi" }
-    mon      = { cpu = "500m", memory = "2Gi" }
+    mon      = { cpu = "500m", memory = "1Gi" }
     mgr      = { cpu = "500m", memory = "1Gi" }
-    osd      = { cpu = "1", memory = "2Gi" }
-    rgw      = { cpu = "500m", memory = "512Mi" }
+    osd      = { cpu = "1", memory = "3Gi" }
+    rgw      = { cpu = "500m", memory = "1Gi" }
   }
 
   rook_resource_limits = var.rook_resource_limits != null ? var.rook_resource_limits : {
     operator = { cpu = "500m", memory = "512Mi" }
-    mon      = { cpu = "1000m", memory = "4Gi" }
+    mon      = { cpu = "1000m", memory = "2Gi" }
     mgr      = { cpu = "1000m", memory = "2Gi" }
-    osd      = { cpu = "2", memory = "4Gi" }
-    rgw      = { cpu = "1000m", memory = "1Gi" }
+    osd      = { cpu = "2", memory = "6Gi" }
+    rgw      = { cpu = "1000m", memory = "2Gi" }
   }
 
   rook_storage_class           = module.rook_ceph.storage_class_name
