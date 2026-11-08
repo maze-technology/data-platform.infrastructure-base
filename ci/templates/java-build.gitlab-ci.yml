@@ -45,9 +45,17 @@ java_build:
   variables:
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
     GIT_SUBMODULE_STRATEGY: "none"
+    # Persist wrapper dists + dependency caches across jobs (per project).
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
     # Must stay ≤ runner memory_*_overwrite_max_allowed (4Gi).
     KUBERNETES_MEMORY_REQUEST: "3Gi"
     KUBERNETES_MEMORY_LIMIT: "4Gi"
+  cache:
+    key: gradle-user-home
+    paths:
+      - .gradle/wrapper/
+      - .gradle/caches/
+    policy: pull-push
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "develop"
@@ -55,6 +63,8 @@ java_build:
     - |
       set -euo pipefail
       export DEBIAN_FRONTEND=noninteractive
+      export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$CI_PROJECT_DIR/.gradle}"
+      mkdir -p "${GRADLE_USER_HOME}"
       apt-get update -qq
       apt-get install -y -qq curl unzip zip ca-certificates python3 make git >/dev/null
       git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/".insteadOf "git@${CI_SERVER_HOST}:"
@@ -121,6 +131,7 @@ java_build:
   script:
     - |
       set -euo pipefail
+      export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$CI_PROJECT_DIR/.gradle}"
       export PATH="${HOME}/.local/bin:${HOME}/.local/share/coursier/bin:${PATH}"
       echo "=== java_build: $[[ inputs.build_script ]] ==="
       eval "$[[ inputs.build_script ]]"
