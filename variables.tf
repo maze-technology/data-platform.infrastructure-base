@@ -33,6 +33,66 @@ variable "enable_kind_cluster" {
   default     = false
 }
 
+variable "enable_control_plane_resources" {
+  description = "DaemonSet that pins Guaranteed memory on kube-apiserver/etcd static pods (shared CP nodes)."
+  type        = bool
+  default     = true
+}
+
+variable "apiserver_memory_request" {
+  description = "kube-apiserver memory request (match limit for Guaranteed QoS)."
+  type        = string
+  default     = "3Gi"
+}
+
+variable "apiserver_memory_limit" {
+  description = "kube-apiserver memory limit (match request for Guaranteed QoS)."
+  type        = string
+  default     = "3Gi"
+}
+
+variable "etcd_memory_request" {
+  description = "etcd memory request (match limit for Guaranteed QoS)."
+  type        = string
+  default     = "2Gi"
+}
+
+variable "etcd_memory_limit" {
+  description = "etcd memory limit (match request for Guaranteed QoS)."
+  type        = string
+  default     = "2Gi"
+}
+
+variable "kube_reserved_cpu" {
+  description = "kubelet kubeReserved.cpu on CP nodes."
+  type        = string
+  default     = "500m"
+}
+
+variable "kube_reserved_memory" {
+  description = "kubelet kubeReserved.memory on CP nodes (reduces Node Allocatable)."
+  type        = string
+  default     = "2Gi"
+}
+
+variable "system_reserved_cpu" {
+  description = "kubelet systemReserved.cpu on CP nodes."
+  type        = string
+  default     = "500m"
+}
+
+variable "system_reserved_memory" {
+  description = "kubelet systemReserved.memory on CP nodes (reduces Node Allocatable)."
+  type        = string
+  default     = "2Gi"
+}
+
+variable "eviction_hard_memory_available" {
+  description = "kubelet evictionHard memory.available on CP nodes."
+  type        = string
+  default     = "1Gi"
+}
+
 variable "enable_cluster_dns" {
   description = "Patch CoreDNS so *.cluster_domain resolves inside the cluster (needed for kind/local OIDC)."
   type        = bool
@@ -538,15 +598,15 @@ variable "loki_deployment_mode" {
 }
 
 variable "loki_chunks_cache_memory_mb" {
-  description = "Loki chunks cache memory (MB)"
+  description = "Loki chunks cache memory (MB). Keep small on shared control-plane nodes."
   type        = number
-  default     = 8192
+  default     = 2048
 }
 
 variable "loki_results_cache_memory_mb" {
   description = "Loki results cache memory (MB)"
   type        = number
-  default     = 1024
+  default     = 512
 }
 
 variable "enable_promtail" {
@@ -799,15 +859,21 @@ variable "install_gitlab_runner" {
 }
 
 variable "gitlab_runner_replicas" {
-  description = "GitLab Runner replicas"
+  description = "GitLab Runner replicas (keep at 1 on shared CP nodes)."
   type        = number
   default     = 1
 }
 
 variable "gitlab_runner_concurrent" {
-  description = "Max CI jobs the in-cluster runner runs at once"
+  description = "Max CI jobs the in-cluster runner runs at once (1 on shared CP nodes)."
   type        = number
-  default     = 3
+  default     = 1
+}
+
+variable "gitlab_runner_job_memory_overwrite_max" {
+  description = "Max KUBERNETES_MEMORY_* overwrite for CI job pods (must cover CI templates)."
+  type        = string
+  default     = "4Gi"
 }
 
 variable "webservice_min_replicas" {

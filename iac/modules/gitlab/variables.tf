@@ -292,6 +292,12 @@ variable "gitlab_runner_replicas" {
 variable "gitlab_runner_concurrent" {
   description = "Max CI jobs the in-cluster runner runs at once (protects cluster CPU/RAM)"
   type        = number
-  default     = 3
+  default     = 1
+}
+
+variable "gitlab_runner_job_memory_overwrite_max" {
+  description = "Max KUBERNETES_MEMORY_* overwrite for CI job pods (must cover template requests)."
+  type        = string
+  default     = "4Gi"
 }
 

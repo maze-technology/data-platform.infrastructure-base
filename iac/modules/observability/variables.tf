@@ -81,15 +81,15 @@ variable "loki_deployment_mode" {
 }
 
 variable "loki_chunks_cache_memory_mb" {
-  description = "Memcached allocatedMemory (MB) for Loki chunks-cache. Chart default is 8192."
+  description = "Memcached allocatedMemory (MB) for Loki chunks-cache. Keep ≤2048 on shared CP nodes."
   type        = number
-  default     = 8192
+  default     = 2048
 }
 
 variable "loki_results_cache_memory_mb" {
-  description = "Memcached allocatedMemory (MB) for Loki results-cache. Chart default is 1024."
+  description = "Memcached allocatedMemory (MB) for Loki results-cache."
   type        = number
-  default     = 1024
+  default     = 512
 }
 
 variable "loki_object_storage" {
@@ -167,7 +167,7 @@ variable "resource_requests" {
     }
     grafana = {
       cpu    = "100m"
-      memory = "128Mi"
+      memory = "512Mi"
     }
     loki = {
       cpu    = "200m"
@@ -215,7 +215,7 @@ variable "resource_limits" {
     }
     grafana = {
       cpu    = "500m"
-      memory = "512Mi"
+      memory = "1Gi"
     }
     loki = {
       cpu    = "1000m"

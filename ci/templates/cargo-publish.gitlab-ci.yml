@@ -52,8 +52,9 @@ cargo_publish:
     GIT_SUBMODULE_STRATEGY: "recursive"
     GIT_SUBMODULE_FORCE_HTTPS: "true"
     CARGO_TERM_COLOR: always
+    # Must stay ≤ runner memory_*_overwrite_max_allowed (4Gi).
     KUBERNETES_MEMORY_REQUEST: "2Gi"
-    KUBERNETES_MEMORY_LIMIT: "6Gi"
+    KUBERNETES_MEMORY_LIMIT: "4Gi"
     KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
     KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
   rules:

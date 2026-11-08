@@ -141,7 +141,7 @@ variable "resource_requests" {
     }
     mgr = {
       cpu    = "500m"
-      memory = "512Mi"
+      memory = "1Gi"
     }
     osd = {
       cpu    = "1"
@@ -189,7 +189,7 @@ variable "resource_limits" {
     }
     mgr = {
       cpu    = "1000m"
-      memory = "1Gi"
+      memory = "2Gi"
     }
     osd = {
       cpu    = "2"

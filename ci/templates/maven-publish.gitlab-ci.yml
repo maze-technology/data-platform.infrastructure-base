@@ -60,11 +60,18 @@ maven_publish:
     SMITHY_VERSION: "1.72.1"
     SMITHYTRANSLATE_VERSION: "0.7.6"
     BUF_VERSION: "1.55.1"
-    # Runner chart default is 1536Mi — too small for Gradle/SDKMAN/smithy tooling.
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+    # Must stay ≤ runner memory_*_overwrite_max_allowed (4Gi).
     KUBERNETES_MEMORY_REQUEST: "3Gi"
-    KUBERNETES_MEMORY_LIMIT: "8Gi"
+    KUBERNETES_MEMORY_LIMIT: "4Gi"
     KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
     KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
+  cache:
+    key: gradle-user-home
+    paths:
+      - .gradle/wrapper/
+      - .gradle/caches/
+    policy: pull-push
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == "main"
@@ -73,6 +80,8 @@ maven_publish:
     - |
       set -eu
       echo "=== maven_publish: env setup ==="
+      export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$CI_PROJECT_DIR/.gradle}"
+      mkdir -p "${GRADLE_USER_HOME}"
       # Publish PUT must target the project registry (group URL returns 415).
       export GITLAB_MAVEN_URL="${GITLAB_MAVEN_PUBLISH_URL:-${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/maven}"
       # Keep group Deploy Token (GITLAB_MAVEN_USER/PASSWORD) for smithy-build.json dependency
