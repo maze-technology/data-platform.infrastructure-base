@@ -88,6 +88,11 @@ resource "helm_release" "prometheus_operator" {
     yamlencode({
       prometheus = {
         prometheusSpec = {
+          # Scrape node-exporter/kubelet via the host network namespace so
+          # same-node targets use the host stack (pod→own-InternalIP hairpin
+          # fails under Cilium on every node; remote node IPs still work).
+          hostNetwork = true
+          dnsPolicy   = "ClusterFirstWithHostNet"
           storageSpec = {
             volumeClaimTemplate = {
               spec = {
@@ -369,6 +374,10 @@ resource "helm_release" "loki" {
         }
         singleBinary = {
           replicas = 1
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
         }
         # Disable scalable mode components
         backend = {
@@ -484,6 +493,10 @@ resource "helm_release" "loki" {
         # Enable scalable mode components (can be configured per environment)
         backend = {
           replicas = 1
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
           persistence = {
             volumeClaimsEnabled = true
             size                = var.loki_storage_size
@@ -493,10 +506,18 @@ resource "helm_release" "loki" {
         }
         read = {
           replicas = 2
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
           extraEnv = local.loki_s3_extra_env
         }
         write = {
           replicas = 2
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
           persistence = {
             volumeClaimsEnabled = true
             size                = var.loki_storage_size
@@ -729,6 +750,40 @@ resource "helm_release" "opentelemetry_collector" {
     kubernetes_namespace.monitoring,
     helm_release.tempo,
     helm_release.loki
+  ]
+}
+
+# metrics-server — powers kubectl top / HPA. hostNetwork avoids the same
+# Cilium pod→own-InternalIP hairpin that broke kubelet scrapes from pods.
+resource "helm_release" "metrics_server" {
+  name       = "metrics-server"
+  repository = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart      = "metrics-server"
+  version    = var.helm_chart_version_metrics_server
+  namespace  = "kube-system"
+  timeout    = 300
+
+  values = [
+    yamlencode({
+      # Same Cilium same-node hairpin as Prometheus: reach kubelets via the host stack.
+      hostNetwork = {
+        enabled = true
+      }
+      # defaultArgs already prefer InternalIP + node-status-port; add insecure TLS for kubeadm self-signed kubelets.
+      args = [
+        "--kubelet-insecure-tls",
+      ]
+      resources = {
+        requests = {
+          cpu    = "50m"
+          memory = "64Mi"
+        }
+        limits = {
+          cpu    = "200m"
+          memory = "256Mi"
+        }
+      }
+    })
   ]
 }
 
