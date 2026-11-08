@@ -77,6 +77,11 @@ output "rgw_endpoint" {
   value       = module.rook_ceph.rgw_endpoint
 }
 
+output "rgw_ingress_endpoint" {
+  description = "VPN/CoreDNS S3 endpoint (https://s3.<domain> via ingress)"
+  value       = module.rgw_ingress.endpoint
+}
+
 output "loki_bucket_name" {
   description = "S3 bucket used by Loki"
   value       = local.loki_bucket_name
