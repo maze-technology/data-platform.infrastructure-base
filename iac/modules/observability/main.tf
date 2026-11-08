@@ -782,9 +782,11 @@ resource "helm_release" "metrics_server" {
   values = [
     yamlencode({
       # Same Cilium same-node hairpin as Prometheus: reach kubelets via the host stack.
+      # containerPort must not be 10250 — that is kubelet's port on the host.
       hostNetwork = {
         enabled = true
       }
+      containerPort = 4443
       # defaultArgs already prefer InternalIP + node-status-port; add insecure TLS for kubeadm self-signed kubelets.
       args = [
         "--kubelet-insecure-tls",
