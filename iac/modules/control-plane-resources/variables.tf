@@ -28,6 +28,36 @@ variable "etcd_memory_limit" {
   default     = "2Gi"
 }
 
+variable "etcd_cpu_request" {
+  description = "etcd CPU request enforced on static pod manifests by the CP resource guard."
+  type        = string
+  default     = "100m"
+}
+
+variable "etcd_heartbeat_interval_ms" {
+  description = "etcd --heartbeat-interval (ms). Above the 100ms default so HDD fsync stalls do not miss heartbeats."
+  type        = number
+  default     = 500
+}
+
+variable "etcd_election_timeout_ms" {
+  description = "etcd --election-timeout (ms). ~10x heartbeat; tolerates multi-second fsync stalls without leader churn."
+  type        = number
+  default     = 5000
+}
+
+variable "etcd_io_weight" {
+  description = "io.bfq.weight (1-1000) for the etcd pod cgroup; other pods stay at the default 100."
+  type        = number
+  default     = 1000
+}
+
+variable "root_disk_io_scheduler" {
+  description = "I/O scheduler for the root disk holding /var/lib/etcd (bfq is required for etcd_io_weight to apply)."
+  type        = string
+  default     = "bfq"
+}
+
 variable "kube_reserved_cpu" {
   description = "kubelet kubeReserved.cpu (kubernetes system daemons)."
   type        = string
@@ -59,7 +89,7 @@ variable "eviction_hard_memory_available" {
 }
 
 variable "reconcile_seconds" {
-  description = "How often the guard re-checks manifests and kubelet config."
+  description = "How often the guard re-checks manifests, kubelet config and etcd I/O weight (lost when the etcd pod is recreated)."
   type        = number
-  default     = 300
+  default     = 60
 }

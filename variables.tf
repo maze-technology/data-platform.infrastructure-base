@@ -63,6 +63,36 @@ variable "etcd_memory_limit" {
   default     = "2Gi"
 }
 
+variable "etcd_cpu_request" {
+  description = "etcd CPU request on shared CP nodes (guard enforces this on static pod manifests)."
+  type        = string
+  default     = "100m"
+}
+
+variable "etcd_heartbeat_interval_ms" {
+  description = "etcd --heartbeat-interval (ms) on HDD-backed CP nodes."
+  type        = number
+  default     = 500
+}
+
+variable "etcd_election_timeout_ms" {
+  description = "etcd --election-timeout (ms) on HDD-backed CP nodes (~10x heartbeat)."
+  type        = number
+  default     = 5000
+}
+
+variable "etcd_io_weight" {
+  description = "io.bfq.weight (1-1000) for the etcd pod cgroup vs CI/other pods (default 100)."
+  type        = number
+  default     = 1000
+}
+
+variable "root_disk_io_scheduler" {
+  description = "I/O scheduler for the CP root disk holding /var/lib/etcd (bfq needed for etcd_io_weight)."
+  type        = string
+  default     = "bfq"
+}
+
 variable "kube_reserved_cpu" {
   description = "kubelet kubeReserved.cpu on CP nodes."
   type        = string
