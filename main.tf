@@ -293,11 +293,11 @@ module "cluster_dns" {
     for h in values(local.hosts) : h
     if h != local.hosts.vpn && (
       h != local.hosts.git_ssh || module.gitlab.shell_cluster_ip != ""
-    ) && (
+      ) && (
       h != local.hosts.paperclip || var.enable_paperclip
-    ) && (
+      ) && (
       h != local.hosts.coder || var.enable_coder
-    ) && (
+      ) && (
       h != local.hosts.crates || var.enable_kellnr
     )
   ]

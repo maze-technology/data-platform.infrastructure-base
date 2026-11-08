@@ -170,16 +170,16 @@ variable "resource_requests" {
       memory = "512Mi"
     }
     loki = {
-      cpu    = "200m"
-      memory = "512Mi"
+      cpu    = "500m"
+      memory = "2Gi"
     }
     opentelemetry_collector = {
-      cpu    = "200m"
-      memory = "512Mi"
+      cpu    = "100m"
+      memory = "256Mi"
     }
     tempo = {
-      cpu    = "500m"
-      memory = "1Gi"
+      cpu    = "100m"
+      memory = "256Mi"
     }
   }
 }
@@ -218,18 +218,24 @@ variable "resource_limits" {
       memory = "1Gi"
     }
     loki = {
-      cpu    = "1000m"
-      memory = "2Gi"
-    }
-    opentelemetry_collector = {
-      cpu    = "1000m"
-      memory = "2Gi"
-    }
-    tempo = {
       cpu    = "2000m"
       memory = "4Gi"
     }
+    opentelemetry_collector = {
+      cpu    = "500m"
+      memory = "512Mi"
+    }
+    tempo = {
+      cpu    = "500m"
+      memory = "1Gi"
+    }
   }
+}
+
+variable "helm_chart_version_metrics_server" {
+  description = "Helm chart version for metrics-server (kubernetes-sigs)"
+  type        = string
+  default     = "3.12.2"
 }
 
 variable "helm_chart_version_prometheus_operator" {
