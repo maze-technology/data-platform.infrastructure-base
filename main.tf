@@ -287,10 +287,18 @@ module "cluster_dns" {
   # Never map vpn.<domain> to the ingress ClusterIP — peers resolve the WireGuard
   # endpoint via public DNS; CoreDNS overriding it to 10.x breaks the tunnel once
   # clients switch DNS to CoreDNS (exclusive resolvconf), which kills all internet.
+  # Omit VPN endpoint (public DNS) and feature hosts when the app is disabled,
+  # otherwise CoreDNS still steers them to ingress → nginx 404 (e.g. paperclip).
   hosts = [
     for h in values(local.hosts) : h
     if h != local.hosts.vpn && (
       h != local.hosts.git_ssh || module.gitlab.shell_cluster_ip != ""
+    ) && (
+      h != local.hosts.paperclip || var.enable_paperclip
+    ) && (
+      h != local.hosts.coder || var.enable_coder
+    ) && (
+      h != local.hosts.crates || var.enable_kellnr
     )
   ]
 
