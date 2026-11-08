@@ -98,6 +98,8 @@ container_publish:
     # Attach strategy (default) — legacy exec was ending jobs mid-docker-build
     # with a false "success" before push.
     FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "false"
+    # Persist Gradle wrapper/deps when build_script uses ./gradlew (bootBuildImage).
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
     # Must stay ≤ runner memory_*_overwrite_max_allowed (4Gi) in gitlab module.
     KUBERNETES_MEMORY_REQUEST: "4Gi"
     KUBERNETES_MEMORY_LIMIT: "4Gi"
@@ -105,10 +107,18 @@ container_publish:
     KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
     KUBERNETES_SERVICE_MEMORY_REQUEST: "1Gi"
     KUBERNETES_SERVICE_MEMORY_LIMIT: "2Gi"
+  cache:
+    key: gradle-user-home
+    paths:
+      - .gradle/wrapper/
+      - .gradle/caches/
+    policy: pull-push
   before_script:
     - |
       set -euo pipefail
       export DEBIAN_FRONTEND=noninteractive
+      export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$CI_PROJECT_DIR/.gradle}"
+      mkdir -p "${GRADLE_USER_HOME}"
       if ! command -v docker >/dev/null 2>&1; then
         echo "Fetching Docker CLI static binary"
         curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz" \
@@ -169,6 +179,7 @@ container_publish:
   script:
     - |
       set -euo pipefail
+      export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$CI_PROJECT_DIR/.gradle}"
 
       # Re-login before pushes. Long bootBuildImage/Paketo runs often leave the
       # initial before_script docker login stale; the follow-up `docker push`
