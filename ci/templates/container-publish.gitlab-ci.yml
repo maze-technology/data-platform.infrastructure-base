@@ -101,7 +101,8 @@ container_publish:
     # Persist Gradle wrapper/deps when build_script uses ./gradlew (bootBuildImage).
     GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
     # Must stay ≤ runner memory_*_overwrite_max_allowed (4Gi) in gitlab module.
-    KUBERNETES_MEMORY_REQUEST: "4Gi"
+    # Build WSS historically ~1–1.3Gi; request 2Gi with headroom, limit 4Gi.
+    KUBERNETES_MEMORY_REQUEST: "2Gi"
     KUBERNETES_MEMORY_LIMIT: "4Gi"
     KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
     KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"

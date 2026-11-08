@@ -48,7 +48,8 @@ java_build:
     # Persist wrapper dists + dependency caches across jobs (per project).
     GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
     # Must stay ≤ runner memory_*_overwrite_max_allowed (4Gi).
-    KUBERNETES_MEMORY_REQUEST: "3Gi"
+    # Observed Gradle WSS ~1–1.3Gi; request 2Gi, limit 4Gi for spikes.
+    KUBERNETES_MEMORY_REQUEST: "2Gi"
     KUBERNETES_MEMORY_LIMIT: "4Gi"
   cache:
     key: gradle-user-home
