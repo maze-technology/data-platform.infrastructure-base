@@ -167,15 +167,15 @@ variable "resource_requests" {
     }
     grafana = {
       cpu    = "100m"
-      memory = "512Mi"
+      memory = "1Gi"
     }
     loki = {
-      cpu    = "500m"
-      memory = "2Gi"
+      cpu    = "200m"
+      memory = "512Mi"
     }
     opentelemetry_collector = {
       cpu    = "100m"
-      memory = "256Mi"
+      memory = "1Gi"
     }
     tempo = {
       cpu    = "100m"
@@ -215,15 +215,15 @@ variable "resource_limits" {
     }
     grafana = {
       cpu    = "500m"
-      memory = "1Gi"
+      memory = "2Gi"
     }
     loki = {
-      cpu    = "2000m"
-      memory = "4Gi"
+      cpu    = "1000m"
+      memory = "1Gi"
     }
     opentelemetry_collector = {
       cpu    = "500m"
-      memory = "512Mi"
+      memory = "2Gi"
     }
     tempo = {
       cpu    = "500m"
