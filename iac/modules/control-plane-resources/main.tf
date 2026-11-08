@@ -1,16 +1,24 @@
-# On shared CP nodes: (1) Guaranteed memory for kubeadm static pods (apiserver/etcd),
-# (2) kubelet kubeReserved/systemReserved + evictionHard so Node Allocatable cannot
-# be filled with CI to the point the OS/kubelet/apiserver starve.
+# On shared CP nodes: (1) Guaranteed memory (+ etcd CPU) for kubeadm static pods
+# (apiserver/etcd), (2) kubelet kubeReserved/systemReserved + evictionHard so Node
+# Allocatable cannot be filled with CI to the point the OS/kubelet/apiserver starve,
+# (3) etcd survives slow fsync on the shared root HDD: bfq scheduler with a high
+# etcd I/O weight, and raft heartbeat/election timeouts sized for HDD latency.
 
 locals {
   guard_script = <<-SCRIPT
     set -eu
     MANIFESTS=/host/etc/kubernetes/manifests
     KUBELET_CFG=/host/var/lib/kubelet/config.yaml
+    HOST_CGROUP=/host-root/sys/fs/cgroup
     APISERVER_REQ="${var.apiserver_memory_request}"
     APISERVER_LIM="${var.apiserver_memory_limit}"
     ETCD_REQ="${var.etcd_memory_request}"
     ETCD_LIM="${var.etcd_memory_limit}"
+    ETCD_CPU_REQ="${var.etcd_cpu_request}"
+    ETCD_HEARTBEAT_MS="${var.etcd_heartbeat_interval_ms}"
+    ETCD_ELECTION_MS="${var.etcd_election_timeout_ms}"
+    ETCD_IO_WEIGHT="${var.etcd_io_weight}"
+    IO_SCHEDULER="${var.root_disk_io_scheduler}"
     KUBE_RES_CPU="${var.kube_reserved_cpu}"
     KUBE_RES_MEM="${var.kube_reserved_memory}"
     SYS_RES_CPU="${var.system_reserved_cpu}"
@@ -22,17 +30,17 @@ locals {
       file="$1"
       mem_req="$2"
       mem_lim="$3"
-      cpu_req_default="$4"
+      cpu_req="$4"
       [ -f "$file" ] || return 0
 
-      cur_req=$(yq -r '.spec.containers[0].resources.requests.memory // ""' "$file")
-      cur_lim=$(yq -r '.spec.containers[0].resources.limits.memory // ""' "$file")
-      if [ "$cur_req" = "$mem_req" ] && [ "$cur_lim" = "$mem_lim" ]; then
+      cur_mem_req=$(yq -r '.spec.containers[0].resources.requests.memory // ""' "$file")
+      cur_mem_lim=$(yq -r '.spec.containers[0].resources.limits.memory // ""' "$file")
+      cur_cpu_req=$(yq -r '.spec.containers[0].resources.requests.cpu // ""' "$file")
+      if [ "$cur_mem_req" = "$mem_req" ] && [ "$cur_mem_lim" = "$mem_lim" ] && [ "$cur_cpu_req" = "$cpu_req" ]; then
         return 0
       fi
 
-      echo "patching $file memory request=$mem_req limit=$mem_lim (was req=$cur_req lim=$cur_lim)"
-      cpu_req=$(yq -r ".spec.containers[0].resources.requests.cpu // \"$cpu_req_default\"" "$file")
+      echo "patching $file cpu=$cpu_req memory request=$mem_req limit=$mem_lim (was cpu=$cur_cpu_req mem_req=$cur_mem_req mem_lim=$cur_mem_lim)"
       yq -i "
         .spec.containers[0].resources.requests.cpu = \"$cpu_req\" |
         .spec.containers[0].resources.requests.memory = \"$mem_req\" |
@@ -74,9 +82,55 @@ locals {
       fi
     }
 
+    # Changing flags restarts etcd; patching every CP node at once (fresh rollout)
+    # briefly drops quorum, so roll new values node by node by hand first.
+    ensure_etcd_flags() {
+      file="$MANIFESTS/etcd.yaml"
+      [ -f "$file" ] || return 0
+
+      cur_hb=$(yq -r '.spec.containers[0].command[] | select(test("^--heartbeat-interval="))' "$file" | cut -d= -f2)
+      cur_el=$(yq -r '.spec.containers[0].command[] | select(test("^--election-timeout="))' "$file" | cut -d= -f2)
+      if [ "$cur_hb" = "$ETCD_HEARTBEAT_MS" ] && [ "$cur_el" = "$ETCD_ELECTION_MS" ]; then
+        return 0
+      fi
+
+      echo "patching $file heartbeat-interval=$ETCD_HEARTBEAT_MS election-timeout=$ETCD_ELECTION_MS (was $cur_hb/$cur_el)"
+      yq -i "
+        .spec.containers[0].command |= (map(select(test(\"^--(heartbeat-interval|election-timeout)=\") | not)) + [\"--heartbeat-interval=$ETCD_HEARTBEAT_MS\", \"--election-timeout=$ETCD_ELECTION_MS\"])
+      " "$file"
+    }
+
+    # mq-deadline ignores cgroup I/O weights; bfq honours io.bfq.weight, so etcd
+    # fsyncs get served ahead of CI build writes on the same root disk.
+    ensure_io_priority() {
+      dev=$(chroot /host-root lsblk -no PKNAME "$(chroot /host-root findmnt -no SOURCE /)" 2>/dev/null || true)
+      [ -n "$dev" ] || return 0
+
+      sched=/sys/block/$dev/queue/scheduler
+      if ! grep -q "\[$IO_SCHEDULER\]" "$sched"; then
+        chroot /host-root modprobe "$IO_SCHEDULER" 2>/dev/null || true
+        echo "setting /dev/$dev scheduler=$IO_SCHEDULER (was: $(cat "$sched"))"
+        echo "$IO_SCHEDULER" > "$sched" || { echo "WARN: could not set scheduler on /dev/$dev" >&2; return 0; }
+      fi
+
+      pid=$(chroot /host-root pgrep -x etcd | head -1 || true)
+      [ -n "$pid" ] || return 0
+      scope=$(sed 's/^0:://' "/proc/$pid/cgroup")
+      for cg in "$(dirname "$scope")" "$scope"; do
+        f="$HOST_CGROUP$cg/io.bfq.weight"
+        [ -w "$f" ] || continue
+        if ! head -1 "$f" | grep -qx "default $ETCD_IO_WEIGHT"; then
+          echo "setting $cg io.bfq.weight=$ETCD_IO_WEIGHT"
+          echo "default $ETCD_IO_WEIGHT" > "$f"
+        fi
+      done
+    }
+
     while true; do
       ensure_resources "$MANIFESTS/kube-apiserver.yaml" "$APISERVER_REQ" "$APISERVER_LIM" "250m"
-      ensure_resources "$MANIFESTS/etcd.yaml" "$ETCD_REQ" "$ETCD_LIM" "100m"
+      ensure_resources "$MANIFESTS/etcd.yaml" "$ETCD_REQ" "$ETCD_LIM" "$ETCD_CPU_REQ"
+      ensure_etcd_flags
+      ensure_io_priority
       ensure_kubelet_reserved
       sleep "${var.reconcile_seconds}"
     done

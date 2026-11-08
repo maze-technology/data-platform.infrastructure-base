@@ -105,6 +105,11 @@ module "control_plane_resources" {
   apiserver_memory_limit         = var.apiserver_memory_limit
   etcd_memory_request            = var.etcd_memory_request
   etcd_memory_limit              = var.etcd_memory_limit
+  etcd_cpu_request               = var.etcd_cpu_request
+  etcd_heartbeat_interval_ms     = var.etcd_heartbeat_interval_ms
+  etcd_election_timeout_ms       = var.etcd_election_timeout_ms
+  etcd_io_weight                 = var.etcd_io_weight
+  root_disk_io_scheduler         = var.root_disk_io_scheduler
   kube_reserved_cpu              = var.kube_reserved_cpu
   kube_reserved_memory           = var.kube_reserved_memory
   system_reserved_cpu            = var.system_reserved_cpu
