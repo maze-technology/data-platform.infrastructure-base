@@ -54,7 +54,7 @@ spec:
       default: "auto"
     job_image:
       description: CI job image (use a JDK image when build_script needs the toolchain)
-      default: docker:27.5.1
+      default: docker:29.7.2
     use_sdkman:
       description: If "true", install SDKMAN and sdk env install when .sdkmanrc is present
       default: "true"
@@ -83,7 +83,7 @@ container_publish:
     name: $[[ inputs.job_image ]]
     entrypoint: [""]
   services:
-    - name: docker:27.5.1-dind
+    - name: docker:29.7.2-dind
       alias: docker
       command: ["--tls=false"]
   # Same class of k8s/etcd runner flakes that skip Trivy before it starts.
@@ -121,7 +121,7 @@ container_publish:
       mkdir -p "${GRADLE_USER_HOME}"
       if ! command -v docker >/dev/null 2>&1; then
         echo "Fetching Docker CLI static binary"
-        curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz" \
+        curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-29.7.2.tgz" \
           | tar xz --strip-components=1 -C /usr/local/bin docker/docker
       fi
       # SDKMAN + zip/unzip for .sdkmanrc parity (skipped when use_sdkman=false or no .sdkmanrc).
