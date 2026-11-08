@@ -13,7 +13,9 @@ locals {
     vault     = "vault.${var.cluster_domain}"
     coder     = "coder.${var.cluster_domain}"
     paperclip = "paperclip.${var.cluster_domain}"
-    vpn       = "vpn.${var.cluster_domain}"
+    # VPN-only S3 API (CoreDNS → ingress → RGW). Never publish on the public LB.
+    s3  = "s3.${var.cluster_domain}"
+    vpn = "vpn.${var.cluster_domain}"
     # VPN-only git SSH (CoreDNS → gitlab-shell). Never publish on the public LB.
     git_ssh = "git-ssh.${var.cluster_domain}"
   }
@@ -244,6 +246,25 @@ module "ingress" {
   prometheus_operator_dependency = null
 
   depends_on = [module.cert_manager]
+}
+
+# VPN-reachable S3 API (s3.<domain> → ingress → rgw-service). In-cluster clients
+# keep using the ClusterIP endpoint from module.rook_ceph; tofu apply from a
+# laptop can use https://s3.<domain> once CoreDNS hosts includes it.
+module "rgw_ingress" {
+  source = "./iac/modules/rgw-ingress"
+
+  environment        = var.environment
+  namespace          = module.rook_ceph.rgw_service_namespace
+  service_name       = module.rook_ceph.rgw_service_name
+  service_port       = module.rook_ceph.rgw_endpoint_port
+  hostname           = local.hosts.s3
+  enable_tls         = true
+  tls_cluster_issuer = module.cert_manager.cluster_issuer_name
+  vpn_cidr           = var.vpn_subnet
+  restrict_to_vpn    = var.restrict_to_vpn
+
+  depends_on = [module.rook_ceph, module.ingress, module.cert_manager]
 }
 
 module "cloudnativepg" {
