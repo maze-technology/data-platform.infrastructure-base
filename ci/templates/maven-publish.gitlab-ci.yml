@@ -11,7 +11,7 @@
 #
 # Flow (matches former GitHub commons publish):
 #   apt deps → optional SDKMAN (.sdkmanrc) → optional smithy tools → codegen pre_publish → ./gradlew publish
-#   Job requests 2Gi/6Gi (runner default 1536Mi OOMs on Gradle).
+#   Job requests 2Gi / limit 4Gi (runner default 512Mi OOMs on Gradle).
 #   Publish URL is project Package Registry (group Maven URL is resolve-only).
 #
 # Auth:
@@ -62,7 +62,8 @@ maven_publish:
     BUF_VERSION: "1.55.1"
     GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
     # Must stay ≤ runner memory_*_overwrite_max_allowed (4Gi).
-    KUBERNETES_MEMORY_REQUEST: "3Gi"
+    # Observed Gradle WSS ~1–1.3Gi; request 2Gi, limit 4Gi for spikes.
+    KUBERNETES_MEMORY_REQUEST: "2Gi"
     KUBERNETES_MEMORY_LIMIT: "4Gi"
     KUBERNETES_HELPER_MEMORY_REQUEST: "128Mi"
     KUBERNETES_HELPER_MEMORY_LIMIT: "512Mi"
