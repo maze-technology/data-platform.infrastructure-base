@@ -382,6 +382,10 @@ resource "helm_release" "loki" {
         # Disable scalable mode components
         backend = {
           replicas = 0
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
           persistence = {
             volumeClaimsEnabled = false
             size                = var.loki_storage_size
@@ -391,10 +395,18 @@ resource "helm_release" "loki" {
         }
         read = {
           replicas = 0
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
           extraEnv = local.loki_s3_extra_env
         }
         write = {
           replicas = 0
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
           persistence = {
             volumeClaimsEnabled = false
             size                = var.loki_storage_size
@@ -489,6 +501,10 @@ resource "helm_release" "loki" {
         # Disable single binary mode
         singleBinary = {
           replicas = 0
+          resources = {
+            requests = var.resource_requests.loki
+            limits   = var.resource_limits.loki
+          }
         }
         # Enable scalable mode components (can be configured per environment)
         backend = {
