@@ -167,7 +167,7 @@ variable "resource_requests" {
     }
     grafana = {
       cpu    = "100m"
-      memory = "128Mi"
+      memory = "512Mi"
     }
     loki = {
       cpu    = "200m"
@@ -215,7 +215,7 @@ variable "resource_limits" {
     }
     grafana = {
       cpu    = "500m"
-      memory = "512Mi"
+      memory = "1Gi"
     }
     loki = {
       cpu    = "1000m"

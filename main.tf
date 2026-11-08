@@ -43,7 +43,7 @@ locals {
   rook_resource_requests = var.rook_resource_requests != null ? var.rook_resource_requests : {
     operator = { cpu = "100m", memory = "128Mi" }
     mon      = { cpu = "500m", memory = "2Gi" }
-    mgr      = { cpu = "500m", memory = "512Mi" }
+    mgr      = { cpu = "500m", memory = "1Gi" }
     osd      = { cpu = "1", memory = "2Gi" }
     rgw      = { cpu = "500m", memory = "512Mi" }
   }
@@ -51,7 +51,7 @@ locals {
   rook_resource_limits = var.rook_resource_limits != null ? var.rook_resource_limits : {
     operator = { cpu = "500m", memory = "512Mi" }
     mon      = { cpu = "1000m", memory = "4Gi" }
-    mgr      = { cpu = "1000m", memory = "1Gi" }
+    mgr      = { cpu = "1000m", memory = "2Gi" }
     osd      = { cpu = "2", memory = "4Gi" }
     rgw      = { cpu = "1000m", memory = "1Gi" }
   }
