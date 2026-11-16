@@ -14,16 +14,14 @@
 #   GITLAB_TAG_TOKEN — Group/Project Access Token with api + write_repository
 #   scoped to the same group as the project (do NOT use a personal PAT that can
 #   read other groups — algorithms CI must not hold dual-group credentials).
-#   (CI_JOB_TOKEN is tried as fallback for tags but often cannot create tags on CE.)
 #
-# Pipeline trigger after tag create prefers CI_JOB_TOKEN so private CI includes
-# (e.g. iac/infrastructure-base) resolve via the project's job-token allowlist.
-# Falls back to GITLAB_TAG_TOKEN if job-token create returns 401/403, then
-# verifies the pipeline has jobs (API tag create often leaves an empty push
-# pipeline on this GitLab CE).
+# After creating the tag via API, start the tag pipeline with the job-token
+# *trigger* endpoint (POST .../trigger/pipeline, form token=$CI_JOB_TOKEN).
+# CI_JOB_TOKEN cannot call POST .../pipeline (always 401). API tag create on
+# this GitLab CE often leaves an empty push pipeline; the trigger is what
+# actually runs publish jobs. Fail if the trigger does not return a pipeline id.
 #
-# Loop-safe: tag_release never runs on tag pipelines. Creating a tag starts a
-# separate pipeline that runs publish + gitlab_release.
+# Loop-safe: tag_release never runs on tag pipelines.
 
 spec:
   inputs:
@@ -102,106 +100,31 @@ tag_release:
         --data "{\"tag_name\":\"${TAG}\",\"ref\":\"${CI_COMMIT_SHA}\",\"message\":\"Release ${TAG}\"}" \
         "${API}/repository/tags")"
 
-      # API tag create on this GitLab CE often auto-opens a *push* pipeline with
-      # zero jobs ("empty" / failed). That shell is useless for publish. We must
-      # POST a real pipeline ourselves and verify it has jobs.
-      #
-      # Prefer CI_JOB_TOKEN so private includes (iac/infrastructure-base) resolve
-      # via the project's job-token allowlist. GITLAB_TAG_TOKEN is group-scoped
-      # and often cannot read cross-group includes — using it alone can recreate
-      # the empty pipeline. Fall back only if job-token create is 401/403.
-      pipeline_job_count() {
-        local pipe_id="$1"
-        curl -fsS --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-          "${API}/pipelines/${pipe_id}/jobs?per_page=100" 2>/dev/null \
-          | jq 'length' 2>/dev/null \
-          || curl -fsS --header "${AUTH_HEADER}" \
-            "${API}/pipelines/${pipe_id}/jobs?per_page=100" 2>/dev/null \
-            | jq 'length' 2>/dev/null \
-          || echo 0
-      }
-
-      wait_for_nonempty_pipeline() {
-        local pipe_id="$1"
-        local i count=0
-        for i in 1 2 3 4 5 6; do
-          count="$(pipeline_job_count "${pipe_id}")"
-          if [ "${count}" -gt 0 ] 2>/dev/null; then
-            echo "Pipeline ${pipe_id} has ${count} job(s)"
-            return 0
-          fi
-          sleep 2
-        done
-        echo "Pipeline ${pipe_id} still has 0 jobs after wait" >&2
-        return 1
-      }
-
-      post_pipeline() {
-        local tag="$1" header="$2" body_file="$3"
-        curl -sS -o "${body_file}" -w '%{http_code}' --request POST \
-          --header "${header}" \
-          --header "Content-Type: application/json" \
-          --data "{\"ref\":\"${tag}\"}" \
-          "${API}/pipeline"
-      }
-
+      # Start the real tag pipeline. Do not use POST /pipeline + JOB-TOKEN (401).
       trigger_tag_pipeline() {
-        local tag="$1"
-        local attempt http pipe_id
-
-        for attempt in 1 2 3; do
-          echo "Triggering tag pipeline for ${tag} (attempt ${attempt})"
-
-          http="$(post_pipeline "${tag}" "JOB-TOKEN: ${CI_JOB_TOKEN}" /tmp/tag_pipe.json)"
-          if [ "${http}" != "201" ] && [ "${http}" != "200" ]; then
-            echo "CI_JOB_TOKEN pipeline create HTTP ${http}" >&2
-            cat /tmp/tag_pipe.json >&2 || true
-            if [ -n "${GITLAB_TAG_TOKEN:-}" ]; then
-              echo "Retrying pipeline create with GITLAB_TAG_TOKEN" >&2
-              http="$(post_pipeline "${tag}" "PRIVATE-TOKEN: ${GITLAB_TAG_TOKEN}" /tmp/tag_pipe.json)"
-            fi
-          fi
-
-          if [ "${http}" != "201" ] && [ "${http}" != "200" ]; then
-            echo "Pipeline create HTTP ${http}" >&2
-            cat /tmp/tag_pipe.json >&2 || true
-            sleep $((attempt * 2))
-            continue
-          fi
-
-          pipe_id="$(jq -r '.id // empty' /tmp/tag_pipe.json)"
-          if [ -z "${pipe_id}" ]; then
-            echo "Pipeline create returned no id" >&2
-            cat /tmp/tag_pipe.json >&2 || true
-            sleep $((attempt * 2))
-            continue
-          fi
-
-          echo "Created pipeline ${pipe_id} for ${tag}"
-          if wait_for_nonempty_pipeline "${pipe_id}"; then
-            return 0
-          fi
-
-          echo "Canceling empty pipeline ${pipe_id}" >&2
-          curl -sS -o /dev/null --request POST \
-            --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-            "${API}/pipelines/${pipe_id}/cancel" || true
-          curl -sS -o /dev/null --request POST \
-            --header "${AUTH_HEADER}" \
-            "${API}/pipelines/${pipe_id}/cancel" || true
-          sleep $((attempt * 2))
-        done
-
-        echo "ERROR: could not start a non-empty pipeline for ${tag}." >&2
-        echo "Check: CI_JOB_TOKEN may return 401 on POST /pipeline (enable job-token" >&2
-        echo "pipeline create), and GITLAB_TAG_TOKEN must be able to resolve CI includes." >&2
-        return 1
+        local tag="$1" http pipe_id
+        echo "Triggering tag pipeline for ${tag} via /trigger/pipeline"
+        http="$(curl -sS -o /tmp/tag_pipe.json -w '%{http_code}' --request POST \
+          --form "token=${CI_JOB_TOKEN}" \
+          --form "ref=${tag}" \
+          "${API}/trigger/pipeline")"
+        if [ "${http}" != "201" ] && [ "${http}" != "200" ]; then
+          echo "ERROR: trigger/pipeline HTTP ${http}" >&2
+          cat /tmp/tag_pipe.json >&2 || true
+          return 1
+        fi
+        pipe_id="$(jq -r '.id // empty' /tmp/tag_pipe.json)"
+        if [ -z "${pipe_id}" ]; then
+          echo "ERROR: trigger/pipeline returned no pipeline id" >&2
+          cat /tmp/tag_pipe.json >&2 || true
+          return 1
+        fi
+        echo "Triggered pipeline ${pipe_id} for ${tag}"
       }
 
       if [ "${HTTP}" = "201" ] || [ "${HTTP}" = "200" ]; then
         echo "Created ${TAG}"
         cat /tmp/tag_resp.json | jq -r '.name // .'
-        # API tag create does not reliably start a usable CI pipeline on this GitLab CE.
         trigger_tag_pipeline "${TAG}"
         exit 0
       fi
