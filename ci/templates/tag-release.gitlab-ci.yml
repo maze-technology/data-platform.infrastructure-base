@@ -15,11 +15,15 @@
 #   scoped to the same group as the project (do NOT use a personal PAT that can
 #   read other groups — algorithms CI must not hold dual-group credentials).
 #
-# After creating the tag via API, start the tag pipeline with the job-token
-# *trigger* endpoint (POST .../trigger/pipeline, form token=$CI_JOB_TOKEN).
-# CI_JOB_TOKEN cannot call POST .../pipeline (always 401). API tag create on
-# this GitLab CE often leaves an empty push pipeline; the trigger is what
-# actually runs publish jobs. Fail if the trigger does not return a pipeline id.
+# After creating the tag via API, start the tag pipeline with
+# POST .../pipeline + PRIVATE-TOKEN=$GITLAB_TAG_TOKEN.
+# Do NOT use CI_JOB_TOKEN here:
+#   - POST /pipeline with JOB-TOKEN → 401
+#   - POST /trigger/pipeline with CI_JOB_TOKEN → 422 on this CE when the
+#     pipeline YAML includes another project (iac/infrastructure-base): the
+#     job token cannot resolve cross-project includes.
+# API tag create often leaves a failed/empty push pipeline; the explicit
+# POST /pipeline is what runs publish jobs. Fail if no pipeline id returns.
 #
 # Loop-safe: tag_release never runs on tag pipelines.
 
@@ -54,18 +58,13 @@ tag_release:
       set -euo pipefail
       apk add --no-cache curl jq git >/dev/null
 
-      TOKEN="${GITLAB_TAG_TOKEN:-${CI_JOB_TOKEN:-}}"
-      if [ -z "${TOKEN}" ]; then
+      if [ -z "${GITLAB_TAG_TOKEN:-}" ]; then
         echo "ERROR: set GITLAB_TAG_TOKEN (api + write_repository) for tag_release" >&2
         exit 1
       fi
 
       API="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}"
-      AUTH_HEADER="PRIVATE-TOKEN: ${TOKEN}"
-      # Job-token auth uses a different header when falling back
-      if [ -z "${GITLAB_TAG_TOKEN:-}" ]; then
-        AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN}"
-      fi
+      AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TAG_TOKEN}"
 
       # Idempotent: skip if this SHA already has a version tag
       EXISTING="$(curl -fsS --header "${AUTH_HEADER}" \
@@ -100,22 +99,23 @@ tag_release:
         --data "{\"tag_name\":\"${TAG}\",\"ref\":\"${CI_COMMIT_SHA}\",\"message\":\"Release ${TAG}\"}" \
         "${API}/repository/tags")"
 
-      # Start the real tag pipeline. Do not use POST /pipeline + JOB-TOKEN (401).
+      # Start the real tag pipeline with GITLAB_TAG_TOKEN (not CI_JOB_TOKEN).
       trigger_tag_pipeline() {
         local tag="$1" http pipe_id
-        echo "Triggering tag pipeline for ${tag} via /trigger/pipeline"
+        echo "Triggering tag pipeline for ${tag} via POST /pipeline"
         http="$(curl -sS -o /tmp/tag_pipe.json -w '%{http_code}' --request POST \
-          --form "token=${CI_JOB_TOKEN}" \
-          --form "ref=${tag}" \
-          "${API}/trigger/pipeline")"
+          --header "${AUTH_HEADER}" \
+          --header "Content-Type: application/json" \
+          --data "{\"ref\":\"${tag}\"}" \
+          "${API}/pipeline")"
         if [ "${http}" != "201" ] && [ "${http}" != "200" ]; then
-          echo "ERROR: trigger/pipeline HTTP ${http}" >&2
+          echo "ERROR: POST /pipeline HTTP ${http}" >&2
           cat /tmp/tag_pipe.json >&2 || true
           return 1
         fi
         pipe_id="$(jq -r '.id // empty' /tmp/tag_pipe.json)"
         if [ -z "${pipe_id}" ]; then
-          echo "ERROR: trigger/pipeline returned no pipeline id" >&2
+          echo "ERROR: POST /pipeline returned no pipeline id" >&2
           cat /tmp/tag_pipe.json >&2 || true
           return 1
         fi
