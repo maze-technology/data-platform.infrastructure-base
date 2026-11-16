@@ -123,6 +123,12 @@ variable "eviction_hard_memory_available" {
   default     = "1Gi"
 }
 
+variable "extra_cluster_dns_hosts" {
+  description = "Additional hostnames for CoreDNS hosts{} (VPN/in-cluster → ingress ClusterIP). Use for composed apps (e.g. data-platform gRPC fronts)."
+  type        = list(string)
+  default     = []
+}
+
 variable "enable_cluster_dns" {
   description = "Patch CoreDNS so *.cluster_domain resolves inside the cluster (needed for kind/local OIDC)."
   type        = bool

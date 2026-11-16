@@ -294,18 +294,23 @@ module "cluster_dns" {
   # clients switch DNS to CoreDNS (exclusive resolvconf), which kills all internet.
   # Omit VPN endpoint (public DNS) and feature hosts when the app is disabled,
   # otherwise CoreDNS still steers them to ingress → nginx 404 (e.g. paperclip).
-  hosts = [
-    for h in values(local.hosts) : h
-    if h != local.hosts.vpn && (
-      h != local.hosts.git_ssh || module.gitlab.shell_cluster_ip != ""
-      ) && (
-      h != local.hosts.paperclip || var.enable_paperclip
-      ) && (
-      h != local.hosts.coder || var.enable_coder
-      ) && (
-      h != local.hosts.crates || var.enable_kellnr
-    )
-  ]
+  # Extra hosts (e.g. data-platform VPN gRPC fronts) are appended; they resolve
+  # to the ingress ClusterIP like other app hostnames — never the public LB.
+  hosts = concat(
+    [
+      for h in values(local.hosts) : h
+      if h != local.hosts.vpn && (
+        h != local.hosts.git_ssh || module.gitlab.shell_cluster_ip != ""
+        ) && (
+        h != local.hosts.paperclip || var.enable_paperclip
+        ) && (
+        h != local.hosts.coder || var.enable_coder
+        ) && (
+        h != local.hosts.crates || var.enable_kellnr
+      )
+    ],
+    var.extra_cluster_dns_hosts,
+  )
 
   host_ips = merge(
     module.gitlab.shell_cluster_ip != "" ? {
