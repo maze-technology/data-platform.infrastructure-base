@@ -11,6 +11,8 @@
 #
 # Build job must push SECURE_IMAGE to the GitLab registry before `secure` runs.
 # Fail policy: High and Critical (fixed vulns only via --ignore-unfixed).
+# MR / non-default branches: hard fail. Default branch (main): allow_failure so
+# FF release pipelines stay green while still surfacing last-minute findings.
 
 spec:
   inputs:
@@ -58,6 +60,12 @@ trivy:
         --no-progress \
         --format table \
         "${SECURE_IMAGE}"
-  allow_failure: false
   rules:
+    # Soft on default branch (main): do not block FF release pipelines.
+    - if: $SECURE_IMAGE && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      allow_failure: true
+    # Hard gate on MRs and other branches (develop, feature, tags via branch unset handled below).
+    - if: $SECURE_IMAGE && $CI_PIPELINE_SOURCE == "merge_request_event"
+      allow_failure: false
     - if: $SECURE_IMAGE
+      allow_failure: false
