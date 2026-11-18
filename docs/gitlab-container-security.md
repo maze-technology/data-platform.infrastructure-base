@@ -33,6 +33,8 @@ We install **one** in-cluster GitLab Runner (`install_gitlab_runner = true`, Kub
 Template: [`ci/templates/container-secure.gitlab-ci.yml`](../ci/templates/container-secure.gitlab-ci.yml)
 
 - `trivy` — fail on High+ (unfixed) and Critical
+- **MR / non-default branches:** hard fail (`allow_failure: false`) — blocks merge when pipelines must succeed
+- **Default branch (`main`):** soft fail (`allow_failure: true`) — still runs and reports, but does not block FF release pipelines from `develop`
 
 Example `.gitlab-ci.yml`:
 
