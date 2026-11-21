@@ -24,9 +24,9 @@ Skipped on CE (Premium+). Rely on Promtail/Loki container logs for now.
 
 | Job | When | What |
 |-----|------|------|
-| `container_build` | MR / branch / tag | Build image, `docker save` → `ci-built-image.tar` artifact |
-| `trivy` | after build | Scan that **local tar** (`trivy image --input`) — no registry pull |
-| `container_publish` | **main** (default branch) and **tags** only | `docker load` + push to GitLab registry (Hub optional) |
+| `container_build` | MR / branch / tag | Build image, `docker save` to a **local** tar, `trivy image --input` (no registry pull; tar is **not** a CI artifact — avoids 413 on ~500Mi Paketo images) |
+| `trivy` | after build | No-op marker (scan already done in `container_build`) |
+| `container_publish` | **main** + **tags** only | Rebuild + push to GitLab registry (Hub optional) |
 
 Develop / feature / MR pipelines build and scan; they do **not** push images.
 
@@ -35,10 +35,10 @@ Templates:
 - [`ci/templates/container-publish.gitlab-ci.yml`](../ci/templates/container-publish.gitlab-ci.yml)
 - [`ci/templates/container-secure.gitlab-ci.yml`](../ci/templates/container-secure.gitlab-ci.yml)
 
-Trivy policy:
+Trivy policy (on `container_build`):
 
-- **MR / non-default branches:** hard fail (`allow_failure: false`)
-- **Default branch (`main`):** soft fail (`allow_failure: true`) — still reports, does not block FF release pipelines
+- **MR / non-default branches:** hard fail
+- **Default branch (`main`):** soft fail (`allow_failure: true`)
 
 Example `.gitlab-ci.yml`:
 
@@ -51,10 +51,10 @@ include:
     inputs:
       dockerfile: Dockerfile
       context: .
+      trivy_severity: HIGH
+      trivy_extra_args: '--skip-files "**/cnb/lifecycle/**"'
   - project: 'iac/infrastructure-base'
     file: '/ci/templates/container-secure.gitlab-ci.yml'
-    inputs:
-      severity: HIGH
 ```
 
 Image signing / cluster admission (cosign + Kyverno) was removed; keep the bar simple with Trivy in CI.
