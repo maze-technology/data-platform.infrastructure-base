@@ -1,24 +1,23 @@
 # Shared secure-image jobs for Maze algo/container repos (GitLab CE).
 #
-# Include from an application .gitlab-ci.yml after you build+push an image:
+# Scans the image tarball produced by container_build (no registry pull).
+# Pair with container-publish.gitlab-ci.yml:
 #
 #   include:
-#     - local: 'ci/templates/container-secure.gitlab-ci.yml'   # if vendored
-#     # or: project/file / remote — see docs/gitlab-container-security.md
+#     - project: 'iac/infrastructure-base'
+#       file: '/ci/templates/container-publish.gitlab-ci.yml'
+#     - project: 'iac/infrastructure-base'
+#       file: '/ci/templates/container-secure.gitlab-ci.yml'
 #
-#   variables:
-#     SECURE_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-#
-# Build job must push SECURE_IMAGE to the GitLab registry before `secure` runs.
 # Fail policy: High and Critical (fixed vulns only via --ignore-unfixed).
 # MR / non-default branches: hard fail. Default branch (main): allow_failure so
 # FF release pipelines stay green while still surfacing last-minute findings.
 
 spec:
   inputs:
-    image:
-      description: Image reference to scan (tag or digest)
-      default: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    image_tar:
+      description: Path to docker-save tarball from container_build
+      default: ci-built-image.tar
     severity:
       description: Minimum severity that fails the pipeline (also always fails Critical)
       default: HIGH
@@ -29,21 +28,18 @@ stages:
   - secure
 
 variables:
-  SECURE_IMAGE: $[[ inputs.image ]]
+  SECURE_IMAGE_TAR: $[[ inputs.image_tar ]]
   TRIVY_FAIL_SEVERITY: $[[ inputs.severity ]],CRITICAL
 
 trivy:
   stage: secure
-  # Cancelable when a newer commit supersedes this pipeline (see workflow:auto_cancel).
   interruptible: true
   image:
     name: aquasec/trivy:0.76.2
     entrypoint: [""]
-  variables:
-    TRIVY_USERNAME: $CI_REGISTRY_USER
-    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
-  # Control-plane / runner flakes (etcd leader changed, pod watcher not synced)
-  # are runner_system_failure — retry without waiting for a human.
+  needs:
+    - job: container_build
+      artifacts: true
   retry:
     max: 2
     when:
@@ -52,20 +48,21 @@ trivy:
   script:
     - |
       set -euo pipefail
-      echo "Scanning ${SECURE_IMAGE} (fail on ${TRIVY_FAIL_SEVERITY})"
+      test -f "${SECURE_IMAGE_TAR}" || { echo "ERROR: missing ${SECURE_IMAGE_TAR} from container_build" >&2; exit 1; }
+      echo "Scanning local image tar ${SECURE_IMAGE_TAR} (fail on ${TRIVY_FAIL_SEVERITY})"
       trivy image \
+        --input "${SECURE_IMAGE_TAR}" \
         --exit-code 1 \
         --severity "${TRIVY_FAIL_SEVERITY}" \
         --ignore-unfixed \
         --no-progress \
-        --format table \
-        "${SECURE_IMAGE}"
+        --format table
   rules:
     # Soft on default branch (main): do not block FF release pipelines.
-    - if: $SECURE_IMAGE && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       allow_failure: true
-    # Hard gate on MRs and other branches (develop, feature, tags via branch unset handled below).
-    - if: $SECURE_IMAGE && $CI_PIPELINE_SOURCE == "merge_request_event"
+    # Hard gate on MRs and other branches (develop, feature).
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       allow_failure: false
-    - if: $SECURE_IMAGE
+    - when: on_success
       allow_failure: false
