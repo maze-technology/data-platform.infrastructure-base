@@ -1,10 +1,9 @@
-# Build container images on every pipeline; publish to the registry only from
+# Build + local Trivy on every pipeline; publish to the registry only from
 # main (default branch) and version tags.
 #
-# Flow:
-#   container_build  — build + docker save → ci-built-image.tar (artifact)
-#   trivy            — scans that tar locally (see container-secure.gitlab-ci.yml)
-#   container_publish — docker load + push (main / tags only)
+# Large Paketo images (~500Mi+) cannot be passed as GitLab job artifacts
+# (coordinator returns 413), so the build job scans a local docker-save tar
+# in-place (never uploaded). Publish rebuilds on main/tags, then pushes.
 #
 # Include:
 #
@@ -19,8 +18,6 @@
 #
 # Optional CI/CD variables (project or group) for Hub mirror on publish:
 #   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, DOCKERHUB_REPOSITORY
-#
-# Tags pushed on publish: $CI_COMMIT_SHA; :latest on default branch; :$CI_COMMIT_TAG on tags.
 
 spec:
   inputs:
@@ -34,8 +31,6 @@ spec:
       description: >
         Optional shell to produce the image already tagged as PUBLISH_IMAGE:PUBLISH_TAG
         (e.g. gradle bootBuildImage). Empty = docker build -f dockerfile.
-        Inserted as its own script step (not a CI variable) so multiline content
-        and # comments stay intact.
       default: ""
     image_name:
       description: GitLab registry image (runtime source of truth)
@@ -55,9 +50,15 @@ spec:
     use_sdkman:
       description: If "true", install SDKMAN and sdk env install when .sdkmanrc is present
       default: "true"
-    image_tar:
-      description: Artifact path for the built image tarball (trivy + publish consume this)
-      default: ci-built-image.tar
+    trivy_image:
+      description: Trivy scanner image used for local tar scans after build
+      default: aquasec/trivy:0.76.2
+    trivy_severity:
+      description: Minimum severity that fails the build scan (Critical always included)
+      default: HIGH
+    trivy_extra_args:
+      description: Extra args appended to `trivy image` (e.g. Paketo --skip-files)
+      default: ""
 
 ---
 
@@ -73,7 +74,9 @@ variables:
   PUBLISH_PUSH_LATEST: $[[ inputs.push_latest ]]
   PUBLISH_DOCKERHUB: $[[ inputs.dockerhub_enabled ]]
   SECURE_IMAGE: $[[ inputs.image_name ]]:$[[ inputs.tag ]]
-  SECURE_IMAGE_TAR: $[[ inputs.image_tar ]]
+  TRIVY_IMAGE: $[[ inputs.trivy_image ]]
+  TRIVY_FAIL_SEVERITY: $[[ inputs.trivy_severity ]],CRITICAL
+  TRIVY_EXTRA_ARGS: $[[ inputs.trivy_extra_args ]]
 
 .container_docker_job:
   interruptible: true
@@ -161,6 +164,23 @@ variables:
         sleep 1
       done
 
+.container_build_image:
+  script:
+    - |
+      set -euo pipefail
+      export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$CI_PROJECT_DIR/.gradle}"
+      GITLAB_REF="${PUBLISH_IMAGE}:${PUBLISH_TAG}"
+      echo "Build target → ${GITLAB_REF}"
+      CUSTOM_BUILD="$[[ inputs.build_script ]]"
+      if [ -n "${CUSTOM_BUILD}" ]; then
+        echo "Custom build → ${GITLAB_REF}"
+        eval "${CUSTOM_BUILD}"
+      else
+        echo "Building ${GITLAB_REF} (Dockerfile=${PUBLISH_DOCKERFILE} context=${PUBLISH_CONTEXT})"
+        docker build -f "${PUBLISH_DOCKERFILE}" -t "${GITLAB_REF}" "${PUBLISH_CONTEXT}"
+      fi
+      docker image inspect "${GITLAB_REF}" >/dev/null
+
 container_build:
   extends: .container_docker_job
   stage: build
@@ -171,54 +191,61 @@ container_build:
       - .gradle/caches/
     policy: pull-push
   script:
+    - !reference [.container_build_image, script, 0]
     - |
       set -euo pipefail
-      export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$CI_PROJECT_DIR/.gradle}"
-
       GITLAB_REF="${PUBLISH_IMAGE}:${PUBLISH_TAG}"
-      echo "Build target → ${GITLAB_REF}"
-
-      CUSTOM_BUILD="$[[ inputs.build_script ]]"
-      if [ -n "${CUSTOM_BUILD}" ]; then
-        echo "Custom build → ${GITLAB_REF}"
-        eval "${CUSTOM_BUILD}"
-      else
-        echo "Building ${GITLAB_REF} (Dockerfile=${PUBLISH_DOCKERFILE} context=${PUBLISH_CONTEXT})"
-        docker build -f "${PUBLISH_DOCKERFILE}" -t "${GITLAB_REF}" "${PUBLISH_CONTEXT}"
-      fi
-
-      docker image inspect "${GITLAB_REF}" >/dev/null
-      echo "Saving ${GITLAB_REF} → ${SECURE_IMAGE_TAR}"
-      docker save "${GITLAB_REF}" -o "${SECURE_IMAGE_TAR}"
-      ls -lh "${SECURE_IMAGE_TAR}"
-  artifacts:
-    name: container-build-$CI_COMMIT_SHORT_SHA
-    paths:
-      - $[[ inputs.image_tar ]]
-    expire_in: 6 hours
-    when: on_success
+      # Local tar for Trivy only — never uploaded as a CI artifact (413 on ~500Mi).
+      SCAN_TAR="$(mktemp /tmp/ci-built-image.XXXXXX.tar)"
+      trap 'rm -f "${SCAN_TAR}"' EXIT
+      echo "Saving ${GITLAB_REF} → ${SCAN_TAR} for local Trivy scan"
+      docker save "${GITLAB_REF}" -o "${SCAN_TAR}"
+      ls -lh "${SCAN_TAR}"
+      # Install Trivy into the job container so --input can read the local tar
+      # (docker run -v would mount from the DinD VM, not this job filesystem).
+      TRIVY_VER="${TRIVY_IMAGE##*:}"
+      echo "Installing trivy ${TRIVY_VER}"
+      curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VER#v}/trivy_${TRIVY_VER#v}_Linux-64bit.tar.gz" \
+        | tar -xz -C /usr/local/bin trivy
+      echo "Scanning local image tar (fail on ${TRIVY_FAIL_SEVERITY})"
+      # shellcheck disable=SC2086
+      trivy image \
+        --input "${SCAN_TAR}" \
+        --exit-code 1 \
+        --severity "${TRIVY_FAIL_SEVERITY}" \
+        --ignore-unfixed \
+        --no-progress \
+        --format table \
+        ${TRIVY_EXTRA_ARGS}
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      allow_failure: false
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      allow_failure: true
     - if: $CI_COMMIT_BRANCH
+      allow_failure: false
     - if: $CI_COMMIT_TAG
+      allow_failure: false
 
 container_publish:
   extends: .container_docker_job
   stage: publish
   needs:
     - job: container_build
-      artifacts: true
-    - job: trivy
-      optional: true
+  cache:
+    key: gradle-user-home
+    paths:
+      - .gradle/wrapper/
+      - .gradle/caches/
+    policy: pull
   script:
+    - !reference [.container_build_image, script, 0]
     - |
       set -euo pipefail
-
       gitlab_registry_login() {
         echo "Logging into GitLab registry ${CI_REGISTRY}"
         echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
       }
-
       docker_push_retry() {
         local ref="$1"
         local attempt
@@ -237,12 +264,6 @@ container_publish:
       }
 
       GITLAB_REF="${PUBLISH_IMAGE}:${PUBLISH_TAG}"
-      test -f "${SECURE_IMAGE_TAR}" || { echo "ERROR: missing ${SECURE_IMAGE_TAR} from container_build" >&2; exit 1; }
-
-      echo "Loading built image from ${SECURE_IMAGE_TAR}"
-      docker load -i "${SECURE_IMAGE_TAR}"
-      docker image inspect "${GITLAB_REF}" >/dev/null
-
       echo "Publishing runtime SoT → ${GITLAB_REF}"
       docker_push_retry "${GITLAB_REF}"
 
@@ -297,7 +318,5 @@ container_publish:
         echo "Docker Hub push skipped (set DOCKERHUB_USERNAME + DOCKERHUB_TOKEN to enable)"
       fi
   rules:
-    # Registry publish only from main (default branch). Tags keep versioned
-    # :vX.Y.Z pushes after tag_release (not develop / MR builds).
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
