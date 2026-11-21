@@ -1,25 +1,22 @@
-# Shared secure-image jobs for Maze algo/container repos (GitLab CE).
+# Container security for Maze repos (GitLab CE).
 #
-# Scans the image tarball produced by container_build (no registry pull).
-# Pair with container-publish.gitlab-ci.yml:
+# Trivy now runs inside `container_build` (local docker-save tar, no registry
+# pull, no job artifact upload). This template is kept so existing includes
+# keep working; the standalone `trivy` job is a no-op marker.
 #
-#   include:
-#     - project: 'iac/infrastructure-base'
-#       file: '/ci/templates/container-publish.gitlab-ci.yml'
-#     - project: 'iac/infrastructure-base'
-#       file: '/ci/templates/container-secure.gitlab-ci.yml'
+# Prefer configuring scan knobs on container-publish:
+#   inputs:
+#     trivy_severity: HIGH
+#     trivy_extra_args: '--skip-files "**/cnb/lifecycle/**"'
 #
-# Fail policy: High and Critical (fixed vulns only via --ignore-unfixed).
-# MR / non-default branches: hard fail. Default branch (main): allow_failure so
-# FF release pipelines stay green while still surfacing last-minute findings.
+# Fail policy lives on container_build rules:
+#   MR / non-default branches: hard fail
+#   Default branch (main): allow_failure so FF release pipelines stay green
 
 spec:
   inputs:
-    image_tar:
-      description: Path to docker-save tarball from container_build
-      default: ci-built-image.tar
     severity:
-      description: Minimum severity that fails the pipeline (also always fails Critical)
+      description: Unused (scan severity is configured on container-publish trivy_severity)
       default: HIGH
 
 ---
@@ -27,42 +24,17 @@ spec:
 stages:
   - secure
 
-variables:
-  SECURE_IMAGE_TAR: $[[ inputs.image_tar ]]
-  TRIVY_FAIL_SEVERITY: $[[ inputs.severity ]],CRITICAL
-
 trivy:
   stage: secure
   interruptible: true
   image:
-    name: aquasec/trivy:0.76.2
+    name: alpine:3.24
     entrypoint: [""]
   needs:
     - job: container_build
-      artifacts: true
-  retry:
-    max: 2
-    when:
-      - runner_system_failure
-      - stuck_or_timeout_failure
   script:
-    - |
-      set -euo pipefail
-      test -f "${SECURE_IMAGE_TAR}" || { echo "ERROR: missing ${SECURE_IMAGE_TAR} from container_build" >&2; exit 1; }
-      echo "Scanning local image tar ${SECURE_IMAGE_TAR} (fail on ${TRIVY_FAIL_SEVERITY})"
-      trivy image \
-        --input "${SECURE_IMAGE_TAR}" \
-        --exit-code 1 \
-        --severity "${TRIVY_FAIL_SEVERITY}" \
-        --ignore-unfixed \
-        --no-progress \
-        --format table
+    - echo "Trivy already ran in container_build (local image tar). Nothing to do."
   rules:
-    # Soft on default branch (main): do not block FF release pipelines.
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      allow_failure: true
-    # Hard gate on MRs and other branches (develop, feature).
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      allow_failure: false
-    - when: on_success
-      allow_failure: false
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
