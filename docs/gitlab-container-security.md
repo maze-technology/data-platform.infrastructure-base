@@ -20,42 +20,41 @@ For trading algo images in `registry.scm.*`. Works on **GitLab CE** (no EE featu
 
 Skipped on CE (Premium+). Rely on Promtail/Loki container logs for now.
 
-## Scan on build (fail on High+)
+## Build → scan → publish
 
-### What is a GitLab Runner?
+| Job | When | What |
+|-----|------|------|
+| `container_build` | MR / branch / tag | Build image, `docker save` → `ci-built-image.tar` artifact |
+| `trivy` | after build | Scan that **local tar** (`trivy image --input`) — no registry pull |
+| `container_publish` | **main** (default branch) and **tags** only | `docker load` + push to GitLab registry (Hub optional) |
 
-A **worker** that executes CI jobs (build, Trivy). GitLab itself only *schedules* pipelines; without a runner, jobs stay **pending** forever.
+Develop / feature / MR pipelines build and scan; they do **not** push images.
 
-We install **one** in-cluster GitLab Runner (`install_gitlab_runner = true`, Kubernetes executor, privileged for Docker builds). Token registration uses the modern `glrt-` auth-token workflow (created via Rails after GitLab is up).
+Templates:
 
-### CI template: Trivy
+- [`ci/templates/container-publish.gitlab-ci.yml`](../ci/templates/container-publish.gitlab-ci.yml)
+- [`ci/templates/container-secure.gitlab-ci.yml`](../ci/templates/container-secure.gitlab-ci.yml)
 
-Template: [`ci/templates/container-secure.gitlab-ci.yml`](../ci/templates/container-secure.gitlab-ci.yml)
+Trivy policy:
 
-- `trivy` — fail on High+ (unfixed) and Critical
-- **MR / non-default branches:** hard fail (`allow_failure: false`) — blocks merge when pipelines must succeed
-- **Default branch (`main`):** soft fail (`allow_failure: true`) — still runs and reports, but does not block FF release pipelines from `develop`
+- **MR / non-default branches:** hard fail (`allow_failure: false`)
+- **Default branch (`main`):** soft fail (`allow_failure: true`) — still reports, does not block FF release pipelines
 
 Example `.gitlab-ci.yml`:
 
 ```yaml
-stages: [build, secure]
-
-build:
-  stage: build
-  script:
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+stages: [build, secure, publish]
 
 include:
-  - project: 'platform/ci-templates'   # after you mirror the template there
-    file: '/container-secure.gitlab-ci.yml'
+  - project: 'iac/infrastructure-base'
+    file: '/ci/templates/container-publish.gitlab-ci.yml'
     inputs:
-      image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+      dockerfile: Dockerfile
+      context: .
+  - project: 'iac/infrastructure-base'
+    file: '/ci/templates/container-secure.gitlab-ci.yml'
+    inputs:
       severity: HIGH
-
-variables:
-  SECURE_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
 ```
 
 Image signing / cluster admission (cosign + Kyverno) was removed; keep the bar simple with Trivy in CI.
