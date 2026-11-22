@@ -44,8 +44,9 @@ resource "random_password" "coder_client_secret" {
 }
 
 resource "random_password" "outline_client_secret" {
-  length  = 32
-  special = false
+  # Match live Keycloak/Outline client secret (imported at adopt).
+  length  = 48
+  special = true
 }
 
 resource "random_password" "postgresql_password" {
