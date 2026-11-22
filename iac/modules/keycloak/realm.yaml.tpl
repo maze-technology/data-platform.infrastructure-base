@@ -277,5 +277,36 @@ clients:
           access.token.claim: "true"
           userinfo.token.claim: "true"
 
+  - clientId: outline
+    name: Outline
+    enabled: true
+    clientAuthenticatorType: client-secret
+    secret: ${outline_client_secret}
+    redirectUris:
+      - "${outline_redirect_uri}"
+    webOrigins:
+      - "+"
+    standardFlowEnabled: true
+    directAccessGrantsEnabled: false
+    publicClient: false
+    protocol: openid-connect
+    fullScopeAllowed: true
+    defaultClientScopes:
+      - basic
+      - email
+      - profile
+      - roles
+      - groups
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        config:
+          claim.name: groups
+          full.path: "false"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          userinfo.token.claim: "true"
+
 users:
 ${realm_users_yaml}

@@ -36,6 +36,7 @@ output "client_ids" {
     grafana = "grafana"
     kellnr  = "kellnr"
     coder   = "coder"
+    outline = "outline"
   }
 }
 
@@ -48,6 +49,7 @@ output "client_secrets" {
     grafana = random_password.grafana_client_secret.result
     kellnr  = random_password.kellnr_client_secret.result
     coder   = random_password.coder_client_secret.result
+    outline = random_password.outline_client_secret.result
   }
 }
 
