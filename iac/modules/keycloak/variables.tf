@@ -130,6 +130,7 @@ variable "oidc_clients" {
     grafana_redirect_uri = string
     kellnr_redirect_uri  = string
     coder_redirect_uri   = string
+    outline_redirect_uri = string
   })
 }
 
