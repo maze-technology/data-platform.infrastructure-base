@@ -13,6 +13,8 @@ locals {
     vault     = "vault.${var.cluster_domain}"
     coder     = "coder.${var.cluster_domain}"
     paperclip = "paperclip.${var.cluster_domain}"
+    # Outline wiki hostname is owned by iac/outline; listed here only for Keycloak redirect.
+    wiki = "wiki.${var.cluster_domain}"
     # VPN-only S3 API (CoreDNS → ingress → RGW). Never publish on the public LB.
     s3  = "s3.${var.cluster_domain}"
     vpn = "vpn.${var.cluster_domain}"
@@ -299,7 +301,7 @@ module "cluster_dns" {
   hosts = concat(
     [
       for h in values(local.hosts) : h
-      if h != local.hosts.vpn && (
+      if h != local.hosts.vpn && h != local.hosts.wiki && (
         h != local.hosts.git_ssh || module.gitlab.shell_cluster_ip != ""
         ) && (
         h != local.hosts.paperclip || var.enable_paperclip
@@ -371,6 +373,7 @@ module "keycloak" {
     grafana_redirect_uri = "https://${local.hosts.grafana}/login/generic_oauth"
     kellnr_redirect_uri  = "https://${local.hosts.crates}/api/v1/oauth2/callback"
     coder_redirect_uri   = "https://${local.hosts.coder}/api/v2/users/oidc/callback"
+    outline_redirect_uri = "https://${local.hosts.wiki}/auth/oidc.callback"
   }
 
   # Leave Keycloak's single WEBHOOK_URI free; Kellnr/Coder sync via CronJobs.

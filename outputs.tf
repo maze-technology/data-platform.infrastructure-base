@@ -188,6 +188,17 @@ output "keycloak_issuer_url" {
   value       = module.keycloak.issuer_url
 }
 
+output "keycloak_client_ids" {
+  description = "OIDC client IDs for integrated services"
+  value       = module.keycloak.client_ids
+}
+
+output "keycloak_client_secrets" {
+  description = "OIDC client secrets for integrated services"
+  sensitive   = true
+  value       = module.keycloak.client_secrets
+}
+
 output "tls_cluster_issuer" {
   description = "cert-manager ClusterIssuer name used for ingress TLS"
   value       = module.cert_manager.cluster_issuer_name
