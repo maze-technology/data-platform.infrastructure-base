@@ -131,6 +131,7 @@ variable "oidc_clients" {
     kellnr_redirect_uri  = string
     coder_redirect_uri   = string
     outline_redirect_uri = string
+    teable_redirect_uri  = string
   })
 }
 
