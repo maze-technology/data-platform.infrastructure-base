@@ -1075,6 +1075,22 @@ variable "backup_object_sync_dest_prefix" {
   default     = "rgw-mirror"
 }
 
+variable "backup_object_sync_extra_sources" {
+  description = "Additional RGW buckets to mirror (e.g. Outline attachments from iac/outline)"
+  type = list(object({
+    name                     = string
+    bucket                   = string
+    endpoint                 = string
+    region                   = optional(string, "us-east-1")
+    force_path_style         = optional(bool, true)
+    insecure_skip_tls_verify = optional(bool, false)
+    access_key               = string
+    secret_key               = string
+  }))
+  default   = []
+  sensitive = true
+}
+
 variable "backup_postgres_dump_enabled" {
   description = "Schedule logical pg_dump of in-cluster Postgres (GitLab/Keycloak) to the backup object store"
   type        = bool
