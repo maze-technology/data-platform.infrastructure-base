@@ -859,6 +859,7 @@ locals {
         secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
       },
     ] : [],
+    var.backup_object_sync_extra_sources,
   ) : []
 }
 
