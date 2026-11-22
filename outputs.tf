@@ -28,6 +28,7 @@ output "service_urls" {
     crates       = var.enable_kellnr ? "https://${local.hosts.crates}" : null
     coder        = var.enable_coder ? "https://${local.hosts.coder}" : null
     paperclip    = var.enable_paperclip ? "https://${local.hosts.paperclip}" : null
+    automation   = var.enable_n8n ? "https://${local.hosts.automation}" : null
     grafana      = "https://${local.hosts.grafana}"
     argocd       = "https://${local.hosts.argocd}"
     vault        = "https://${local.hosts.vault}"
@@ -186,6 +187,22 @@ output "teable_postgresql_password" {
 output "teable_postgresql_host" {
   description = "Teable Postgres RW host"
   value       = var.enable_teable ? module.teable[0].postgresql_host : null
+}
+
+output "n8n_url" {
+  description = "n8n automation URL (null when disabled)"
+  value       = var.enable_n8n ? module.n8n[0].url : null
+}
+
+output "n8n_postgresql_password" {
+  description = "n8n Postgres password for backup dumps"
+  sensitive   = true
+  value       = var.enable_n8n ? module.n8n[0].postgresql_password : null
+}
+
+output "n8n_postgresql_host" {
+  description = "n8n Postgres RW host"
+  value       = var.enable_n8n ? module.n8n[0].postgresql_host : null
 }
 
 output "keycloak_postgresql_password" {
