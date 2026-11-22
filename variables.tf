@@ -942,6 +942,42 @@ variable "teable_image" {
   default     = "ghcr.io/teableio/teable:latest"
 }
 
+variable "enable_n8n" {
+  description = "Deploy n8n workflow automation (automation.<domain>, VPN-only). No Keycloak SSO — first visitor creates the owner account."
+  type        = bool
+  default     = false
+}
+
+variable "n8n_storage_class" {
+  description = "StorageClass for n8n Postgres/Valkey/PVC. Empty uses Rook RBD."
+  type        = string
+  default     = ""
+}
+
+variable "n8n_postgresql_storage_size" {
+  description = "n8n CloudNativePG storage size"
+  type        = string
+  default     = "20Gi"
+}
+
+variable "n8n_helm_chart_version" {
+  description = "Official n8n Helm chart version"
+  type        = string
+  default     = "1.20.0"
+}
+
+variable "n8n_worker_replicas" {
+  description = "n8n queue-mode worker replicas"
+  type        = number
+  default     = 1
+}
+
+variable "n8n_enable_mcp" {
+  description = "Enable n8n instance-level MCP access for agents"
+  type        = bool
+  default     = true
+}
+
 variable "s3_force_destroy" {
   description = "Allow OpenTofu to destroy non-empty S3 buckets (local only)"
   type        = bool
@@ -1136,7 +1172,7 @@ variable "backup_object_sync_dest_prefix" {
 }
 
 variable "backup_object_sync_extra_sources" {
-  description = "Additional RGW buckets to mirror (e.g. Outline attachments from iac/outline)"
+  description = "Additional RGW buckets to mirror beyond the built-in sync sources"
   type = list(object({
     name                     = string
     bucket                   = string
