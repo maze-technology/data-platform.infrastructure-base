@@ -882,6 +882,66 @@ variable "paperclip_agent_sandbox_version" {
   default     = "v1.0.1"
 }
 
+variable "enable_outline" {
+  description = "Deploy Outline knowledge base (wiki.<domain>, VPN-only)"
+  type        = bool
+  default     = false
+}
+
+variable "outline_storage_class" {
+  description = "StorageClass for Outline Postgres/Valkey. Empty uses Rook RBD."
+  type        = string
+  default     = ""
+}
+
+variable "outline_postgresql_storage_size" {
+  description = "Outline CloudNativePG storage size"
+  type        = string
+  default     = "20Gi"
+}
+
+variable "outline_bucket_name" {
+  description = "RGW bucket for Outline attachments. Empty defaults to outline-attachments-<env>."
+  type        = string
+  default     = ""
+}
+
+variable "enable_teable" {
+  description = "Deploy Teable databases UI (databases.<domain>, VPN-only)"
+  type        = bool
+  default     = false
+}
+
+variable "teable_storage_class" {
+  description = "StorageClass for Teable Postgres/Valkey. Empty uses Rook RBD."
+  type        = string
+  default     = ""
+}
+
+variable "teable_postgresql_storage_size" {
+  description = "Teable CloudNativePG storage size"
+  type        = string
+  default     = "20Gi"
+}
+
+variable "teable_public_bucket_name" {
+  description = "RGW public bucket for Teable. Empty defaults to teable-public-<env>."
+  type        = string
+  default     = ""
+}
+
+variable "teable_private_bucket_name" {
+  description = "RGW private bucket for Teable. Empty defaults to teable-private-<env>."
+  type        = string
+  default     = ""
+}
+
+variable "teable_image" {
+  description = "Teable app image"
+  type        = string
+  default     = "ghcr.io/teableio/teable:latest"
+}
+
 variable "s3_force_destroy" {
   description = "Allow OpenTofu to destroy non-empty S3 buckets (local only)"
   type        = bool

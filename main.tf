@@ -13,8 +13,8 @@ locals {
     vault     = "vault.${var.cluster_domain}"
     coder     = "coder.${var.cluster_domain}"
     paperclip = "paperclip.${var.cluster_domain}"
-    # Outline wiki hostname is owned by iac/outline; listed here only for Keycloak redirect.
-    wiki = "wiki.${var.cluster_domain}"
+    wiki      = "wiki.${var.cluster_domain}"
+    databases = "databases.${var.cluster_domain}"
     # VPN-only S3 API (CoreDNS → ingress → RGW). Never publish on the public LB.
     s3  = "s3.${var.cluster_domain}"
     vpn = "vpn.${var.cluster_domain}"
@@ -77,6 +77,11 @@ locals {
   coder_storage_class     = var.coder_storage_class != "" ? var.coder_storage_class : local.rook_storage_class
   paperclip_storage_class = var.paperclip_storage_class != "" ? var.paperclip_storage_class : local.rook_storage_class
   paperclip_bucket_name   = var.paperclip_bucket_name != "" ? var.paperclip_bucket_name : "paperclip-storage-${var.environment}"
+  outline_storage_class   = var.outline_storage_class != "" ? var.outline_storage_class : local.rook_storage_class
+  outline_bucket_name     = var.outline_bucket_name != "" ? var.outline_bucket_name : "outline-attachments-${var.environment}"
+  teable_storage_class    = var.teable_storage_class != "" ? var.teable_storage_class : local.rook_storage_class
+  teable_public_bucket    = var.teable_public_bucket_name != "" ? var.teable_public_bucket_name : "teable-public-${var.environment}"
+  teable_private_bucket   = var.teable_private_bucket_name != "" ? var.teable_private_bucket_name : "teable-private-${var.environment}"
 
   # kubernetes provider returns secret data already base64-decoded in .data
   maze_ca_pem = var.create_maze_ca ? try(data.kubernetes_secret.maze_ca[0].data["ca.crt"], "") : ""
@@ -301,7 +306,7 @@ module "cluster_dns" {
   hosts = concat(
     [
       for h in values(local.hosts) : h
-      if h != local.hosts.vpn && h != local.hosts.wiki && (
+      if h != local.hosts.vpn && (
         h != local.hosts.git_ssh || module.gitlab.shell_cluster_ip != ""
         ) && (
         h != local.hosts.paperclip || var.enable_paperclip
@@ -309,6 +314,10 @@ module "cluster_dns" {
         h != local.hosts.coder || var.enable_coder
         ) && (
         h != local.hosts.crates || var.enable_kellnr
+        ) && (
+        h != local.hosts.wiki || var.enable_outline
+        ) && (
+        h != local.hosts.databases || var.enable_teable
       )
     ],
     var.extra_cluster_dns_hosts,
@@ -374,6 +383,7 @@ module "keycloak" {
     kellnr_redirect_uri  = "https://${local.hosts.crates}/api/v1/oauth2/callback"
     coder_redirect_uri   = "https://${local.hosts.coder}/api/v2/users/oidc/callback"
     outline_redirect_uri = "https://${local.hosts.wiki}/auth/oidc.callback"
+    teable_redirect_uri  = "https://${local.hosts.databases}/api/auth/oidc/callback"
   }
 
   # Leave Keycloak's single WEBHOOK_URI free; Kellnr/Coder sync via CronJobs.
@@ -703,6 +713,101 @@ module "paperclip" {
   ]
 }
 
+module "outline" {
+  count  = var.enable_outline ? 1 : 0
+  source = "./iac/modules/outline"
+
+  environment            = var.environment
+  cluster_domain         = var.cluster_domain
+  hostname               = local.hosts.wiki
+  vpn_cidr               = module.wireguard.vpn_subnet
+  restrict_to_vpn        = var.restrict_to_vpn
+  ingress_cluster_issuer = module.cert_manager.cluster_issuer_name
+  postgres_storage_class = local.outline_storage_class
+  valkey_storage_class   = local.outline_storage_class
+  postgres_storage_size  = var.outline_postgresql_storage_size
+  cnpg_operator_ready    = module.cloudnativepg.helm_release_id
+
+  object_storage = {
+    bucket           = aws_s3_bucket.outline_attachments[0].id
+    region           = "us-east-1"
+    endpoint         = "https://${local.hosts.s3}"
+    access_key       = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key       = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style = true
+    acl              = "private"
+  }
+
+  oidc = {
+    client_id     = module.keycloak.client_ids.outline
+    client_secret = module.keycloak.client_secrets.outline
+    auth_uri      = "${module.keycloak.issuer_url}/protocol/openid-connect/auth"
+    token_uri     = "${module.keycloak.issuer_url}/protocol/openid-connect/token"
+    userinfo_uri  = "${module.keycloak.issuer_url}/protocol/openid-connect/userinfo"
+    logout_uri    = "${module.keycloak.issuer_url}/protocol/openid-connect/logout"
+    display_name  = "Maze SSO"
+  }
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.keycloak,
+    module.cert_manager,
+    module.cluster_dns,
+    module.cloudnativepg,
+    aws_s3_bucket.outline_attachments,
+  ]
+}
+
+module "teable" {
+  count  = var.enable_teable ? 1 : 0
+  source = "./iac/modules/teable"
+
+  environment             = var.environment
+  hostname                = local.hosts.databases
+  enable_tls              = true
+  tls_cluster_issuer      = module.cert_manager.cluster_issuer_name
+  vpn_cidr                = module.wireguard.vpn_subnet
+  restrict_to_vpn         = var.restrict_to_vpn
+  storage_class           = local.teable_storage_class
+  postgresql_storage_size = var.teable_postgresql_storage_size
+  cnpg_operator_ready     = module.cloudnativepg.helm_release_id
+  image                   = var.teable_image
+
+  object_storage = {
+    endpoint          = "https://${local.hosts.s3}"
+    internal_endpoint = module.rook_ceph.rgw_endpoint
+    region            = "us-east-1"
+    access_key        = nonsensitive(module.rook_ceph.rgw_access_key)
+    secret_key        = nonsensitive(module.rook_ceph.rgw_secret_key)
+    force_path_style  = true
+    public_bucket     = local.teable_public_bucket
+    private_bucket    = local.teable_private_bucket
+  }
+
+  oidc = {
+    client_id     = module.keycloak.client_ids.teable
+    client_secret = module.keycloak.client_secrets.teable
+    auth_uri      = "${module.keycloak.issuer_url}/protocol/openid-connect/auth"
+    token_uri     = "${module.keycloak.issuer_url}/protocol/openid-connect/token"
+    userinfo_uri  = "${module.keycloak.issuer_url}/protocol/openid-connect/userinfo"
+    issuer        = module.keycloak.issuer_url
+  }
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.keycloak,
+    module.cert_manager,
+    module.cluster_dns,
+    module.cloudnativepg,
+    aws_s3_bucket.teable_public,
+    aws_s3_bucket.teable_private,
+  ]
+}
+
 module "renovate" {
   source = "./iac/modules/renovate"
 
@@ -787,6 +892,101 @@ resource "aws_s3_bucket" "paperclip_storage" {
   depends_on = [module.rgw_bootstrap]
 }
 
+resource "aws_s3_bucket" "outline_attachments" {
+  count = var.enable_outline ? 1 : 0
+
+  provider      = aws.rgw
+  bucket        = local.outline_bucket_name
+  force_destroy = var.s3_force_destroy
+
+  tags = {
+    Name        = local.outline_bucket_name
+    Environment = var.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "outline-attachments"
+  }
+
+  depends_on = [module.rgw_bootstrap]
+}
+
+resource "aws_s3_bucket_versioning" "outline_attachments" {
+  count = var.enable_outline ? 1 : 0
+
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.outline_attachments[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket" "teable_public" {
+  count = var.enable_teable ? 1 : 0
+
+  provider      = aws.rgw
+  bucket        = local.teable_public_bucket
+  force_destroy = var.s3_force_destroy
+
+  tags = {
+    Name        = local.teable_public_bucket
+    Environment = var.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "teable-public"
+  }
+
+  depends_on = [module.rgw_bootstrap]
+}
+
+resource "aws_s3_bucket" "teable_private" {
+  count = var.enable_teable ? 1 : 0
+
+  provider      = aws.rgw
+  bucket        = local.teable_private_bucket
+  force_destroy = var.s3_force_destroy
+
+  tags = {
+    Name        = local.teable_private_bucket
+    Environment = var.environment
+    ManagedBy   = "opentofu"
+    Purpose     = "teable-private"
+  }
+
+  depends_on = [module.rgw_bootstrap]
+}
+
+resource "aws_s3_bucket_versioning" "teable_public" {
+  count = var.enable_teable ? 1 : 0
+
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.teable_public[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "teable_private" {
+  count = var.enable_teable ? 1 : 0
+
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.teable_private[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Teable public bucket: browser-readable avatars/assets (ingress to s3.<domain> remains VPN-only).
+resource "aws_s3_bucket_acl" "teable_public" {
+  count = var.enable_teable ? 1 : 0
+
+  provider = aws.rgw
+  bucket   = aws_s3_bucket.teable_public[0].id
+  acl      = "public-read"
+
+  depends_on = [aws_s3_bucket.teable_public]
+}
+
 resource "aws_s3_bucket_versioning" "loki_logs" {
   provider = aws.rgw
   bucket   = aws_s3_bucket.loki_logs.id
@@ -851,6 +1051,40 @@ locals {
       {
         name                     = "paperclip-storage"
         bucket                   = aws_s3_bucket.paperclip_storage[0].id
+        endpoint                 = module.rook_ceph.rgw_endpoint
+        region                   = "us-east-1"
+        force_path_style         = true
+        insecure_skip_tls_verify = local.backup_rgw_insecure
+        access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+        secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+      },
+    ] : [],
+    var.enable_outline ? [
+      {
+        name                     = "outline-attachments"
+        bucket                   = aws_s3_bucket.outline_attachments[0].id
+        endpoint                 = module.rook_ceph.rgw_endpoint
+        region                   = "us-east-1"
+        force_path_style         = true
+        insecure_skip_tls_verify = local.backup_rgw_insecure
+        access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+        secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+      },
+    ] : [],
+    var.enable_teable ? [
+      {
+        name                     = "teable-public"
+        bucket                   = aws_s3_bucket.teable_public[0].id
+        endpoint                 = module.rook_ceph.rgw_endpoint
+        region                   = "us-east-1"
+        force_path_style         = true
+        insecure_skip_tls_verify = local.backup_rgw_insecure
+        access_key               = data.vault_kv_secret_v2.rgw_credentials.data["access_key"]
+        secret_key               = data.vault_kv_secret_v2.rgw_credentials.data["secret_key"]
+      },
+      {
+        name                     = "teable-private"
+        bucket                   = aws_s3_bucket.teable_private[0].id
         endpoint                 = module.rook_ceph.rgw_endpoint
         region                   = "us-east-1"
         force_path_style         = true
