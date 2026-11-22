@@ -151,6 +151,43 @@ output "paperclip_bucket_name" {
   value       = var.enable_paperclip ? local.paperclip_bucket_name : null
 }
 
+output "outline_url" {
+  description = "Outline wiki URL (null when disabled)"
+  value       = var.enable_outline ? module.outline[0].url : null
+}
+
+output "outline_postgresql_password" {
+  description = "Outline Postgres password for backup dumps"
+  sensitive   = true
+  value       = var.enable_outline ? module.outline[0].postgres_password : null
+}
+
+output "outline_postgresql_host" {
+  description = "Outline Postgres RW host"
+  value       = var.enable_outline ? module.outline[0].postgres_host : null
+}
+
+output "outline_bucket_name" {
+  description = "S3 bucket for Outline attachments"
+  value       = var.enable_outline ? local.outline_bucket_name : null
+}
+
+output "teable_url" {
+  description = "Teable URL (null when disabled)"
+  value       = var.enable_teable ? module.teable[0].url : null
+}
+
+output "teable_postgresql_password" {
+  description = "Teable Postgres password for backup dumps"
+  sensitive   = true
+  value       = var.enable_teable ? module.teable[0].postgresql_password : null
+}
+
+output "teable_postgresql_host" {
+  description = "Teable Postgres RW host"
+  value       = var.enable_teable ? module.teable[0].postgresql_host : null
+}
+
 output "keycloak_postgresql_password" {
   description = "Keycloak Postgres password for backup dumps (in-cluster CNPG only)"
   sensitive   = true

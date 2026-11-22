@@ -37,6 +37,7 @@ output "client_ids" {
     kellnr  = "kellnr"
     coder   = "coder"
     outline = "outline"
+    teable  = "teable"
   }
 }
 
@@ -50,6 +51,7 @@ output "client_secrets" {
     kellnr  = random_password.kellnr_client_secret.result
     coder   = random_password.coder_client_secret.result
     outline = random_password.outline_client_secret.result
+    teable  = random_password.teable_client_secret.result
   }
 }
 
