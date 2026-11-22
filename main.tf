@@ -4,17 +4,18 @@
 
 locals {
   hosts = {
-    auth      = "auth.${var.cluster_domain}"
-    scm       = "scm.${var.cluster_domain}"
-    registry  = "registry.scm.${var.cluster_domain}"
-    crates    = "crates.${var.cluster_domain}"
-    grafana   = "grafana.${var.cluster_domain}"
-    argocd    = "argocd.${var.cluster_domain}"
-    vault     = "vault.${var.cluster_domain}"
-    coder     = "coder.${var.cluster_domain}"
-    paperclip = "paperclip.${var.cluster_domain}"
-    wiki      = "wiki.${var.cluster_domain}"
-    databases = "databases.${var.cluster_domain}"
+    auth       = "auth.${var.cluster_domain}"
+    scm        = "scm.${var.cluster_domain}"
+    registry   = "registry.scm.${var.cluster_domain}"
+    crates     = "crates.${var.cluster_domain}"
+    grafana    = "grafana.${var.cluster_domain}"
+    argocd     = "argocd.${var.cluster_domain}"
+    vault      = "vault.${var.cluster_domain}"
+    coder      = "coder.${var.cluster_domain}"
+    paperclip  = "paperclip.${var.cluster_domain}"
+    wiki       = "wiki.${var.cluster_domain}"
+    databases  = "databases.${var.cluster_domain}"
+    automation = "automation.${var.cluster_domain}"
     # VPN-only S3 API (CoreDNS → ingress → RGW). Never publish on the public LB.
     s3  = "s3.${var.cluster_domain}"
     vpn = "vpn.${var.cluster_domain}"
@@ -82,6 +83,7 @@ locals {
   teable_storage_class    = var.teable_storage_class != "" ? var.teable_storage_class : local.rook_storage_class
   teable_public_bucket    = var.teable_public_bucket_name != "" ? var.teable_public_bucket_name : "teable-public-${var.environment}"
   teable_private_bucket   = var.teable_private_bucket_name != "" ? var.teable_private_bucket_name : "teable-private-${var.environment}"
+  n8n_storage_class       = var.n8n_storage_class != "" ? var.n8n_storage_class : local.rook_storage_class
 
   # kubernetes provider returns secret data already base64-decoded in .data
   maze_ca_pem = var.create_maze_ca ? try(data.kubernetes_secret.maze_ca[0].data["ca.crt"], "") : ""
@@ -318,6 +320,8 @@ module "cluster_dns" {
         h != local.hosts.wiki || var.enable_outline
         ) && (
         h != local.hosts.databases || var.enable_teable
+        ) && (
+        h != local.hosts.automation || var.enable_n8n
       )
     ],
     var.extra_cluster_dns_hosts,
@@ -805,6 +809,33 @@ module "teable" {
     module.cloudnativepg,
     aws_s3_bucket.teable_public,
     aws_s3_bucket.teable_private,
+  ]
+}
+
+module "n8n" {
+  count  = var.enable_n8n ? 1 : 0
+  source = "./iac/modules/n8n"
+
+  environment             = var.environment
+  hostname                = local.hosts.automation
+  enable_tls              = true
+  tls_cluster_issuer      = module.cert_manager.cluster_issuer_name
+  vpn_cidr                = module.wireguard.vpn_subnet
+  restrict_to_vpn         = var.restrict_to_vpn
+  storage_class           = local.n8n_storage_class
+  postgresql_storage_size = var.n8n_postgresql_storage_size
+  cnpg_operator_ready     = module.cloudnativepg.helm_release_id
+  helm_chart_version      = var.n8n_helm_chart_version
+  worker_replicas         = var.n8n_worker_replicas
+  enable_mcp              = var.n8n_enable_mcp
+
+  depends_on = [
+    module.rook_ceph,
+    module.ingress,
+    module.wireguard,
+    module.cert_manager,
+    module.cluster_dns,
+    module.cloudnativepg,
   ]
 }
 
